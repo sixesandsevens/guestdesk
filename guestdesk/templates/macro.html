@@ -1,0 +1,9 @@
+{% macro f12(t) -%}
+  {%- if not t -%}{%- else -%}
+    {%- set h = t.split(':')[0]|int -%}
+    {%- set m = t.split(':')[1]|int -%}
+    {%- set ap = 'AM' if h < 12 else 'PM' -%}
+    {%- set h12 = 12 if h==0 or h==12 else h % 12 -%}
+    {{ h12 }}{%- if m %}{{ ':%02d' % m }}{% endif %} {{ ap }}
+  {%- endif -%}
+{%- endmacro %}
