@@ -1,4 +1,6 @@
 {% extends 'base.html' %}
+{% import '_macros.html' as m %}
+
 {% block content %}
 <h4 class="mb-3">{{ t('services') }}{% if cat %} — {{ cat }}{% endif %}</h4>
 <div class="row g-3">
