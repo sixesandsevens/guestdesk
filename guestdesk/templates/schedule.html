@@ -1,0 +1,22 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">{{ t('schedule') }}</h4>
+<div class="row g-3">
+{% for i in range(7) %}
+  <div class="col-md-6 col-lg-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h6 class="card-title">{{ days[i] }}</h6>
+        <ul class="list-unstyled">
+          {% for svc, slot in matrix[i] %}
+            <li class="mb-2"><strong>{{ svc.name }}</strong> — {{ slot.start or '?' }}–{{ slot.end or '?' }} <span class="text-muted small">({{ svc.location or 'on-site' }})</span> {% if slot.note %}<div class="small text-muted">{{ slot.note }}</div>{% endif %}</li>
+          {% else %}
+            <li class="text-muted">{{ t('no_items') }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

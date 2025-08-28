@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">New Announcement</h4>
+<form method="post">
+  <div class="mb-2">
+    <label class="form-label">Title</label>
+    <input name="title" class="form-control" required>
+  </div>
+  <div class="mb-2">
+    <label class="form-label">Body</label>
+    <textarea name="body" class="form-control" rows="5" required></textarea>
+  </div>
+  <div class="row g-2">
+    <div class="col-md-6">
+      <label class="form-label">Starts</label>
+      <input type="datetime-local" name="starts_at" class="form-control">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Ends (optional)</label>
+      <input type="datetime-local" name="ends_at" class="form-control">
+    </div>
+  </div>
+  <div class="mt-2"><button class="btn btn-primary">Post</button></div>
+</form>
+{% endblock %}

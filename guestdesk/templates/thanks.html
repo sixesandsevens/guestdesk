@@ -1,0 +1,7 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="alert alert-success">
+  {{ t('thanks') }} <strong>#{{ sub.id }}</strong>.
+</div>
+<a class="btn btn-primary" href="{{ url_for('home') }}">Home</a>
+{% endblock %}

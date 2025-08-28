@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtualenv
+venv/
+.venv/
+ENV/
+
+# Local env files / secrets
+.env
+*.env
+.env.*
+
+# Databases & state
+*.db
+*.sqlite
+*.sqlite3
+/var/lib/
+*.db.*
+
+# Bytecode & logs
+*.log
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Build artifacts
+dist/
+build/

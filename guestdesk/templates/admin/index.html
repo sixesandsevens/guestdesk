@@ -1,0 +1,21 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">Admin</h4>
+<div class="row g-3 mb-4">
+  <div class="col-md-4"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_services') }}">Manage Services ({{ svc_count }})</a></div>
+  <div class="col-md-4"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_announcements') }}">Manage Announcements ({{ ann_count }})</a></div>
+  <div class="col-md-4"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_submissions') }}">View Submissions ({{ sub_count }})</a></div>
+</div>
+<h6>Recent Submissions</h6>
+<div class="list-group">
+  {% for s in recents %}
+    <a class="list-group-item list-group-item-action" href="{{ url_for('admin_submission_detail', sid=s.id) }}">
+      <strong>#{{ s.id }} · {{ s.kind }}</strong>
+      <div class="small text-muted">{{ s.created_at|dt }} — {{ s.subject or '' }}</div>
+      <div class="small">{{ s.body[:140] }}{% if s.body|length > 140 %}…{% endif %}</div>
+    </a>
+  {% else %}
+    <div class="text-muted">No submissions yet.</div>
+  {% endfor %}
+</div>
+{% endblock %}

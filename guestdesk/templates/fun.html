@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">{{ t('fun_zone') }}</h4>
+<div class="row g-3">
+  <div class="col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <h6>Joke</h6>
+      <p>{{ joke }}</p>
+    </div></div>
+  </div>
+  <div class="col-md-6">
+    <div class="card h-100"><div class="card-body">
+      <h6>Quote</h6>
+      <p>{{ quote }}</p>
+    </div></div>
+  </div>
+  <div class="col-md-12">
+    <div class="card"><div class="card-body">
+      <h6>Trivia</h6>
+      <p class="mb-1"><strong>Q:</strong> {{ trivia_q }}</p>
+      <details><summary>Show answer</summary><p class="mt-2"><strong>A:</strong> {{ trivia_a }}</p></details>
+    </div></div>
+  </div>
+</div>
+{% endblock %}

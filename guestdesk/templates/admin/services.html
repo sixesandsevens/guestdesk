@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Services</h4>
+  <a class="btn btn-primary" href="{{ url_for('admin_services_new') }}">New Service</a>
+</div>
+<div class="table-responsive">
+<table class="table table-striped table-sm align-middle">
+  <thead><tr><th>Name</th><th>Category</th><th>Location</th><th>Contact</th><th>Schedule</th><th></th></tr></thead>
+  <tbody>
+    {% for s in rows %}
+    <tr>
+      <td><a href="{{ url_for('service_detail', sid=s.id) }}">{{ s.name }}</a></td>
+      <td>{{ s.category }}</td>
+      <td>{{ s.location }}</td>
+      <td>{{ s.contact }}</td>
+      <td><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_slots', sid=s.id) }}">Slots</a></td>
+      <td>
+        <form method="post" action="{{ url_for('admin_services_delete', sid=s.id) }}" onsubmit="return confirm('Delete this service?')">
+          <button class="btn btn-sm btn-outline-danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% else %}
+    <tr><td colspan="6" class="text-muted">No services yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

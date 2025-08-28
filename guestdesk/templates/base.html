@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}GuestDesk{% endblock %}</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;600;700&family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="{{ url_for('static', filename='grace-theme.css') }}" rel="stylesheet">
+  <link rel="icon" href="{{ url_for('static', filename='img/favicon.png') }}" type="image/png">
+  {% block head %}{% endblock %}
+</head>
+<body>
+  <div class="topbar py-1">
+    <div class="container d-flex flex-wrap justify-content-between align-items-center small">
+      <div class="d-flex align-items-center gap-3">
+        <strong>GRACE Marketplace</strong>
+        <span>352-792-0800</span>
+        <span>3055 NE 28th Drive, Gainesville, FL</span>
+        <a class="ms-2" href="https://www.gracemarketplace.org/contact" target="_blank" rel="noopener">Contact</a>
+      </div>
+      <div>
+        <a class="me-3" href="/">Get Help</a>
+        <a class="me-3" href="/services">Services</a>
+        <a class="me-3" href="/announcements">Announcements</a>
+        <a class="" href="/report">Report an Issue</a>
+      </div>
+    </div>
+  </div>
+
+  <nav class="navbar navbar-expand-lg">
+    <div class="container">
+      <a class="navbar-brand d-flex align-items-center" href="/">
+        <picture>
+          <source type="image/avif" srcset="{{ url_for('static', filename='img/brand/logo-mission.avif') }}">
+          <img class="header-logo" src="{{ url_for('static', filename='img/brand/logo-mission.png') }}" alt="GRACE Marketplace">
+        </picture>
+        <span class="ms-2 fw-bold">GuestDesk</span>
+      </a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navMain" aria-controls="navMain" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navMain">
+        <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
+          <li class="nav-item"><a class="nav-link" href="/services">Directory</a></li>
+          <li class="nav-item"><a class="nav-link" href="/schedule">Schedule</a></li>
+          <li class="nav-item"><a class="nav-link" href="/report">Report</a></li>
+          <li class="nav-item"><a class="nav-link" href="/fun">Fun Zone</a></li>
+          <li class="nav-item"><a class="nav-link" href="/login">Staff</a></li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  {% if get_flashed_messages() %}
+  <div class="container mt-3">
+    {% for m in get_flashed_messages() %}
+      <div class="alert alert-info">{{ m }}</div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% block header %}{% endblock %}
+
+  <main class="py-4">
+    <div class="container">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <footer class="site-footer mt-auto">
+    <div class="container">
+      <div class="row g-4 align-items-center">
+        <div class="col-md-6">
+          <div class="d-flex align-items-center gap-3 mb-2">
+            <picture>
+              <source type="image/avif" srcset="{{ url_for('static', filename='img/brand/logo-black.avif') }}">
+              <img class="logo logo-white" src="{{ url_for('static', filename='img/brand/logo-black.png') }}" alt="GRACE Marketplace">
+            </picture>
+            <h5 class="mb-0">We're on a mission to END HOMELESSNESS</h5>
+          </div>
+          <p class="mb-2">We remove barriers and provide safe shelter, effective services, and permanent housing solutions.</p>
+          <div class="small opacity-75">Open 7a–7p · 7 days a week · 365 days a year</div>
+        </div>
+        <div class="col-md-6">
+          <div class="row">
+            <div class="col-sm-6">
+              <div class="fw-semibold">Visit</div>
+              <div>3055 NE 28th Drive<br>Gainesville, FL 32609</div>
+            </div>
+            <div class="col-sm-6">
+              <div class="fw-semibold">Contact</div>
+              <div>352-792-0800<br><a href="mailto:hello@gracemarketplace.org">hello@gracemarketplace.org</a></div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <hr class="mt-4" />
+      <div class="d-flex justify-content-between align-items-center pb-3 small">
+        <div>&copy; 2025 GRACE Marketplace • Alachua County Coalition for the Homeless and Hungry (ACCHH)</div>
+        <div><a href="https://www.gracemarketplace.org" target="_blank" rel="noopener">gracemarketplace.org</a></div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

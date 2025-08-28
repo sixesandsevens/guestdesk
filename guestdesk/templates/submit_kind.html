@@ -1,0 +1,51 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3 text-capitalize">{{ kind }}</h4>
+<form method="post">
+  <div class="mb-2">
+    <label class="form-label">Subject</label>
+    <input name="subject" class="form-control" value="{{ form.subject or '' }}">
+  </div>
+
+  {% if kind == 'maintenance' %}
+  <div class="row g-2">
+    <div class="col-md-4">
+      <label class="form-label">Category</label>
+      <select name="category" class="form-select">
+        {% for c in ['Electrical','Plumbing','HVAC','IT','General','Other'] %}
+          <option value="{{ c }}">{{ c }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Building</label>
+      <input name="building" class="form-control">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Location / Room</label>
+      <input name="location" class="form-control">
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="mb-2">
+    <label class="form-label">Details *</label>
+    <textarea name="body" class="form-control" rows="6" required>{{ form.body or '' }}</textarea>
+  </div>
+
+  <div class="row g-2">
+    <div class="col-md-6">
+      <label class="form-label">Your Name (optional)</label>
+      <input name="contact_name" class="form-control" value="{{ form.contact_name or '' }}">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Contact (optional)</label>
+      <input name="contact_info" class="form-control" placeholder="phone or email" value="{{ form.contact_info or '' }}">
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <button class="btn btn-primary">{{ t('submit') }}</button>
+  </div>
+</form>
+{% endblock %}

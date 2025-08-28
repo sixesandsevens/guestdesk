@@ -1,0 +1,69 @@
+/* === GRACE brand tokens === */
+:root{
+  --gr-teal:#087e77;      /* primary */
+  --gr-green:#b5d434;     /* accent */
+  --gr-purple:#2d013d;    /* highlight */
+  --gr-gray:#737371;      /* neutral */
+  --gr-mteal:#B0D6D4;
+  --gr-mgreen:#EBF3C9;
+  --gr-mpurple:#BAABBF;
+  --gr-mgray:#B9B9B8;
+}
+
+html,body{font-family:"Montserrat",system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;color:#111;}
+
+/* Headings follow brand: Oswald */
+h1,h2,h3,h4,.display-1,.display-2{font-family:"Oswald","Montserrat",system-ui;letter-spacing:.02em}
+h1{font-weight:700} h2,h3{font-weight:600}
+
+a{color:var(--gr-teal);text-decoration:none}
+a:hover{color:#05564f;text-decoration:underline}
+
+/* Top bar / nav */
+.topbar{background:var(--gr-purple);color:#fff;font-size:.95rem}
+.topbar a{color:#fff;text-decoration:underline}
+.navbar{background:#fff;border-bottom:1px solid #e8e8e8}
+.navbar-brand img{height:44px}
+.nav-link{font-weight:600;color:#111}
+.nav-link:hover{color:var(--gr-teal)}
+
+/* Sections & cards */
+.section-header{background:var(--gr-mteal);padding:1rem 0;border-bottom:1px solid #d6ecea}
+.card{border:1px solid #eaeaea;box-shadow:0 2px 10px rgba(0,0,0,.05);border-radius:14px}
+.card-header{background:linear-gradient(0deg,#fff,#fbfbfb);border-bottom:1px solid #eee;font-weight:600}
+.list-group-item{border-color:#ececec}
+
+/* Forms & buttons */
+.form-label{font-weight:600;color:#22364a}
+.form-control,.form-select{border-radius:10px;border-color:#dbe6e4}
+.form-control:focus,.form-select:focus{border-color:var(--gr-teal);box-shadow:0 0 0 .18rem rgba(8,126,119,.15)}
+
+.btn{border-radius:12px}
+.btn-primary{
+  --bs-btn-bg:var(--gr-teal);--bs-btn-border-color:var(--gr-teal);
+  --bs-btn-hover-bg:#066b63;--bs-btn-hover-border-color:#066b63;
+  --bs-btn-active-bg:#05564f;--bs-btn-active-border-color:#05564f;
+}
+.btn-outline-primary{
+  --bs-btn-color:var(--gr-purple);--bs-btn-border-color:var(--gr-purple);
+  --bs-btn-hover-bg:var(--gr-purple);--bs-btn-hover-border-color:var(--gr-purple);
+  --bs-btn-hover-color:#fff;
+}
+
+/* Badges */
+.badge.bg-primary{background-color:var(--gr-teal)!important}
+.badge.bg-secondary{background-color:var(--gr-gray)!important}
+
+/* Footer */
+.site-footer{background:var(--gr-purple);color:#fff;padding-top:2rem}
+.site-footer a{color:#EBF3C9}
+.site-footer .logo{height:56px}
+
+/* Utility */
+.kicker{text-transform:uppercase;letter-spacing:.08em;font-weight:700;color:var(--gr-green);font-size:.9rem}
+.muted{color:#6b7a89}
+
+/* --- logo helpers --- */
+.logo { height: 56px; }
+.logo-white { filter: invert(1) brightness(2) contrast(1.1); }
+.header-logo { height: 44px; }

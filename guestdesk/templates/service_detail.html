@@ -1,0 +1,19 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-2">{{ s.name }}</h4>
+<div class="text-muted mb-3">{{ s.category }} · {{ s.location or '' }} · {{ s.contact or '' }}</div>
+<p>{{ s.description }}</p>
+{% if s.external_link %}<p><a href="{{ s.external_link }}" target="_blank" rel="noopener">Learn more</a></p>{% endif %}
+
+<h6>Weekly Times</h6>
+<table class="table table-sm w-auto">
+  <thead><tr><th>Day</th><th>Start</th><th>End</th><th>Note</th></tr></thead>
+  <tbody>
+  {% for slot in s.slots %}
+    <tr><td>{{ days[slot.dow] }}</td><td>{{ slot.start or '' }}</td><td>{{ slot.end or '' }}</td><td>{{ slot.note or '' }}</td></tr>
+  {% else %}
+    <tr><td colspan="4" class="text-muted">No times posted.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

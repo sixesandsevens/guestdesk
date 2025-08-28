@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">{{ t('announcements') }}</h4>
+<div class="list-group">
+  {% for a in anns %}
+  <div class="list-group-item">
+    <div class="d-flex justify-content-between">
+      <strong>{{ a.title }}</strong>
+      <span class="small text-muted">{{ a.starts_at|dt }}</span>
+    </div>
+    <div>{{ a.body }}</div>
+  </div>
+  {% else %}
+  <div class="text-muted">{{ t('no_items') }}</div>
+  {% endfor %}
+</div>
+{% endblock %}

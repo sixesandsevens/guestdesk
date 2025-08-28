@@ -1,0 +1,16 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-2">Submission #{{ s.id }} — {{ s.kind }}</h4>
+<div class="card mb-3">
+  <div class="card-body">
+    <div class="mb-2"><strong>Subject:</strong> {{ s.subject or '—' }}</div>
+    <div class="mb-2"><strong>Details:</strong><br>{{ s.body }}</div>
+    {% if s.kind == 'maintenance' %}
+    <div class="mb-2"><strong>Category/Location:</strong> {{ s.category or '—' }} · {{ s.building or '—' }} {{ s.location or '' }}</div>
+    {% endif %}
+    <div class="mb-2"><strong>Contact:</strong> {{ s.contact_name or 'anonymous' }} ({{ s.contact_info or '—' }})</div>
+    <div class="small text-muted">{{ s.created_at|dt }}</div>
+  </div>
+</div>
+<a class="btn btn-secondary" href="{{ url_for('admin_submissions') }}">Back</a>
+{% endblock %}

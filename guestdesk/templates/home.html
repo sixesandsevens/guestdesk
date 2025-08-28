@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="row g-3 mb-4">
+  <div class="col-12">
+    <h4 class="mb-2">{{ t('welcome') }}</h4>
+  </div>
+  <div class="col-6 col-md-4 col-lg-3">
+    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('services') }}">{{ t('services') }}</a>
+  </div>
+  <div class="col-6 col-md-4 col-lg-3">
+    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('schedule') }}">{{ t('schedule') }}</a>
+  </div>
+  <div class="col-6 col-md-4 col-lg-3">
+    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('announcements') }}">{{ t('announcements') }}</a>
+  </div>
+  <div class="col-6 col-md-4 col-lg-3">
+    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('report') }}">{{ t('report_issue') }}</a>
+  </div>
+  <div class="col-6 col-md-4 col-lg-3">
+    <a class="btn btn-success w-100 bigbtn" href="{{ url_for('fun') }}">{{ t('fun_zone') }}</a>
+  </div>
+</div>
+
+<h5 class="mb-2">{{ t('announcements') }}</h5>
+<div class="list-group">
+  {% for a in anns %}
+    <div class="list-group-item">
+      <div class="d-flex justify-content-between">
+        <strong>{{ a.title }}</strong>
+        <span class="small text-muted">{{ a.starts_at|dt }}</span>
+      </div>
+      <div>{{ a.body }}</div>
+    </div>
+  {% else %}
+    <div class="text-muted">{{ t('no_items') }}</div>
+  {% endfor %}
+</div>
+
+<h5 class="mt-4">{{ t('services') }}</h5>
+<div class="row g-2">
+  {% for c in cats %}
+    <div class="col-6 col-md-3 col-lg-2">
+      <a class="btn btn-outline-secondary w-100" href="{{ url_for('services', cat=c) }}">{{ c }} ({{ counts[c] }})</a>
+    </div>
+  {% endfor %}
+</div>
+{% endblock %}

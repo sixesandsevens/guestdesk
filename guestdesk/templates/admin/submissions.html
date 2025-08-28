@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">Submissions</h4>
+<form class="row g-2 align-items-end mb-3" method="get">
+  <div class="col-md-4">
+    <label class="form-label">Type</label>
+    <select name="kind" class="form-select">
+      <option value="">(any)</option>
+      {% for k in ['maintenance','grievance','suggestion','question'] %}
+      <option value="{{ k }}" {% if kind==k %}selected{% endif %}>{{ k }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-secondary">Filter</button>
+  </div>
+</form>
+<div class="list-group">
+  {% for s in rows %}
+  <a class="list-group-item list-group-item-action" href="{{ url_for('admin_submission_detail', sid=s.id) }}">
+    <div class="d-flex justify-content-between">
+      <strong>#{{ s.id }} · {{ s.kind }}</strong>
+      <span class="small text-muted">{{ s.created_at|dt }}</span>
+    </div>
+    <div class="small text-muted">{{ s.contact_name or 'anonymous' }} · {{ s.building or '' }} {{ s.location or '' }}</div>
+    <div>{{ s.subject or '' }}</div>
+  </a>
+  {% else %}
+  <div class="text-muted">No submissions yet.</div>
+  {% endfor %}
+</div>
+{% endblock %}

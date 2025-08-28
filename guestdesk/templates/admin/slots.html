@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">Slots — {{ s.name }}</h4>
+<form method="post" class="card card-body mb-3">
+  <div class="row g-2">
+    <div class="col-md-2">
+      <label class="form-label">Day</label>
+      <select name="dow" class="form-select">
+        <option value="0">Mon</option><option value="1">Tue</option><option value="2">Wed</option>
+        <option value="3">Thu</option><option value="4">Fri</option><option value="5">Sat</option><option value="6">Sun</option>
+      </select>
+    </div>
+    <div class="col-md-2"><label class="form-label">Start</label><input name="start" class="form-control" placeholder="09:00"></div>
+    <div class="col-md-2"><label class="form-label">End</label><input name="end" class="form-control" placeholder="11:00"></div>
+    <div class="col-md-6"><label class="form-label">Note</label><input name="note" class="form-control"></div>
+  </div>
+  <div class="mt-2"><button class="btn btn-primary">Add Slot</button></div>
+</form>
+
+<table class="table table-sm align-middle">
+  <thead><tr><th>Day</th><th>Start</th><th>End</th><th>Note</th><th></th></tr></thead>
+  <tbody>
+    {% for sl in s.slots %}
+      <tr>
+        <td>{{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][sl.dow] }}</td>
+        <td>{{ sl.start }}</td>
+        <td>{{ sl.end }}</td>
+        <td>{{ sl.note }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_slot_delete', slot_id=sl.id) }}" onsubmit="return confirm('Delete this slot?')">
+            <button class="btn btn-sm btn-outline-danger">Delete</button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="text-muted">No slots yet.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
