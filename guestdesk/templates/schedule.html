@@ -9,7 +9,7 @@
         <h6 class="card-title">{{ days[i] }}</h6>
         <ul class="list-unstyled">
           {% for svc, slot in matrix[i] %}
-            <li class="mb-2"><strong>{{ svc.name }}</strong> — {{ slot.start or '?' }}–{{ slot.end or '?' }} <span class="text-muted small">({{ svc.location or 'on-site' }})</span> {% if slot.note %}<div class="small text-muted">{{ slot.note }}</div>{% endif %}</li>
+            <li class="mb-2"><strong>{{ svc.name }}</strong> — {{ slot.start|h12 or '?' }}–{{ slot.end|h12 or '?' }} <span class="text-muted small">({{ svc.location or 'on-site' }})</span> {% if slot.note %}<div class="small text-muted">{{ slot.note }}</div>{% endif %}</li>
           {% else %}
             <li class="text-muted">{{ t('no_items') }}</li>
           {% endfor %}

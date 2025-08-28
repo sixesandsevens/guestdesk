@@ -10,7 +10,12 @@
   <thead><tr><th>Day</th><th>Start</th><th>End</th><th>Note</th></tr></thead>
   <tbody>
   {% for slot in s.slots %}
-    <tr><td>{{ days[slot.dow] }}</td><td>{{ slot.start or '' }}</td><td>{{ slot.end or '' }}</td><td>{{ slot.note or '' }}</td></tr>
+    <tr>
+      <td>{{ days[slot.dow] }}</td>
+      <td>{{ slot.start|h12 or '' }}</td>
+      <td>{{ slot.end|h12 or '' }}</td>
+      <td>{{ slot.note or '' }}</td>
+    </tr>
   {% else %}
     <tr><td colspan="4" class="text-muted">No times posted.</td></tr>
   {% endfor %}

@@ -63,6 +63,21 @@ def t(key):
 
 def create_app():
     app = Flask(__name__)
+     # --- Jinja filter: "HH:MM" (24h) -> "h:MM AM/PM"
+    def h12(t: str) -> str:
+        if not t:
+            return ""
+        try:
+            parts = (t or "").split(":")
+            h = int(parts[0]); m = int(parts[1])
+            ap = "AM" if h < 12 else "PM"
+            h = (h % 12) or 12
+            return f"{h}:{m:02d} {ap}"
+        except Exception:
+            # If the value isn't HH:MM, just show it as-is
+            return t
+
+    app.jinja_env.filters["h12"] = h12
     app.config['SECRET_KEY'] = SECRET_KEY
     os.makedirs(DATA_DIR, exist_ok=True)
     db_path = os.path.join(DATA_DIR, "guestdesk.db")
