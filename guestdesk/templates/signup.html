@@ -6,20 +6,20 @@
   <div class="col-md-6 col-lg-4">
     <div class="card">
       <div class="card-body">
-        <h5 class="card-title">{{ t('staff_login') }}</h5>
+        <h5 class="card-title">Sign Up</h5>
         <form method="post">
           <div class="mb-2">
-            <label class="form-label">Display name</label>
-            <input class="form-control" name="username" placeholder="Username">
+            <label class="form-label">Username</label>
+            <input class="form-control" name="username" placeholder="Username" value="{{ form.username|default('') }}">
           </div>
           <div class="mb-3">
             <label class="form-label">Password</label>
             <input class="form-control" type="password" name="password" placeholder="Password">
           </div>
-          <button class="btn btn-primary w-100">Login</button>
+          <button class="btn btn-primary w-100">Sign Up</button>
         </form>
         <div class="mt-2 text-center">
-          <a href="{{ url_for('signup') }}">Need an account? Sign up</a>
+          <a href="{{ url_for('login') }}">Already have an account? Log in</a>
         </div>
       </div>
     </div>
