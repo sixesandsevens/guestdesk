@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 from datetime import datetime
 from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g
-from sqlalchemy import create_engine, func
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -353,21 +353,17 @@ def create_app():
         session.clear()
         return redirect(url_for('home'))
 
+    # --- Admin landing ---
     @app.route('/admin')
-    @login_required
-    def admin():
-        db = dbs()
-        svc_count = db.query(func.count(Service.id)).scalar() or 0
-        sub_count = db.query(func.count(Submission.id)).scalar() or 0
-        ann_count = db.query(func.count(Announcement.id)).scalar() or 0
-        recents = db.query(Submission).order_by(Submission.created_at.desc()).limit(10).all()
-        return render_template(
-            'admin/index.html',
-            svc_count=svc_count,
-            sub_count=sub_count,
-            ann_count=ann_count,
-            recents=recents,
-        )
+    def admin_index():
+        # already logged-in staff/admin?
+        if session.get('is_admin') or session.get('role') in ('admin', 'editor'):
+            return redirect('/admin/services')
+        # logged in but not staff/admin -> forbidden (or change to homepage if you prefer)
+        if session.get('user_id'):
+            return abort(403)
+        # not logged in -> go log in and come back
+        return redirect(url_for('login', next='/admin'))
 
     # --- manage services ---
     @app.route('/admin/services')
