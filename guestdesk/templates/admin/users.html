@@ -1,24 +1,51 @@
 {% extends 'base.html' %}
 {% block content %}
 <h4 class="mb-3">Users</h4>
-<p><a class="btn btn-sm btn-primary" href="{{ url_for('admin_users_new') }}">New User</a></p>
-<table class="table table-sm">
-  <thead><tr><th>Username</th><th>Role</th><th>Created</th><th></th></tr></thead>
+<p>
+  <a class="btn btn-sm btn-primary" href="{{ url_for('admin_users_new') }}">New User</a>
+</p>
+<div class="table-responsive">
+<table class="table table-sm align-middle">
+  <thead>
+    <tr><th>Username</th><th>Role</th><th>Approved</th><th>Created</th><th class="text-end">Actions</th></tr>
+  </thead>
   <tbody>
   {% for u in users %}
     <tr>
       <td>{{ u.username }}</td>
       <td>{{ u.role }}</td>
-      <td>{{ (u.created_at.strftime('%Y-%m-%d') if u.created_at else '') }}</td>
       <td>
-        <form method="post" action="{{ url_for('admin_users_delete', uid=u.id) }}" onsubmit="return confirm('Delete user {{u.username}}?');">
-          <button class="btn btn-sm btn-outline-danger">Delete</button>
-        </form>
+        {% if (u.approved | default(true)) %}
+          <span class="badge text-bg-success">approved</span>
+        {% else %}
+          <span class="badge text-bg-warning">pending</span>
+        {% endif %}
+      </td>
+      <td>{{ (u.created_at.strftime('%Y-%m-%d') if u.created_at else '') }}</td>
+      <td class="text-end">
+        <div class="d-flex justify-content-end gap-2">
+          <form class="d-flex gap-2" method="post" action="{{ url_for('admin_users_update', uid=u.id) }}">
+            <select class="form-select form-select-sm w-auto" name="role">
+              <option value="viewer" {% if u.role=='viewer' %}selected{% endif %}>viewer</option>
+              <option value="editor" {% if u.role=='editor' %}selected{% endif %}>editor</option>
+              <option value="admin"  {% if u.role=='admin' %}selected{% endif %}>admin</option>
+            </select>
+            <select class="form-select form-select-sm w-auto" name="approved">
+              <option value="1" {% if (u.approved | default(true)) %}selected{% endif %}>approved</option>
+              <option value="0" {% if not (u.approved | default(true)) %}selected{% endif %}>pending</option>
+            </select>
+            <button class="btn btn-sm btn-outline-primary">Update</button>
+          </form>
+          <form method="post" action="{{ url_for('admin_users_delete', uid=u.id) }}" onsubmit="return confirm('Delete user {{u.username}}?');">
+            <button class="btn btn-sm btn-outline-danger">Delete</button>
+          </form>
+        </div>
       </td>
     </tr>
   {% else %}
-    <tr><td colspan="4" class="text-muted">No users yet.</td></tr>
+    <tr><td colspan="5" class="text-muted">No users yet.</td></tr>
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% endblock %}

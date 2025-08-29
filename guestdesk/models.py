@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
 
 
 
@@ -59,3 +59,4 @@ class User(Base):
     password_hash = Column(String(256), nullable=False)
     role = Column(String(16), nullable=False, default="viewer")  # viewer|editor|admin
     created_at = Column(DateTime, default=datetime.utcnow)
+    approved = Column(Boolean, nullable=False, default=True)

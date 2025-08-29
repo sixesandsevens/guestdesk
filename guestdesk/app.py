@@ -1,6 +1,9 @@
 from __future__ import annotations
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
+import json
+import html as htmlmod
+from urllib import request as urlreq, error as urlerr
 from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
@@ -93,6 +96,16 @@ def create_app():
     Session = scoped_session(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False))
 
     def dbs(): return Session()
+
+    # --- lightweight migration: ensure users.approved exists ---
+    try:
+        with engine.connect() as conn:
+            cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(users)').all()]
+            if 'approved' not in cols:
+                conn.exec_driver_sql('ALTER TABLE users ADD COLUMN approved INTEGER NOT NULL DEFAULT 1')
+    except Exception:
+        # Best-effort; app can still run without this if table doesn't exist yet
+        pass
 
     # --- user/session helpers (safe no-op if no User model exists) ---
     def load_user():
@@ -228,12 +241,94 @@ def create_app():
         ("Which planet is known as the Red Planet?", "Mars"),
     ]
 
+    # Simple in-memory cache for Fun Zone content
+    FUN_CACHE_TTL = timedelta(minutes=5)
+    fun_cache = {
+        "at": None,
+        "live": False,
+        "joke": None, "joke_live": False,
+        "quote": None, "quote_live": False,
+        "trivia_q": None, "trivia_a": None, "trivia_live": False,
+    }
+
     @app.route('/fun')
     def fun():
         import random
-        joke = random.choice(OFFLINE_JOKES)
-        quote = random.choice(OFFLINE_QUOTES)
-        trivia_q, trivia_a = random.choice(OFFLINE_TRIVIA)
+        # Serve cached live pieces; retry fetching for anything not live or stale
+        now = datetime.utcnow()
+        fresh = fun_cache["at"] and (now - fun_cache["at"]) < FUN_CACHE_TTL
+        joke = fun_cache["joke"] if (fresh and fun_cache.get("joke_live")) else None
+        quote = fun_cache["quote"] if (fresh and fun_cache.get("quote_live")) else None
+        trivia_q = fun_cache["trivia_q"] if (fresh and fun_cache.get("trivia_live")) else None
+        trivia_a = fun_cache["trivia_a"] if (fresh and fun_cache.get("trivia_live")) else None
+        # Try live sources first with short timeouts; fall back to offline lists.
+        # Keep track of what we fetch live during this request
+        joke_live = False
+        quote_live = False
+        trivia_live = False
+
+        # Track which items came from live sources
+        # Joke: Official Joke API
+        if joke is None:
+            try:
+                with urlreq.urlopen('https://official-joke-api.appspot.com/random_joke', timeout=1.5) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    setup = (data.get('setup') or '').strip()
+                    punch = (data.get('punchline') or '').strip()
+                    if setup or punch:
+                        joke = f"{setup} {'— ' if setup and punch else ''}{punch}".strip()
+                        joke_live = True
+            except Exception:
+                pass
+
+        # Quote: Quotable API
+        if quote is None:
+            try:
+                with urlreq.urlopen('https://api.quotable.io/random', timeout=1.5) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    content = (data.get('content') or '').strip()
+                    author = (data.get('author') or '').strip()
+                    if content:
+                        quote = f"{content}"
+                        if author:
+                            quote += f" — {author}"
+                        quote_live = True
+            except Exception:
+                pass
+
+        # Trivia: Open Trivia DB
+        if trivia_q is None or trivia_a is None:
+            try:
+                with urlreq.urlopen('https://opentdb.com/api.php?amount=1&type=multiple', timeout=1.5) as resp:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    results = data.get('results') or []
+                    if results:
+                        q = htmlmod.unescape(results[0].get('question') or '')
+                        a = htmlmod.unescape(results[0].get('correct_answer') or '')
+                        if q and a:
+                            trivia_q, trivia_a = q, a
+                            trivia_live = True
+            except Exception:
+                pass
+
+        # Fallbacks
+        if not joke:
+            joke = random.choice(OFFLINE_JOKES)
+        if not quote:
+            quote = random.choice(OFFLINE_QUOTES)
+        if not (trivia_q and trivia_a):
+            trivia_q, trivia_a = random.choice(OFFLINE_TRIVIA)
+
+        # Update cache; only mark fresh if any live content fetched
+        any_live = joke_live or quote_live or trivia_live
+        fun_cache.update({
+            "at": (now if any_live else fun_cache.get("at")),
+            "live": any_live or fun_cache.get("live", False),
+            "joke": joke, "joke_live": joke_live or fun_cache.get("joke_live", False),
+            "quote": quote, "quote_live": quote_live or fun_cache.get("quote_live", False),
+            "trivia_q": trivia_q, "trivia_a": trivia_a, "trivia_live": trivia_live or fun_cache.get("trivia_live", False),
+        })
+
         return render_template('fun.html', joke=joke, quote=quote, trivia_q=trivia_q, trivia_a=trivia_a)
 
     # ----- Staff auth & admin -----
@@ -277,6 +372,7 @@ def create_app():
                 username='admin',
                 role='admin',
                 password_hash=generate_password_hash(DEFAULT_ADMIN_PASSWORD),
+                approved=True,
             )
             db.add(admin)
             db.commit()
@@ -297,21 +393,26 @@ def create_app():
                 username=username,
                 role='viewer',
                 password_hash=generate_password_hash(password),
+                approved=False,
             )
             db.add(u)
             db.commit()
-            flash('Account created. Please log in.', 'success')
-            return redirect(url_for('login'))
+            flash('Account created. Awaiting staff approval before login.', 'success')
+            return redirect(url_for('home'))
         return render_template('signup.html', form={})
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
-        next_url = request.args.get('next') or url_for('admin_index')
+        # Carry next from query or form so POST preserves it; default to home
+        next_url = request.args.get('next') or request.form.get('next') or url_for('home')
         if request.method == 'POST':
             username = (request.form.get('username') or '').strip()
             password = request.form.get('password') or ''
             db = dbs()
             u = db.query(User).filter(User.username == username).first()
+            if u and not getattr(u, 'approved', True):
+                flash('Account pending approval. Please contact an administrator.', 'warning')
+                return render_template('login.html')
             if u and check_password_hash(u.password_hash, password):
                 session['user_id'] = u.id
                 session['username'] = u.username
@@ -329,12 +430,18 @@ def create_app():
     # --- Admin landing ---
     @app.route('/admin')
     def admin_index():
-        # already logged-in staff/admin?
+        # Admin/editor dashboard
         if session.get('is_admin') or session.get('role') in ('admin', 'editor'):
-            return redirect(url_for('admin_services'))
-        # logged in but not staff/admin -> forbidden (or change to homepage if you prefer)
+            db = dbs()
+            svc_count = db.query(Service).count()
+            ann_count = db.query(Announcement).count()
+            sub_count = db.query(Submission).count()
+            recents = db.query(Submission).order_by(Submission.created_at.desc()).limit(5).all()
+            return render_template('admin/index.html', svc_count=svc_count, ann_count=ann_count, sub_count=sub_count, recents=recents)
+        # logged in but not staff/admin -> send to staff login to switch accounts
         if session.get('user_id'):
-            return abort(403)
+            flash('Staff access only. Please sign in with a staff account.', 'warning')
+            return redirect(url_for('login', next='/admin'))
         # not logged in -> go log in and come back
         return redirect(url_for('login', next='/admin'))
 
@@ -484,7 +591,7 @@ def create_app():
     @roles_required('admin')
     def admin_users():
         db = dbs()
-        users = db.query(User).order_by(User.username).all()
+        users = db.query(User).order_by(User.approved.asc(), User.role.desc(), User.username).all()
         return render_template('admin/users.html', users=users)
 
     @app.route('/admin/users/new', methods=['GET', 'POST'])
@@ -508,6 +615,7 @@ def create_app():
                 username=username,
                 role=role,
                 password_hash=generate_password_hash(password),
+                approved=True,
             )
             db.add(u)
             db.commit()
@@ -528,6 +636,29 @@ def create_app():
         db.delete(u)
         db.commit()
         flash('User deleted.', 'success')
+        return redirect(url_for('admin_users'))
+
+    @app.route('/admin/users/<int:uid>/update', methods=['POST'])
+    @roles_required('admin')
+    def admin_users_update(uid: int):
+        db = dbs()
+        u = db.get(User, uid)
+        if not u:
+            abort(404)
+        role = (request.form.get('role') or u.role).strip()
+        if role not in ['viewer', 'editor', 'admin']:
+            flash('Invalid role.', 'danger')
+            return redirect(url_for('admin_users'))
+        approved_val = (request.form.get('approved') or '').lower()
+        approved = approved_val in ['1', 'true', 'on', 'yes']
+        u.role = role
+        try:
+            u.approved = approved
+        except Exception:
+            # In case column doesn't exist for any reason, ignore quietly
+            pass
+        db.commit()
+        flash('User updated.', 'success')
         return redirect(url_for('admin_users'))
 
     @app.template_filter('dt')
