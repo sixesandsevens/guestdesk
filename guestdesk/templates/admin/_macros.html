@@ -1,0 +1,11 @@
+{# pure macro lib: no extends, no HTML output #}
+{% macro time12(hhmm) -%}
+  {%- if not hhmm %}{{ '' }}{%- else -%}
+    {%- set p = hhmm.split(':') -%}
+    {%- set h = (p[0]|int) -%}
+    {%- set m = (p[1] if p|length > 1 else '00') -%}
+    {%- set ampm = 'AM' if h < 12 else 'PM' -%}
+    {%- set h12 = 12 if (h % 12) == 0 else (h % 12) -%}
+    {{- h12 ~ ':' ~ '%02d'|format(m|int) ~ ' ' ~ ampm -}}
+  {%- endif -%}
+{%- endmacro %}
