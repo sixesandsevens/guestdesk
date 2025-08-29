@@ -1,4 +1,9 @@
+{% from '_macros.html' import f12 %}
+
+
 {% extends 'base.html' %}
+{% import '_macros.html' as m %}
+
 {% block content %}
 <h4 class="mb-3">Slots — {{ s.name }}</h4>
 <form method="post" class="card card-body mb-3">
