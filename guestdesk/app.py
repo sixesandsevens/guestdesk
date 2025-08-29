@@ -1,7 +1,7 @@
 from __future__ import annotations
 import os
-from datetime import datetime, timedelta
-from flask import Flask, render_template, request, redirect, url_for, flash, session, abort
+from datetime import datetime
+from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
@@ -70,7 +70,8 @@ def create_app():
             return ""
         try:
             parts = (t or "").split(":")
-            h = int(parts[0]); m = int(parts[1])
+            h = int(parts[0])
+            m = int(parts[1])
             ap = "AM" if h < 12 else "PM"
             h = (h % 12) or 12
             return f"{h}:{m:02d} {ap}"
@@ -87,6 +88,24 @@ def create_app():
     Session = scoped_session(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False))
 
     def dbs(): return Session()
+
+    # --- user/session helpers (safe no-op if no User model exists) ---
+    def load_user():
+        """Attach g.user if user_id is in session."""
+        g.user = None
+        uid = session.get('user_id')
+        if uid:
+            db = dbs()
+            try:
+                from .models import User
+                g.user = db.get(User, uid)
+            except Exception:
+                # If User model isn’t present or db lookup fails, ignore.
+                g.user = None
+
+    @app.before_request
+    def _attach_user():
+        load_user()
 
     @app.context_processor
     def inject_globals():
@@ -109,7 +128,7 @@ def create_app():
         anns = db.query(Announcement).filter(
             Announcement.starts_at <= now,
         ).filter(
-            (Announcement.ends_at == None) | (Announcement.ends_at >= now)
+            (Announcement.ends_at.is_(None)) | (Announcement.ends_at >= now)
         ).order_by(Announcement.starts_at.desc()).limit(5).all()
         cats = ['Food','Showers','Laundry','Mail','ID/Docs','Medical','Mental Health','Legal','Employment','Transportation','Other']
         counts = {c: db.query(Service).filter(Service.category==c).count() for c in cats}
@@ -120,7 +139,8 @@ def create_app():
         db = dbs()
         cat = request.args.get('cat')
         q = db.query(Service)
-        if cat: q = q.filter(Service.category==cat)
+        if cat:
+            q = q.filter(Service.category == cat)
         rows = q.order_by(Service.category, Service.name).all()
         return render_template('services.html', rows=rows, cat=cat)
 
@@ -128,7 +148,8 @@ def create_app():
     def service_detail(sid:int):
         db = dbs()
         s = db.get(Service, sid)
-        if not s: abort(404)
+        if not s:
+            abort(404)
         days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
         return render_template('service_detail.html', s=s, days=days)
 
@@ -149,7 +170,7 @@ def create_app():
         db = dbs()
         now = datetime.utcnow()
         anns = db.query(Announcement).filter(Announcement.starts_at <= now).filter(
-            (Announcement.ends_at == None) | (Announcement.ends_at >= now)
+            (Announcement.ends_at.is_(None)) | (Announcement.ends_at >= now)
         ).order_by(Announcement.starts_at.desc()).all()
         return render_template('announcements.html', anns=anns)
 
