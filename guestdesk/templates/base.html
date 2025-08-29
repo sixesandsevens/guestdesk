@@ -12,11 +12,11 @@
 <body>
   <div class="topbar py-1">
     <div class="container d-flex flex-wrap justify-content-between align-items-center small">
-      <div class="d-flex align-items-center gap-3">
+      <div class="d-flex align-items-center gap-2 gap-md-3">
         <strong>GRACE Marketplace</strong>
-        <span>352-792-0800</span>
-        <span>3055 NE 28th Drive, Gainesville, FL</span>
-        <a class="ms-2" href="https://www.gracemarketplace.org/contact" target="_blank" rel="noopener">Contact</a>
+        <span class="d-none d-md-inline">352-792-0800</span>
+        <span class="d-none d-lg-inline">3055 NE 28th Drive, Gainesville, FL</span>
+        <a class="ms-2 d-none d-sm-inline" href="https://www.gracemarketplace.org/contact" target="_blank" rel="noopener">Contact</a>
       </div>
       <div>
         <a class="me-3" href="/">Get Help</a>
@@ -27,12 +27,12 @@
     </div>
   </div>
 
-  <nav class="navbar navbar-expand-lg">
+  <nav class="navbar navbar-expand-lg navbar-light">
     <div class="container">
       <a class="navbar-brand d-flex align-items-center" href="/">
         <picture>
           <source type="image/avif" srcset="{{ url_for('static', filename='img/brand/logo-mission.avif') }}">
-          <img class="header-logo" src="{{ url_for('static', filename='img/brand/logo-mission.png') }}" alt="GRACE Marketplace">
+          <img class="header-logo img-fluid" src="{{ url_for('static', filename='img/brand/logo-mission.png') }}" alt="GRACE Marketplace">
         </picture>
         <span class="ms-2 fw-bold">GuestDesk</span>
       </a>
@@ -45,7 +45,13 @@
           <li class="nav-item"><a class="nav-link" href="/schedule">{{ t('schedule') }}</a></li>
           <li class="nav-item"><a class="nav-link" href="/report">{{ t('report_issue') }}</a></li>
           <li class="nav-item"><a class="nav-link" href="/fun">{{ t('fun_zone') }}</a></li>
-            <li class="nav-item"><a class="nav-link" href="/admin">{{ t('admin') }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/admin">{{ t('admin') }}</a></li>
+          {% if user_name %}
+            <li class="nav-item"><span class="nav-link disabled">Hi, {{ user_name }}</span></li>
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">{{ t('logout') }}</a></li>
+          {% else %}
+            <li class="nav-item"><a class="nav-link" href="{{ url_for('login', next=request.path) }}">{{ t('staff_login') }}</a></li>
+          {% endif %}
         </ul>
       </div>
     </div>
@@ -82,7 +88,7 @@
           <div class="d-flex align-items-center gap-3 mb-2">
             <picture>
               <source type="image/avif" srcset="{{ url_for('static', filename='img/brand/logo-black.avif') }}">
-              <img class="logo logo-white" src="{{ url_for('static', filename='img/brand/logo-black.png') }}" alt="GRACE Marketplace">
+              <img class="logo logo-white img-fluid" src="{{ url_for('static', filename='img/brand/logo-black.png') }}" alt="GRACE Marketplace">
             </picture>
             <h5 class="mb-0">We're on a mission to END HOMELESSNESS</h5>
           </div>
