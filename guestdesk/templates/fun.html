@@ -95,10 +95,12 @@
     <div class="row-flex" style="align-items:flex-start; gap:16px;">
       <div style="flex:2; min-width:320px;">
         <!-- Micro tabs -->
-        <div class="row-flex" style="gap:8px; margin-bottom:8px;">
+        <div class="row-flex" style="gap:8px; margin-bottom:8px; flex-wrap:wrap;">
           <button class="btnish" id="tabSnake" data-game="snake">Snake</button>
           <button class="btnish" id="tabTetris" data-game="tetris">Tetris</button>
           <button class="btnish" id="tabAsteroids" data-game="asteroids">Asteroids</button>
+          <button class="btnish" id="tabPrinter" data-game="printerjam">Printer Jam</button>
+          <button class="btnish" id="tabDuck" data-game="duck">Duck Crossing</button>
         </div>
         <!-- Snake -->
         <div id="viewSnake">
@@ -171,6 +173,54 @@
             </div>
           </div>
         </div>
+        <!-- Printer Jam (Breakout) -->
+        <section id="panel-printerjam" class="panel" style="display:none;">
+          <p class="muted">Controls: <span class="kbd">←</span> <span class="kbd">→</span> move, <span class="kbd">Space</span> start/pause.</p>
+          <div class="row-flex">
+            <div class="game-wrap">
+              <canvas id="jamCanvas" class="game" width="600" height="420" aria-label="Printer Jam Breakout"></canvas>
+              <!-- mobile overlay controls -->
+              <div class="touchbar" aria-hidden="true" style="left:50%; right:auto; bottom:8px; transform: translateX(-50%); flex-direction:row; background: rgba(15,18,32,.4); padding:6px; border-radius:12px;">
+                <button class="btnish" id="jamLeft">←</button>
+                <button class="btnish" id="jamRight">→</button>
+                <button class="btnish" id="jamPauseTouch">⏸</button>
+                <button class="btnish" id="jamStartTouch">▶</button>
+              </div>
+            </div>
+            <div class="cardish" style="min-width:240px;">
+              <div class="row-flex"><button class="btnish" id="jamStart">Start</button><button class="btnish" id="jamPause">Pause</button></div>
+              <p>Level: <span id="jamLevel" class="pill">1</span></p>
+              <p>Score: <span id="jamScore" class="pill">0</span></p>
+              <p>Lives: <span id="jamLives" class="pill">3</span></p>
+              <p class="muted" id="jamMsg">Press Start to play.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Duck Crossing (Frogger-style) -->
+        <section id="panel-duck" class="panel" style="display:none;">
+          <p class="muted">Controls: <span class="kbd">←</span> <span class="kbd">→</span> <span class="kbd">↑</span> <span class="kbd">↓</span> to waddle, <span class="kbd">P</span> pause.</p>
+          <div class="row-flex">
+            <div class="game-wrap">
+              <canvas id="duckCanvas" class="game" width="600" height="480" aria-label="Duck Crossing"></canvas>
+              <!-- mobile overlay controls -->
+              <div class="touchbar" aria-hidden="true" style="left:50%; right:auto; bottom:8px; transform: translateX(-50%); flex-direction:row; background: rgba(15,18,32,.4); padding:6px; border-radius:12px;">
+                <button class="btnish" id="duckLeft">←</button>
+                <button class="btnish" id="duckUp">↑</button>
+                <button class="btnish" id="duckDown">↓</button>
+                <button class="btnish" id="duckRight">→</button>
+                <button class="btnish" id="duckPauseTouch">⏸</button>
+                <button class="btnish" id="duckStartTouch">▶</button>
+              </div>
+            </div>
+            <div class="cardish" style="min-width:240px;">
+              <div class="row-flex"><button class="btnish" id="duckStart">Start</button><button class="btnish" id="duckPause">Pause</button></div>
+              <p>Score: <span id="duckScore" class="pill">0</span></p>
+              <p>Lives: <span id="duckLives" class="pill">3</span></p>
+              <p class="muted" id="duckMsg">Press Start to play.</p>
+            </div>
+          </div>
+        </section>
       </div>
       <div class="cardish" style="flex:1; min-width:260px;">
         <h6 class="mb-2">Leaderboards</h6>
@@ -236,9 +286,13 @@ let currentGame = 'snake';
 const tabSnake = document.getElementById('tabSnake');
 const tabTetris = document.getElementById('tabTetris');
 const tabAsteroids = document.getElementById('tabAsteroids');
+const tabPrinter = document.getElementById('tabPrinter');
+const tabDuck = document.getElementById('tabDuck');
 const viewSnake = document.getElementById('viewSnake');
 const viewTetris = document.getElementById('viewTetris');
 const viewAsteroids = document.getElementById('viewAsteroids');
+const viewPrinter = document.getElementById('panel-printerjam');
+const viewDuck = document.getElementById('panel-duck');
 let arcadeReady = false;
 function ensureArcade(){
   if (arcadeReady) return;
@@ -252,16 +306,22 @@ function setGame(g){
   viewSnake.style.display = (g==='snake') ? 'block' : 'none';
   viewTetris.style.display = (g==='tetris') ? 'block' : 'none';
   if (viewAsteroids) viewAsteroids.style.display = (g==='asteroids') ? 'block' : 'none';
+  if (viewPrinter) { viewPrinter.style.display = (g==='printerjam') ? 'block' : 'none'; viewPrinter.classList.toggle('active', g==='printerjam'); }
+  if (viewDuck) { viewDuck.style.display = (g==='duck') ? 'block' : 'none'; viewDuck.classList.toggle('active', g==='duck'); }
   // pause background games
   try { if (g!=='snake') pause(); } catch(e){}
   try { if (g!=='tetris') pauseTetris(); } catch(e){}
   try { if (g!=='asteroids') aPause(); } catch(e){}
+  try { if (g!=='printerjam' && window.jamPause) window.jamPause(); } catch(e){}
+  try { if (g!=='duck' && window.duckPause) window.duckPause(); } catch(e){}
   loadScores(g);
   resizeArcade();
 }
 tabSnake.addEventListener('click', ()=>setGame('snake'));
 tabTetris.addEventListener('click', ()=>setGame('tetris'));
 if (tabAsteroids) tabAsteroids.addEventListener('click', ()=>setGame('asteroids'));
+if (tabPrinter) tabPrinter.addEventListener('click', ()=>setGame('printerjam'));
+if (tabDuck) tabDuck.addEventListener('click', ()=>setGame('duck'));
 
 // Ensure arcade only initializes once when needed
 let arcadeBooted = false;
@@ -565,4 +625,7 @@ function drawConfetti(){ cctx.clearRect(0,0,confettiCanvas.width,confettiCanvas.
 // Tiny “bloop” sound (WebAudio)
 function bloop(){ const ctx = new (window.AudioContext||window.webkitAudioContext)(); const o = ctx.createOscillator(); const g = ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(660, ctx.currentTime); g.gain.setValueAtTime(0.0001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.25); o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.28); }
 </script>
+<!-- Extra arcade games (shared with funzone) -->
+<script src="{{ url_for('static', filename='js/game_printerjam.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename='js/game_duck.js') }}?v=2"></script>
 {% endblock %}
