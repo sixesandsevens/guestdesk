@@ -358,7 +358,7 @@ def create_app():
     def admin_index():
         # already logged-in staff/admin?
         if session.get('is_admin') or session.get('role') in ('admin', 'editor'):
-            return redirect('/admin/services')
+            return redirect(url_for('admin_services'))
         # logged in but not staff/admin -> forbidden (or change to homepage if you prefer)
         if session.get('user_id'):
             return abort(403)
