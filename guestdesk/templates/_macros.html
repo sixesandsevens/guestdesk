@@ -1,13 +1,10 @@
 {# Format 'HH:MM' -> 'h:MM AM/PM'. Returns empty string for falsy input. #}
 {% macro f12(s) -%}
-  {% if not s %}
-    {{- '' -}}
-  {% else %}
+  {% if not s %}{{ '' }}{% else %}
     {%- set h = s[:2]|int -%}
     {%- set m = s[2:5] -%}
     {%- set ampm = 'AM' if h < 12 else 'PM' -%}
     {%- set hh = 12 if (h % 12 == 0) else (h % 12) -%}
-    {{- hh ~ m ~ ' ' ~ ampm -}}
+    {{ hh ~ m ~ ' ' ~ ampm }}
   {% endif %}
 {%- endmacro %}
-
