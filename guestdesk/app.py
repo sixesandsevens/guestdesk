@@ -88,38 +88,6 @@ def create_app():
     Session = scoped_session(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False))
 
     def dbs(): return Session()
-    # --- user/session helpers ---
-    def load_user():
-        """Attach g.user if user_id is in session."""
-        g.user = None
-        uid = session.get('user_id')
-        if uid:
-            db = dbs()
-            try:
-                from .models import User
-                g.user = db.get(User, uid)
-            except Exception:
-                g.user = None
-
-    @app.before_request
-    def _attach_user():
-        load_user()
-    # --- user/session helpers ---
-    def load_user():
-        """Attach g.user if user_id is in session."""
-        g.user = None
-        uid = session.get('user_id')
-        if uid:
-            db = dbs()
-            try:
-                from .models import User
-                g.user = db.get(User, uid)
-            except Exception:
-                g.user = None
-
-    @app.before_request
-    def _attach_user():
-        load_user()
 
     # --- user/session helpers (safe no-op if no User model exists) ---
     def load_user():
