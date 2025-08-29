@@ -8,6 +8,9 @@
       <div class="card-body">
         <h5 class="card-title">{{ t('staff_login') }}</h5>
         <form method="post">
+          {% if request.args.get('next') %}
+          <input type="hidden" name="next" value="{{ request.args.get('next') }}">
+          {% endif %}
           <div class="mb-2">
             <label class="form-label">Display name</label>
             <input class="form-control" name="username" placeholder="Username">

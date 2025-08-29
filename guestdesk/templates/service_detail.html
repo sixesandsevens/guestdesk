@@ -8,6 +8,7 @@
 {% if s.external_link %}<p><a href="{{ s.external_link }}" target="_blank" rel="noopener">Learn more</a></p>{% endif %}
 
 <h6>Weekly Times</h6>
+<div class="table-responsive w-auto">
 <table class="table table-sm w-auto">
   <thead><tr><th>Day</th><th>Start</th><th>End</th><th>Note</th></tr></thead>
   <tbody>
@@ -23,4 +24,5 @@
   {% endfor %}
   </tbody>
 </table>
+</div>
 {% endblock %}

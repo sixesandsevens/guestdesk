@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grace Funzone</title>
+<style>
+  :root { --bg:#0f1220; --fg:#e8eaf6; --accent:#7cf; --muted:#9aa3b2; --ok:#6ee7b7; --warn:#fbbf24; --bad:#f87171; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", sans-serif; background: radial-gradient(80vw 80vh at 20% 10%, #1b2142 0, #0f1220 60%); color:var(--fg); transition: background .3s ease; }
+  header { padding: 18px 20px; border-bottom: 1px solid #2a2e52; display:flex; align-items:center; gap:12px; }
+  header h1 { margin:0; font-size: 1.25rem; letter-spacing:.3px; }
+  .tag { font-size:.8rem; padding:4px 8px; border:1px solid #2a2e52; border-radius:999px; color:var(--muted); }
+  main { max-width: 1100px; margin: 20px auto; padding: 0 16px 40px; }
+  nav.tabs { display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:16px; }
+  nav.tabs button { background:#161a34; color:var(--fg); border:1px solid #2a2e52; padding:10px 12px; border-radius:12px; cursor:pointer; text-align:left; transition: transform .08s ease, box-shadow .2s; }
+  nav.tabs button[aria-selected="true"]{ border-color:var(--accent); outline:1px solid rgba(124,255,255,.2); transform: translateY(-1px); }
+  section.panel { display:none; background:#121633; border:1px solid #2a2e52; border-radius:16px; padding:18px; }
+  section.panel.active { display:block; }
+  h2 { margin: 0 0 12px 0; font-size:1.05rem; color:#cbd5ff; }
+  .row { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  .card { background:#0e1330; border:1px solid #2a2e52; border-radius:14px; padding:14px; }
+  .muted { color:var(--muted); }
+  .btn { background:#1a1f3f; color:var(--fg); border:1px solid #2a2e52; padding:8px 12px; border-radius:10px; cursor:pointer; }
+  .btn:hover { border-color:var(--accent); }
+  input[type="number"], select { background:#0e1330; color:var(--fg); border:1px solid #2a2e52; border-radius:8px; padding:6px 8px; }
+  .result { font-variant-numeric: tabular-nums; }
+  .pill { padding:4px 8px; border-radius:999px; border:1px solid #2a2e52; }
+  canvas { background:#070a1f; width:100%; max-width:520px; aspect-ratio:1/1; border:1px solid #2a2e52; border-radius:12px; image-rendering: pixelated; }
+  .kbd { border:1px solid #2a2e52; background:#0c1130; padding:2px 6px; border-radius:6px; font-size:.85rem; color:#b9c2d6; }
+  .ok { color: var(--ok); } .bad { color: var(--bad); }
+
+  /* Neon Mode (Konami) */
+  body.neon { background: radial-gradient(80vw 80vh at 50% 0%, #2b135b 0, #0b0f28 60%); }
+  body.neon header h1 { text-shadow: 0 0 6px #8ef, 0 0 14px #4ff; }
+  body.neon .card, body.neon section.panel { box-shadow: 0 0 16px rgba(124,255,255,.15) inset, 0 0 30px rgba(124,255,255,.05); }
+  body.neon nav.tabs button[aria-selected="true"] { box-shadow: 0 0 10px rgba(124,255,255,.25); }
+  #confettiCanvas { position: fixed; inset: 0; pointer-events: none; z-index: 9999; }
+  
+  /* Prefer reduced motion: avoid confetti animation */
+  @media (prefers-reduced-motion: reduce) {
+    #confettiCanvas { display: none; }
+  }
+</style>
+</head>
+<body>
+<canvas id="confettiCanvas" width="0" height="0" aria-hidden="true"></canvas>
+<header>
+  <h1>Grace Funzone</h1>
+  <span class="tag">internal • prototype • ☕ required</span>
+</header>
+<main>
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-tab="dice">🎲 Dice & Coin</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="snake">🕹️ Snake Game</button>
+  </nav>
+
+  <!-- Dice & Coin -->
+  <section id="panel-dice" class="panel active" role="tabpanel" aria-labelledby="dice">
+    <h2>🎲 Dice Roller & 🪙 Coin Flipper</h2>
+    <div class="row" style="gap:16px; flex-wrap:wrap;">
+      <div class="card" style="min-width:320px; flex:1">
+        <h3 style="margin:0 0 8px 0;">Dice</h3>
+        <div class="row">
+          <label>Die: 
+            <select id="die">
+              <option value="4">d4</option><option value="6" selected>d6</option>
+              <option value="8">d8</option><option value="10">d10</option>
+              <option value="12">d12</option><option value="20">d20</option>
+            </select>
+          </label>
+          <label>Count: <input id="count" type="number" min="1" max="20" value="1" style="width:80px"></label>
+          <button class="btn" id="roll">Roll</button>
+        </div>
+        <p class="muted">Tip: hold <span class="kbd">Shift</span> and click Roll to re-roll last.</p>
+        <div id="diceOut" class="result"></div>
+      </div>
+
+      <div class="card" style="min-width:260px; flex:1">
+        <h3 style="margin:0 0 8px 0;">Coin</h3>
+        <div class="row">
+          <button class="btn" id="flip">Flip Coin</button>
+          <span class="pill" id="streak">Streak: 0</span>
+        </div>
+        <div id="coinOut" class="result" style="font-size:1.5rem; margin-top:8px;"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Snake Game -->
+  <section id="panel-snake" class="panel" role="tabpanel" aria-labelledby="snake">
+    <h2>🕹️ Snake</h2>
+    <p class="muted">Controls: <span class="kbd">←</span> <span class="kbd">→</span> <span class="kbd">↑</span> <span class="kbd">↓</span> or <span class="kbd">WASD</span>. Press <span class="kbd">Space</span> to pause.</p>
+    <div class="row">
+      <canvas id="snakeCanvas" width="520" height="520" aria-label="Snake game board"></canvas>
+      <div class="card" style="min-width:240px;">
+        <div class="row"><button class="btn" id="startSnake">Start</button><button class="btn" id="pauseSnake">Pause</button></div>
+        <p>Speed: <select id="speedSel"><option value="130">Chill</option><option value="100" selected>Normal</option><option value="70">Spicy</option><option value="45">Florida Summer</option></select></p>
+        <p>Score: <span id="snakeScore" class="pill">0</span></p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+// ------- Tabs -------
+const tabs = document.querySelectorAll('.tab');
+const panels = {
+  dice: document.getElementById('panel-dice'),
+  snake: document.getElementById('panel-snake')
+};
+tabs.forEach(t => t.addEventListener('click', () => {
+  tabs.forEach(x => x.setAttribute('aria-selected','false'));
+  t.setAttribute('aria-selected','true');
+  Object.values(panels).forEach(p => p.classList.remove('active'));
+  panels[t.dataset.tab].classList.add('active');
+}));
+
+// ------- Dice & Coin -------
+let lastDie = 6, lastCnt = 1;
+const dieSel = document.getElementById('die');
+const cntInp = document.getElementById('count');
+const rollBtn = document.getElementById('roll');
+const diceOut = document.getElementById('diceOut');
+
+function rollDice(d, n){
+  const rolls = Array.from({length:n}, () => 1 + Math.floor(Math.random()*d));
+  const total = rolls.reduce((a,b)=>a+b,0);
+  return {rolls, total};
+}
+function renderDice({rolls,total}, d){
+  diceOut.innerHTML = `<div><b>${rolls.length}×d${d}</b> → [ ${rolls.join(', ')} ] = <b>${total}</b></div>`;
+}
+rollBtn.addEventListener('click', (e)=>{
+  let d = parseInt(dieSel.value,10);
+  let n = Math.min(20, Math.max(1, parseInt(cntInp.value||'1',10)));
+  if (e.shiftKey){ d = lastDie; n = lastCnt; }
+  lastDie = d; lastCnt = n;
+  renderDice(rollDice(d,n), d);
+});
+
+// coin
+let streak = 0, lastFace = null;
+const flipBtn = document.getElementById('flip');
+const coinOut = document.getElementById('coinOut');
+const streakEl = document.getElementById('streak');
+flipBtn.addEventListener('click', ()=>{
+  const face = Math.random()<0.5 ? 'Heads' : 'Tails';
+  if (face === lastFace) streak++; else streak = 1;
+  lastFace = face;
+  coinOut.textContent = face;
+  streakEl.textContent = `Streak: ${streak} ${face}`;
+});
+
+// ------- Snake Game -------
+const canvas = document.getElementById('snakeCanvas');
+const ctx = canvas.getContext('2d');
+const N=26; // grid cells per side
+const cell = Math.floor(canvas.width/N);
+let snake, dir, food, loop, speed=100, playing=false, scoreS=0;
+
+function resetSnake(){
+  snake=[{x:12,y:12},{x:11,y:12},{x:10,y:12}];
+  dir={x:1,y:0};
+  dropFood();
+  scoreS=0; document.getElementById('snakeScore').textContent=scoreS;
+}
+function dropFood(){
+  do {
+    food={ x:Math.floor(Math.random()*N), y:Math.floor(Math.random()*N) };
+  } while (snake.some(p=>p.x===food.x&&p.y===food.y));
+}
+function step(){
+  const head = { x: (snake[0].x+dir.x+N)%N, y: (snake[0].y+dir.y+N)%N };
+  // self-collision?
+  if (snake.some((p,i)=>i>0 && p.x===head.x && p.y===head.y)){
+    // game over flash
+    ctx.save(); ctx.fillStyle='rgba(248,113,113,.3)'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.restore();
+    playing=false; clearInterval(loop); return;
+  }
+  snake.unshift(head);
+  if (head.x===food.x && head.y===food.y) { scoreS++; document.getElementById('snakeScore').textContent=scoreS; dropFood(); }
+  else snake.pop();
+  draw();
+}
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  // grid faint
+  ctx.globalAlpha=.07; ctx.strokeStyle='#7cf'; 
+  for(let i=0;i<=N;i++){ ctx.beginPath(); ctx.moveTo(i*cell,0); ctx.lineTo(i*cell,canvas.height); ctx.stroke();
+                          ctx.beginPath(); ctx.moveTo(0,i*cell); ctx.lineTo(canvas.width,i*cell); ctx.stroke(); }
+  ctx.globalAlpha=1;
+  // food
+  ctx.fillStyle='#fbbf24'; ctx.fillRect(food.x*cell, food.y*cell, cell, cell);
+  // snake
+  ctx.fillStyle='#6ee7b7'; snake.forEach((p)=>{ ctx.fillRect(p.x*cell, p.y*cell, cell, cell); });
+}
+function start(){ if (playing) return; playing=true; loop=setInterval(step, speed); }
+function pause(){ if (!playing) return; playing=false; clearInterval(loop); }
+
+document.getElementById('startSnake').onclick = ()=>{ resetSnake(); start(); };
+document.getElementById('pauseSnake').onclick = ()=>{ if(playing) pause(); else start(); };
+document.getElementById('speedSel').onchange = (e)=>{ speed=parseInt(e.target.value,10); if(playing){ clearInterval(loop); loop=setInterval(step, speed); } };
+
+resetSnake(); draw();
+
+// controls
+const keyDirs = {
+  ArrowUp:{x:0,y:-1}, ArrowDown:{x:0,y:1}, ArrowLeft:{x:-1,y:0}, ArrowRight:{x:1,y:0},
+  w:{x:0,y:-1}, s:{x:0,y:1}, a:{x:-1,y:0}, d:{x:1,y:0}
+};
+window.addEventListener('keydown', (e)=>{
+  if (e.code==='Space'){ e.preventDefault(); if(playing) pause(); else start(); return; }
+  const k = e.key;
+  if (!keyDirs[k]) return;
+  const nd = keyDirs[k];
+  // prevent instant 180s
+  if (snake.length>1 && (nd.x === -dir.x && nd.y === -dir.y)) return;
+  dir = nd;
+});
+
+// ------- Konami Code (↑↑↓↓←→←→BA) -------
+const KONAMI = ["ArrowUp","ArrowUp","ArrowDown","ArrowDown","ArrowLeft","ArrowRight","ArrowLeft","ArrowRight","b","a"];
+let buffer = [];
+window.addEventListener('keydown', (e)=>{
+  const key = e.key.length===1 ? e.key.toLowerCase() : e.key; // normalize
+  buffer.push(key);
+  if (buffer.length > KONAMI.length) buffer.shift();
+  if (KONAMI.every((k,i)=>buffer[i]===k)) {
+    triggerKonami();
+    buffer.length = 0;
+  }
+});
+
+function triggerKonami(){
+  // Toggle neon theme
+  document.body.classList.toggle('neon');
+  // Confetti burst
+  confettiBurst();
+  // Tiny synth bloop
+  try { bloop(); } catch(_) {}
+}
+
+// ------- Confetti (no deps) -------
+const confettiCanvas = document.getElementById('confettiCanvas');
+const cctx = confettiCanvas.getContext('2d');
+let confetti, confettiAnim;
+
+function resizeConfetti(){
+  confettiCanvas.width = innerWidth; confettiCanvas.height = innerHeight;
+}
+addEventListener('resize', resizeConfetti); resizeConfetti();
+
+function confettiBurst(){
+  // create particles
+  const colors = ['#7cf','#6ee7b7','#fbbf24','#f87171','#c4b5fd','#60a5fa'];
+  const N = 160;
+  confetti = Array.from({length:N}, ()=>({
+    x: Math.random()*innerWidth,
+    y: -20 - Math.random()*60,
+    vx: (Math.random()-0.5)*4,
+    vy: 2 + Math.random()*3,
+    rot: Math.random()*Math.PI*2,
+    vr: (Math.random()-0.5)*0.2,
+    size: 6+Math.random()*8,
+    color: colors[Math.floor(Math.random()*colors.length)],
+    life: 120 + Math.random()*60
+  }));
+  cancelAnimationFrame(confettiAnim);
+  drawConfetti();
+}
+function drawConfetti(){
+  cctx.clearRect(0,0,confettiCanvas.width,confettiCanvas.height);
+  let alive = 0;
+  for (const p of confetti){
+    if (p.life<=0) continue;
+    alive++;
+    p.x += p.vx; p.y += p.vy; p.rot += p.vr; p.vy += 0.03; p.life--;
+    cctx.save();
+    cctx.translate(p.x,p.y);
+    cctx.rotate(p.rot);
+    cctx.fillStyle = p.color;
+    cctx.fillRect(-p.size/2,-p.size/2,p.size,p.size);
+    cctx.restore();
+  }
+  if (alive>0) confettiAnim = requestAnimationFrame(drawConfetti);
+  else cctx.clearRect(0,0,confettiCanvas.width,confettiCanvas.height);
+}
+
+// ------- Tiny “bloop” sound (WebAudio) -------
+function bloop(){
+  const ctx = new (window.AudioContext||window.webkitAudioContext)();
+  const o = ctx.createOscillator();
+  const g = ctx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(660, ctx.currentTime);
+  g.gain.setValueAtTime(0.0001, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime+0.02);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.25);
+  o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.28);
+}
+</script>
+</body>
+</html>
