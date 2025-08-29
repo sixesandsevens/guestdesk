@@ -34,6 +34,8 @@
     .touchpad { position:absolute; left:8px; bottom:8px; display:grid; grid-template-columns:repeat(3,56px); grid-auto-rows:56px; gap:8px; z-index:10; }
     .touchbar { position:absolute; right:8px; bottom:8px; display:flex; flex-direction:column; gap:8px; z-index:10; }
     .touchbar.tetris { left:50%; right:auto; bottom:8px; transform: translateX(-50%); flex-direction:row; background: rgba(15,18,32,.4); padding:6px; border-radius:12px; }
+    /* Below-canvas variant (does not overlap) */
+    .touchbar--below { position: static !important; transform: none !important; left: auto !important; right: auto !important; bottom: auto !important; margin-top: 8px; justify-content: center; background: rgba(15,18,32,.4); padding:6px; border-radius:12px; }
     .touchpad .btnish, .touchbar .btnish { width:56px; height:56px; padding:0; display:flex; align-items:center; justify-content:center; touch-action: none; user-select:none; }
   }
 
@@ -180,7 +182,7 @@
             <div class="game-wrap">
               <canvas id="jamCanvas" class="game" width="600" height="420" aria-label="Printer Jam Breakout"></canvas>
               <!-- mobile overlay controls -->
-              <div class="touchbar" aria-hidden="true" style="left:50%; right:auto; bottom:8px; transform: translateX(-50%); flex-direction:row; background: rgba(15,18,32,.4); padding:6px; border-radius:12px;">
+              <div class="touchbar touchbar--below" aria-hidden="true">
                 <button class="btnish" id="jamLeft">←</button>
                 <button class="btnish" id="jamRight">→</button>
                 <button class="btnish" id="jamPauseTouch">⏸</button>
@@ -204,7 +206,7 @@
             <div class="game-wrap">
               <canvas id="duckCanvas" class="game" width="600" height="480" aria-label="Duck Crossing"></canvas>
               <!-- mobile overlay controls -->
-              <div class="touchbar" aria-hidden="true" style="left:50%; right:auto; bottom:8px; transform: translateX(-50%); flex-direction:row; background: rgba(15,18,32,.4); padding:6px; border-radius:12px;">
+              <div class="touchbar touchbar--below" aria-hidden="true">
                 <button class="btnish" id="duckLeft">←</button>
                 <button class="btnish" id="duckUp">↑</button>
                 <button class="btnish" id="duckDown">↓</button>
@@ -404,7 +406,7 @@ async function loadScores(game){
       scoresList.innerHTML = '<li class="subtle">No scores yet — be the first!</li>';
       return;
     }
-    scoresList.innerHTML = rows.map((r,i)=>`<li>${i+1}. ${escapeHtml(r.name)} — <b>${r.score}</b></li>`).join('');
+    scoresList.innerHTML = rows.map((r)=>`<li>${escapeHtml(r.name)} — <b>${r.score}</b></li>`).join('');
   } catch (e) {
     scoresList.innerHTML = '<li class="subtle">Could not load scores.</li>';
   }
