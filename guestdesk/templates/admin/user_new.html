@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
+<p><a href="{{ url_for('admin_users') }}" class="text-decoration-none">&larr; Back to Users</a></p>
 <h4 class="mb-3">New User</h4>
 <form method="post">
   <div class="mb-2">
@@ -23,4 +24,3 @@
   <a class="btn btn-outline-secondary" href="{{ url_for('admin_users') }}">Cancel</a>
  </form>
 {% endblock %}
-
