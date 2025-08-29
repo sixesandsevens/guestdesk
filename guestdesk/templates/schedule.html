@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% import '_macros.html' as m %}
+{% from '_macros.html' import f12 %}
 {% block content %}
 <h4 class="mb-3">{{ t('schedule') }}</h4>
 <div class="row g-3">
@@ -11,7 +11,7 @@
         <ul class="list-unstyled">
           {% for svc, slot in matrix[i] %}
             <li class="mb-2">
-              <strong>{{ svc.name }}</strong> — {{ m.time12(slot.start) }}–{{ m.time12(slot.end) }}
+              <strong>{{ svc.name }}</strong> — {{ f12(slot.start) or '?' }}–{{ f12(slot.end) or '?' }}
               <span class="text-muted small">({{ svc.location or 'on-site' }})</span>
               {% if slot.note %}<div class="small text-muted">{{ slot.note }}</div>{% endif %}
             </li>
