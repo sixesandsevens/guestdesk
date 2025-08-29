@@ -333,7 +333,7 @@ def create_app():
 
     @app.route('/login', methods=['GET', 'POST'])
     def login():
-        next_url = request.args.get('next') or url_for('admin')
+        next_url = request.args.get('next') or url_for('admin_index')
         if request.method == 'POST':
             username = (request.form.get('username') or '').strip()
             password = request.form.get('password') or ''
@@ -441,7 +441,7 @@ def create_app():
             db.commit()
             flash('Slot deleted.', 'info')
             return redirect(url_for('admin_slots', sid=sid))
-        return redirect(url_for('admin'))
+        return redirect(url_for('admin_index'))
 
     # announcements
     @app.route('/admin/announcements')
