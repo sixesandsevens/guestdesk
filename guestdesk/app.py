@@ -4,6 +4,10 @@ from datetime import datetime, timedelta
 from flask import Flask, render_template, request, redirect, url_for, flash, session, abort
 from sqlalchemy import create_engine, func
 from sqlalchemy.orm import sessionmaker, scoped_session
+from functools import wraps
+from werkzeug.security import generate_password_hash, check_password_hash
+from .models import Base, Service, ProgramSlot, Announcement, Submission, User
+
 
 from .models import Base, Service, ProgramSlot, Announcement, Submission
 
@@ -205,33 +209,61 @@ def create_app():
         return render_template('fun.html', joke=joke, quote=quote, trivia_q=trivia_q, trivia_a=trivia_a)
 
     # ----- Staff auth & admin -----
-    def admin_required():
-        if not session.get('is_admin'):
-            flash('Please log in as staff.', 'warning')
-            return False
-        return True
+    def current_user():
+    uid = session.get('user_id')
+    if not uid: return None
+    db = dbs()
+    return db.get(User, uid)
+
+def login_required(fn):
+    @wraps(fn)
+    def _wrap(*a, **kw):
+        if not session.get('user_id'):
+            flash('Please log in.', 'warning')
+            return redirect(url_for('login', next=request.path))
+        return fn(*a, **kw)
+    return _wrap
+
+def roles_required(*roles):
+    def deco(fn):
+        @wraps(fn)
+        def _wrap(*a, **kw):
+            if not session.get('user_id'):
+                flash('Please log in.', 'warning')
+                return redirect(url_for('login', next=request.path))
+            if session.get('role') not in roles:
+                abort(403)
+            return fn(*a, **kw)
+        return _wrap
+    return deco
+
 
     @app.route('/login', methods=['GET','POST'])
-    def login():
-        if request.method == 'POST':
-            pw = request.form.get('password') or ''
-            name = (request.form.get('name') or 'staff').strip() or 'staff'
-            if pw == DEFAULT_ADMIN_PASSWORD:
-                session['is_admin'] = True
-                session['staff_name'] = name
-                return redirect(url_for('admin'))
-            flash('Wrong password.', 'danger')
-        return render_template('login.html')
+def login():
+    next_url = request.args.get('next') or url_for('admin')
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+        db = dbs()
+        u = db.query(User).filter(User.username==username).first()
+        if u and check_password_hash(u.password_hash, password):
+            session['user_id'] = u.id
+            session['username'] = u.username
+            session['role'] = u.role
+            flash('Welcome back.', 'success')
+            return redirect(next_url)
+        flash('Wrong username or password.', 'danger')
+    return render_template('login.html')
 
-    @app.route('/logout')
-    def logout():
-        session.pop('is_admin', None)
-        session.pop('staff_name', None)
-        return redirect(url_for('home'))
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('home'))
+
 
     @app.route('/admin')
     def admin():
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         db = dbs()
         svc_count = db.query(func.count(Service.id)).scalar() or 0
         sub_count = db.query(func.count(Submission.id)).scalar() or 0
@@ -242,14 +274,14 @@ def create_app():
     # --- manage services ---
     @app.route('/admin/services')
     def admin_services():
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         db = dbs()
         rows = db.query(Service).order_by(Service.category, Service.name).all()
         return render_template('admin/services.html', rows=rows)
 
     @app.route('/admin/services/new', methods=['GET','POST'])
     def admin_services_new():
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         if request.method == 'POST':
             db = dbs()
             s = Service(
@@ -269,7 +301,7 @@ def create_app():
 
     @app.route('/admin/services/<int:sid>/delete', methods=['POST'])
     def admin_services_delete(sid:int):
-        if not admin_required(): return redirect(url_for('login'))
+       if not session.get('user_id'): return redirect(url_for('login')) 
         db = dbs()
         s = db.get(Service, sid)
         if s:
@@ -281,7 +313,7 @@ def create_app():
     # slots
     @app.route('/admin/services/<int:sid>/slots', methods=['GET','POST'])
     def admin_slots(sid:int):
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         db = dbs()
         s = db.get(Service, sid)
         if not s: abort(404)
@@ -308,7 +340,7 @@ def create_app():
 
     @app.route('/admin/slots/<int:slot_id>/delete', methods=['POST'])
     def admin_slot_delete(slot_id:int):
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         db = dbs()
         slot = db.get(ProgramSlot, slot_id)
         if slot:
@@ -318,18 +350,25 @@ def create_app():
             flash('Slot deleted.', 'info')
             return redirect(url_for('admin_slots', sid=sid))
         return redirect(url_for('admin'))
+    
+    @app.context_processor
+def inject_globals():
+    return dict(t=t, lang=session.get('lang','en'),
+                user_name=session.get('username'),
+                user_role=session.get('role'))
+
 
     # announcements
     @app.route('/admin/announcements')
     def admin_announcements():
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         db = dbs()
         rows = db.query(Announcement).order_by(Announcement.starts_at.desc()).all()
         return render_template('admin/announcements.html', rows=rows)
 
     @app.route('/admin/announcements/new', methods=['GET','POST'])
     def admin_announcements_new():
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         if request.method == 'POST':
             db = dbs()
             start = datetime.strptime(request.form.get('starts_at'), '%Y-%m-%dT%H:%M') if request.form.get('starts_at') else datetime.utcnow()
@@ -347,7 +386,7 @@ def create_app():
 
     @app.route('/admin/announcements/<int:aid>/delete', methods=['POST'])
     def admin_announcements_delete(aid:int):
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         db = dbs()
         a = db.get(Announcement, aid)
         if a:
@@ -358,7 +397,7 @@ def create_app():
     # submissions
     @app.route('/admin/submissions')
     def admin_submissions():
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         db = dbs()
         kind = request.args.get('kind')
         q = db.query(Submission)
@@ -368,7 +407,7 @@ def create_app():
 
     @app.route('/admin/submissions/<int:sid>')
     def admin_submission_detail(sid:int):
-        if not admin_required(): return redirect(url_for('login'))
+        if not session.get('user_id'): return redirect(url_for('login'))
         db = dbs()
         s = db.get(Submission, sid)
         if not s: abort(404)
@@ -378,6 +417,66 @@ def create_app():
     def fmt_dt(v):
         if not v: return ''
         return v.strftime('%Y-%m-%d %H:%M')
+    
+    @app.route('/admin/users')
+@roles_required('admin')
+def admin_users():
+    db = dbs()
+    users = db.query(User).order_by(User.username).all()
+    return render_template('admin/users.html', users=users)
+
+@app.route('/admin/users/new', methods=['GET','POST'])
+@roles_required('admin')
+def admin_users_new():
+    if request.method == 'POST':
+        username = (request.form.get('username') or '').strip()
+        password = request.form.get('password') or ''
+        role = (request.form.get('role') or 'viewer').strip()
+        if not username or not password:
+            flash('Username and password are required.', 'danger')
+            return render_template('admin/user_new.html', form=request.form)
+        if role not in ['viewer','editor','admin']:
+            flash('Invalid role.', 'danger')
+            return render_template('admin/user_new.html', form=request.form)
+        db = dbs()
+        if db.query(User).filter(User.username==username).first():
+            flash('Username already exists.', 'danger')
+            return render_template('admin/user_new.html', form=request.form)
+        u = User(username=username, role=role,
+                 password_hash=generate_password_hash(password))
+        db.add(u); db.commit()
+        flash('User created.', 'success')
+        return redirect(url_for('admin_users'))
+    return render_template('admin/user_new.html', form={})
+
+@app.route('/admin')
+@login_required
+def admin():
+    db = dbs()
+    # ...existing body...
+    return render_template('admin/index.html', ...)
+
+
+@app.route('/admin/services')
+@roles_required('admin','editor')
+def admin_services():
+    # ...
+
+
+
+@app.route('/admin/users/<int:uid>/delete', methods=['POST'])
+@roles_required('admin')
+def admin_users_delete(uid):
+    db = dbs()
+    u = db.get(User, uid)
+    if not u: abort(404)
+    if u.id == session.get('user_id'):
+        flash("You can't delete yourself.", 'warning')
+        return redirect(url_for('admin_users'))
+    db.delete(u); db.commit()
+    flash('User deleted.', 'success')
+    return redirect(url_for('admin_users'))
+
 
     return app
 

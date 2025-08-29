@@ -3,6 +3,8 @@ from datetime import datetime
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey
 
+
+
 Base = declarative_base()
 
 class Service(Base):
@@ -49,3 +51,11 @@ class Submission(Base):
     contact_info = Column(String(120), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     status = Column(String(16), nullable=False, default='new')
+
+class User(Base):
+    __tablename__ = "users"
+    id = Column(Integer, primary_key=True)
+    username = Column(String(64), unique=True, nullable=False)
+    password_hash = Column(String(256), nullable=False)
+    role = Column(String(16), nullable=False, default="viewer")  # viewer|editor|admin
+    created_at = Column(DateTime, default=datetime.utcnow)
