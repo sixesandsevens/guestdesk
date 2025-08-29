@@ -2,6 +2,8 @@
 
 
 {% extends 'base.html' %}
+{% import '_macros.html' as m %}
+
 {% block content %}
 <h4 class="mb-2">{{ s.name }}</h4>
 <div class="text-muted mb-3">{{ s.category }} · {{ s.location or '' }} · {{ s.contact or '' }}</div>
