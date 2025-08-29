@@ -1,0 +1,26 @@
+{% extends 'base.html' %}
+{% block content %}
+<p><a href="{{ url_for('admin_users') }}" class="text-decoration-none">&larr; Back to Users</a></p>
+<h4 class="mb-3">New User</h4>
+<form method="post">
+  <div class="mb-2">
+    <label class="form-label">Username</label>
+    <input name="username" class="form-control" value="{{ form.username or '' }}" required>
+  </div>
+  <div class="mb-2">
+    <label class="form-label">Password</label>
+    <input type="password" name="password" class="form-control" required>
+  </div>
+  <div class="mb-3">
+    <label class="form-label">Role</label>
+    <select name="role" class="form-select">
+      {% set r = (form.role or 'viewer') %}
+      <option value="viewer" {% if r=='viewer' %}selected{% endif %}>viewer</option>
+      <option value="editor" {% if r=='editor' %}selected{% endif %}>editor</option>
+      <option value="admin"  {% if r=='admin' %}selected{% endif %}>admin</option>
+    </select>
+  </div>
+  <button class="btn btn-primary">Create</button>
+  <a class="btn btn-outline-secondary" href="{{ url_for('admin_users') }}">Cancel</a>
+ </form>
+{% endblock %}
