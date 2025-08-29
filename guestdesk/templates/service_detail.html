@@ -1,6 +1,3 @@
-{% from '_macros.html' import f12 %}
-
-
 {% extends 'base.html' %}
 {% import '_macros.html' as m %}
 
@@ -17,8 +14,8 @@
   {% for slot in s.slots %}
     <tr>
       <td>{{ days[slot.dow] }}</td>
-      <td>{{ slot.start|h12 or '' }}</td>
-      <td>{{ slot.end|h12 or '' }}</td>
+      <td>{{ m.time12(slot.start) or '' }}</td>
+      <td>{{ m.time12(slot.end) or '' }}</td>
       <td>{{ slot.note or '' }}</td>
     </tr>
   {% else %}
