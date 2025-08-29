@@ -45,7 +45,7 @@
           <li class="nav-item"><a class="nav-link" href="/schedule">Schedule</a></li>
           <li class="nav-item"><a class="nav-link" href="/report">Report</a></li>
           <li class="nav-item"><a class="nav-link" href="/fun">Fun Zone</a></li>
-          <li class="nav-item"><a class="nav-link" href="/login">Staff</a></li>
+          <li class="nav-item"><a class="nav-link" href="/admin">Staff</a></li>
         </ul>
       </div>
     </div>
@@ -55,7 +55,7 @@
   <span class="me-2 small text-muted">Signed in as {{ user_name }} ({{ user_role }})</span>
   <a href="{{ url_for('logout') }}">Logout</a>
 {% else %}
-  <a href="{{ url_for('login') }}">{{ t('staff_login') }}</a>
+  <a href="/admin">{{ t('staff_login') }}</a>
 {% endif %}
 
   {% if get_flashed_messages() %}
