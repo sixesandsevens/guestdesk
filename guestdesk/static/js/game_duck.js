@@ -184,6 +184,7 @@
   }
   function gameOver(){
     pause();
+    try { if (typeof window.submitScore === 'function') window.submitScore('duck', score||0); } catch(_){ }
     msgEl.textContent = "All lives lost — press Start to try again.";
     reset(true);
   }
@@ -203,7 +204,22 @@
   btnStart.onclick = ()=>{ if (!running){ start(); } };
   btnPause.onclick = ()=>{ running ? pause() : start(); };
 
+  // Mobile controls
+  function bindTap(id, fn){ const el=document.getElementById(id); if(!el) return; const h=(ev)=>{ ev.preventDefault(); fn(); }; el.addEventListener('touchstart', h, {passive:false}); el.addEventListener('click', h); }
+  bindTap('duckLeft', ()=>{ if (panel.classList.contains('active') && running) move(-1,0); });
+  bindTap('duckRight', ()=>{ if (panel.classList.contains('active') && running) move(1,0); });
+  bindTap('duckUp', ()=>{ if (panel.classList.contains('active') && running) move(0,-1); });
+  bindTap('duckDown', ()=>{ if (panel.classList.contains('active') && running) move(0,1); });
+  bindTap('duckStartTouch', ()=>{ if (!running) start(); });
+  bindTap('duckPauseTouch', ()=>{ running ? pause() : start(); });
+
   // init
   score = 0; lives = 3; level = 1; reset(true); draw();
-})();
 
+  // Expose minimal controls for outer tab manager
+  try {
+    window.duckPause = pause;
+    window.duckStart = start;
+    window.duckIsRunning = () => running;
+  } catch (_) {}
+})();

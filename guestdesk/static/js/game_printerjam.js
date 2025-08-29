@@ -167,6 +167,10 @@
   function start(){ if (running) return; running=true; msgEl.textContent=""; raf=requestAnimationFrame(tick); }
   function pause(){ if (!running) return; running=false; cancelAnimationFrame(raf); msgEl.textContent = msgEl.textContent||"Paused."; }
   function gameOver(){ pause(); msgEl.textContent = "Out of paper lives! Press Start to restart."; reset(true); }
+  // Score submit on game over
+  function submitIfAvailable(){ try { if (typeof window.submitScore === 'function') window.submitScore('printerjam', score||0); } catch(_){} }
+  const _oldGameOver = gameOver;
+  gameOver = function(){ submitIfAvailable(); _oldGameOver(); };
 
   // Input only when panel visible
   window.addEventListener('keydown', (e)=>{
@@ -177,11 +181,25 @@
   });
   window.addEventListener('keyup', (e)=>{ keys[e.key] = false; });
 
+  // Mobile controls (hold left/right, tap start/pause)
+  function bindHold(id, key){ const el=document.getElementById(id); if(!el) return; const down=(ev)=>{ ev.preventDefault(); keys[key]=true; }; const up=()=>{ keys[key]=false; }; ['touchstart','mousedown'].forEach(ev=>el.addEventListener(ev,down,{passive:false})); ['touchend','touchcancel','mouseup','mouseleave'].forEach(ev=>el.addEventListener(ev,up)); }
+  function bindTap(id, fn){ const el=document.getElementById(id); if(!el) return; const h=(ev)=>{ ev.preventDefault(); fn(); }; el.addEventListener('touchstart', h, {passive:false}); el.addEventListener('click', h); }
+  bindHold('jamLeft', 'ArrowLeft');
+  bindHold('jamRight', 'ArrowRight');
+  bindTap('jamStartTouch', ()=>{ if (!running) { if (msgEl.textContent.includes('restart')) reset(true); start(); } });
+  bindTap('jamPauseTouch', ()=>{ running ? pause() : start(); });
+
   // Controls
   btnStart.onclick = ()=>{ if (!running) { if (msgEl.textContent.includes("restart")) reset(true); start(); } };
   btnPause.onclick = ()=>{ running ? pause() : start(); };
 
   // init
   reset(true); draw();
-})();
 
+  // Expose minimal controls for outer tab manager
+  try {
+    window.jamPause = pause;
+    window.jamStart = start;
+    window.jamIsRunning = () => running;
+  } catch (_) {}
+})();
