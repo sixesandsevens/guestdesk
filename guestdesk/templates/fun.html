@@ -1,27 +1,568 @@
 {% extends 'base.html' %}
-{% import '_macros.html' as m %}
+
+{% block head %}
+<style>
+  /* Funzone scoped styles */
+  #funzone { color: #e8eaf6; }
+  #funzone .subtle { color:#9aa3b2; }
+  #funzone .zone { background: radial-gradient(80vw 80vh at 20% 10%, #1b2142 0, #0f1220 60%); border-radius:16px; border:1px solid #2a2e52; padding:16px; }
+  #funzone nav.tabs { display:grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap:10px; margin-bottom:16px; }
+  #funzone nav.tabs button { background:#161a34; color:#e8eaf6; border:1px solid #2a2e52; padding:10px 12px; border-radius:12px; cursor:pointer; text-align:left; transition: transform .08s ease, box-shadow .2s; }
+  #funzone nav.tabs button[aria-selected="true"]{ border-color:#7cf; outline:1px solid rgba(124,255,255,.2); transform: translateY(-1px); }
+  #funzone section.panel { display:none; background:#121633; border:1px solid #2a2e52; border-radius:16px; padding:18px; }
+  #funzone section.panel.active { display:block; }
+  #funzone h2 { margin: 0 0 12px 0; font-size:1.05rem; color:#cbd5ff; }
+  #funzone .row-flex { display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
+  #funzone .cardish { background:#0e1330; border:1px solid #2a2e52; border-radius:14px; padding:14px; }
+  #funzone .btnish { background:#1a1f3f; color:#e8eaf6; border:1px solid #2a2e52; padding:8px 12px; border-radius:10px; cursor:pointer; }
+  #funzone .btnish:hover { border-color:#7cf; }
+  #funzone input[type="number"], #funzone select { background:#0e1330; color:#e8eaf6; border:1px solid #2a2e52; border-radius:8px; padding:6px 8px; }
+  #funzone .result { font-variant-numeric: tabular-nums; }
+  #funzone .pill { padding:4px 8px; border-radius:999px; border:1px solid #2a2e52; }
+  #funzone canvas.game { background:#070a1f; width:100%; max-width:520px; aspect-ratio:1/1; border:1px solid #2a2e52; border-radius:12px; image-rendering: pixelated; }
+  #funzone .kbd { border:1px solid #2a2e52; background:#0c1130; padding:2px 6px; border-radius:6px; font-size:.85rem; color:#b9c2d6; }
+  #funzone .ok { color:#6ee7b7; } #funzone .bad { color:#f87171; }
+  #funzone .muted { color:#9aa3b2; }
+  /* Hide mobile overlays by default (desktop) */
+  .touchpad, .touchbar { display:none; }
+  /* Touch controls (hidden on desktop) */
+  .touch-only { display:none; }
+  @media (max-width: 768px) {
+    .row-flex { flex-direction: column; }
+    .game-wrap { position: relative; width: 100%; }
+    .touch-only { display:flex; }
+    .touchpad { position:absolute; left:8px; bottom:8px; display:grid; grid-template-columns:repeat(3,56px); grid-auto-rows:56px; gap:8px; z-index:10; }
+    .touchbar { position:absolute; right:8px; bottom:8px; display:flex; flex-direction:column; gap:8px; z-index:10; }
+    .touchbar.tetris { left:50%; right:auto; bottom:8px; transform: translateX(-50%); flex-direction:row; background: rgba(15,18,32,.4); padding:6px; border-radius:12px; }
+    .touchpad .btnish, .touchbar .btnish { width:56px; height:56px; padding:0; display:flex; align-items:center; justify-content:center; touch-action: none; user-select:none; }
+  }
+
+  /* Neon Mode (Konami) */
+  #funzone.neon .zone { background: radial-gradient(80vw 80vh at 50% 0%, #2b135b 0, #0b0f28 60%); }
+  #funzone.neon .cardish, #funzone.neon section.panel { box-shadow: 0 0 16px rgba(124,255,255,.15) inset, 0 0 30px rgba(124,255,255,.05); }
+  #funzone.neon nav.tabs button[aria-selected="true"] { box-shadow: 0 0 10px rgba(124,255,255,.25); }
+  #confettiCanvas { position: fixed; inset: 0; pointer-events: none; z-index: 9999; }
+
+  @media (prefers-reduced-motion: reduce) { #confettiCanvas { display:none; } }
+</style>
+{% endblock %}
 
 {% block content %}
 <h4 class="mb-3">{{ t('fun_zone') }}</h4>
-<div class="row g-3">
-  <div class="col-md-6">
-    <div class="card h-100"><div class="card-body">
-      <h6>Joke</h6>
-      <p>{{ joke }}</p>
-    </div></div>
-  </div>
-  <div class="col-md-6">
-    <div class="card h-100"><div class="card-body">
-      <h6>Quote</h6>
-      <p>{{ quote }}</p>
-    </div></div>
-  </div>
-  <div class="col-md-12">
-    <div class="card"><div class="card-body">
-      <h6>Trivia</h6>
-      <p class="mb-1"><strong>Q:</strong> {{ trivia_q }}</p>
-      <details><summary>Show answer</summary><p class="mt-2"><strong>A:</strong> {{ trivia_a }}</p></details>
-    </div></div>
-  </div>
+<canvas id="confettiCanvas" width="0" height="0" aria-hidden="true"></canvas>
+<div id="funzone" class="zone">
+  <nav class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-tab="feed">📰 Jokes & Trivia</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="arcade">🕹️ Retro Arcade</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="dice">🎲 Dice & Coin</button>
+  </nav>
+
+  <!-- Dice & Coin -->
+  <section id="panel-dice" class="panel" role="tabpanel" aria-labelledby="dice">
+    <h2>🎲 Dice Roller & 🪙 Coin Flipper</h2>
+    <div class="row-flex" style="gap:16px; flex-wrap:wrap;">
+      <div class="cardish" style="min-width:320px; flex:1">
+        <h6 class="mb-2">Dice</h6>
+        <div class="row-flex">
+          <label class="me-2">Die: 
+            <select id="die">
+              <option value="4">d4</option><option value="6" selected>d6</option>
+              <option value="8">d8</option><option value="10">d10</option>
+              <option value="12">d12</option><option value="20">d20</option>
+            </select>
+          </label>
+          <label class="me-2">Count: <input id="count" type="number" min="1" max="20" value="1" style="width:80px"></label>
+          <button class="btnish" id="roll">Roll</button>
+        </div>
+        <p class="muted">Tip: hold <span class="kbd">Shift</span> and click Roll to re-roll last.</p>
+        <div id="diceOut" class="result"></div>
+      </div>
+
+      <div class="cardish" style="min-width:260px; flex:1">
+        <h6 class="mb-2">Coin</h6>
+        <div class="row-flex">
+          <button class="btnish" id="flip">Flip Coin</button>
+          <span class="pill" id="streak">Streak: 0</span>
+        </div>
+        <div id="coinOut" class="result" style="font-size:1.1rem; margin-top:8px;"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Retro Arcade (Snake + Tetris + Leaderboards) -->
+  <section id="panel-arcade" class="panel" role="tabpanel" aria-labelledby="arcade">
+    <h2>🕹️ Retro Arcade</h2>
+    <div class="row-flex" style="align-items:flex-start; gap:16px;">
+      <div style="flex:2; min-width:320px;">
+        <!-- Micro tabs -->
+        <div class="row-flex" style="gap:8px; margin-bottom:8px;">
+          <button class="btnish" id="tabSnake" data-game="snake">Snake</button>
+          <button class="btnish" id="tabTetris" data-game="tetris">Tetris</button>
+          <button class="btnish" id="tabAsteroids" data-game="asteroids">Asteroids</button>
+        </div>
+        <!-- Snake -->
+        <div id="viewSnake">
+          <p class="muted">Controls: <span class="kbd">←</span> <span class="kbd">→</span> <span class="kbd">↑</span> <span class="kbd">↓</span> or <span class="kbd">WASD</span>. Press <span class="kbd">Space</span> to pause.</p>
+          <div class="row-flex">
+            <div class="game-wrap">
+              <canvas id="snakeCanvas" class="game" width="520" height="520" aria-label="Snake game board"></canvas>
+              <!-- mobile overlay controls -->
+              <div class="touchpad" aria-hidden="true">
+                <span></span><button class="btnish" id="snakeUp">↑</button><span></span>
+                <button class="btnish" id="snakeLeft">←</button><button class="btnish" id="snakeDown">↓</button><button class="btnish" id="snakeRight">→</button>
+              </div>
+              <div class="touchbar" aria-hidden="true">
+                <button class="btnish" id="snakeStartBtn">Start</button>
+                <button class="btnish" id="snakePauseBtn">Pause</button>
+              </div>
+            </div>
+            <div class="cardish" style="min-width:240px;">
+              <div class="row-flex"><button class="btnish" id="startSnake">Start</button><button class="btnish" id="pauseSnake">Pause</button></div>
+              <p>Speed: <select id="speedSel"><option value="130">Chill</option><option value="100" selected>Normal</option><option value="70">Spicy</option><option value="45">Florida Summer</option></select></p>
+              <p>Score: <span id="snakeScore" class="pill">0</span></p>
+            </div>
+          </div>
+        </div>
+        <!-- Asteroids -->
+        <div id="viewAsteroids" style="display:none;">
+          <p class="muted">Controls: <span class="kbd">←</span> <span class="kbd">→</span> rotate, <span class="kbd">↑</span> thrust, <span class="kbd">Space</span> fire, <span class="kbd">P</span> pause.</p>
+          <div class="row-flex">
+            <div class="game-wrap">
+              <canvas id="astroCanvas" class="game" width="600" height="450" aria-label="Asteroids game"></canvas>
+              <!-- mobile overlay controls -->
+              <div class="touchbar astro" aria-hidden="true" style="left:50%; right:auto; bottom:8px; transform: translateX(-50%); flex-direction:row; background: rgba(15,18,32,.4); padding:6px; border-radius:12px;">
+                <button class="btnish" id="astLeft">←</button>
+                <button class="btnish" id="astRight">→</button>
+                <button class="btnish" id="astThrust">↑</button>
+                <button class="btnish" id="astFire">•</button>
+                <button class="btnish" id="astPause">⏸</button>
+                <button class="btnish" id="astStart">▶</button>
+              </div>
+            </div>
+            <div class="cardish" style="min-width:240px;">
+              <div class="row-flex"><button class="btnish" id="astroStartBtn">Start</button><button class="btnish" id="astroPauseBtn">Pause</button></div>
+              <p>Score: <span id="astroScore" class="pill">0</span></p>
+              <p>Lives: <span id="astroLives" class="pill">3</span></p>
+              <p class="muted" id="astroMsg">Press Start to play.</p>
+            </div>
+          </div>
+        </div>
+        <!-- Tetris -->
+        <div id="viewTetris" style="display:none;">
+          <p class="muted">Controls: <span class="kbd">←</span> <span class="kbd">→</span> move, <span class="kbd">↓</span> soft drop, <span class="kbd">↑</span>/<span class="kbd">W</span> rotate, <span class="kbd">Space</span> hard drop, <span class="kbd">P</span> pause.</p>
+          <div class="row-flex">
+            <div class="game-wrap">
+              <canvas id="tetrisCanvas" class="game" width="360" height="720" aria-label="Tetris board"></canvas>
+              <!-- mobile overlay controls -->
+              <div class="touchbar tetris" aria-hidden="true">
+                <button class="btnish" id="tetLeft">←</button>
+                <button class="btnish" id="tetRotate">⟳</button>
+                <button class="btnish" id="tetRight">→</button>
+                <button class="btnish" id="tetSoft">↓</button>
+                <button class="btnish" id="tetHard">⤓</button>
+                <button class="btnish" id="tetPause">⏸</button>
+              </div>
+            </div>
+            <div class="cardish" style="min-width:240px;">
+              <div class="row-flex"><button class="btnish" id="startTetris">Start</button><button class="btnish" id="pauseTetris">Pause</button></div>
+              <p>Score: <span id="tetrisScore" class="pill">0</span></p>
+              <p>Lines: <span id="tetrisLines" class="pill">0</span></p>
+              <p>Level: <span id="tetrisLevel" class="pill">1</span></p>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cardish" style="flex:1; min-width:260px;">
+        <h6 class="mb-2">Leaderboards</h6>
+        <div class="mb-2">
+          <label class="form-label">Player Name</label>
+          <input id="playerName" class="form-control" placeholder="Anonymous" maxlength="40">
+        </div>
+        <div class="small muted mb-2">Scores submit automatically on game over.</div>
+        <div class="mb-2"><span id="scoreStatus" class="subtle"></span></div>
+        <ol id="scoresList" class="mb-0" style="padding-left: 18px;"></ol>
+      </div>
+    </div>
+  </section>
+
+  <!-- Feed: Joke/Quote/Trivia -->
+  <section id="panel-feed" class="panel active" role="tabpanel" aria-labelledby="feed">
+    <h2>📰 Jokes & Trivia</h2>
+    <div class="row g-3">
+      <div class="col-md-6">
+        <div class="cardish h-100">
+          <h6>Joke</h6>
+          <p class="mb-0">{{ joke }}</p>
+        </div>
+      </div>
+      <div class="col-md-6">
+        <div class="cardish h-100">
+          <h6>Quote</h6>
+          <p class="mb-0">{{ quote }}</p>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="cardish">
+          <h6>Trivia</h6>
+          <p class="mb-1"><strong>Q:</strong> {{ trivia_q }}</p>
+          <details><summary>Show answer</summary><p class="mt-2 mb-0"><strong>A:</strong> {{ trivia_a }}</p></details>
+        </div>
+      </div>
+    </div>
+  </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+// Tabs (main)
+const funTabs = document.querySelectorAll('#funzone .tab');
+const funPanels = {
+  dice: document.getElementById('panel-dice'),
+  arcade: document.getElementById('panel-arcade'),
+  feed: document.getElementById('panel-feed')
+};
+funTabs.forEach(t => t.addEventListener('click', () => {
+  funTabs.forEach(x => x.setAttribute('aria-selected','false'));
+  t.setAttribute('aria-selected','true');
+  Object.values(funPanels).forEach(p => p.classList.remove('active'));
+  funPanels[t.dataset.tab].classList.add('active');
+  // Boot arcade lazily when the tab is opened
+  if (t.dataset.tab === 'arcade') bootArcade();
+}));
+
+// Micro-tabs (arcade)
+let currentGame = 'snake';
+const tabSnake = document.getElementById('tabSnake');
+const tabTetris = document.getElementById('tabTetris');
+const tabAsteroids = document.getElementById('tabAsteroids');
+const viewSnake = document.getElementById('viewSnake');
+const viewTetris = document.getElementById('viewTetris');
+const viewAsteroids = document.getElementById('viewAsteroids');
+let arcadeReady = false;
+function ensureArcade(){
+  if (arcadeReady) return;
+  arcadeReady = true;
+  // install resize listener now that arcade is set up
+  window.addEventListener('resize', ()=>{ if (arcadeActive()) resizeArcade(); });
+}
+function setGame(g){
+  currentGame = g;
+  if (!arcadeReady) ensureArcade();
+  viewSnake.style.display = (g==='snake') ? 'block' : 'none';
+  viewTetris.style.display = (g==='tetris') ? 'block' : 'none';
+  if (viewAsteroids) viewAsteroids.style.display = (g==='asteroids') ? 'block' : 'none';
+  // pause background games
+  try { if (g!=='snake') pause(); } catch(e){}
+  try { if (g!=='tetris') pauseTetris(); } catch(e){}
+  try { if (g!=='asteroids') aPause(); } catch(e){}
+  loadScores(g);
+  resizeArcade();
+}
+tabSnake.addEventListener('click', ()=>setGame('snake'));
+tabTetris.addEventListener('click', ()=>setGame('tetris'));
+if (tabAsteroids) tabAsteroids.addEventListener('click', ()=>setGame('asteroids'));
+
+// Ensure arcade only initializes once when needed
+let arcadeBooted = false;
+function bootArcade(){
+  if (arcadeBooted) { if (arcadeActive()) resizeArcade(); return; }
+  arcadeBooted = true;
+  ensureArcade();
+  // Draw once before any gameplay
+  try { resetSnake(); draw(); } catch(e) {}
+  try { aReset(); aDraw(); } catch(e) {}
+  // Default to Snake view and load its scores
+  setGame('snake');
+  loadScores('snake');
+  resizeArcade();
+}
+
+// Responsive canvas sizing (Snake + Tetris) with devicePixelRatio
+function sizedCanvas(el, wCss, hCss){
+  const dpr = Math.max(1, Math.min(2, window.devicePixelRatio||1));
+  el.style.width = wCss+"px"; el.style.height = hCss+"px";
+  el.width = Math.floor(wCss*dpr); el.height = Math.floor(hCss*dpr);
+  const ctx = el.getContext('2d');
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  return {dpr};
+}
+function resizeSnake(){
+  const wrap = document.getElementById('viewSnake');
+  const canvas = document.getElementById('snakeCanvas');
+  if (!wrap || !canvas) return;
+  const max = 520;
+  const w = Math.max(240, Math.min(max, wrap.clientWidth - 4));
+  sizedCanvas(canvas, w, w);
+  // refresh cell size based on new pixel width
+  cell = Math.floor(w/26);
+  draw();
+}
+function resizeTetris(){
+  const wrap = document.getElementById('viewTetris');
+  const canvas = document.getElementById('tetrisCanvas');
+  if (!wrap || !canvas) return;
+  if (!tCanvas) tCanvas = canvas;
+  if (!tCtx) tCtx = tCanvas.getContext('2d');
+  const max = 420;
+  const w = Math.max(260, Math.min(max, wrap.clientWidth - 4));
+  const h = Math.floor(w*2); // 10x20
+  sizedCanvas(canvas, w, h);
+  TS = Math.floor(w/10);
+  drawTetris();
+}
+// Arcade resize will be installed on first arcade init
+function resizeArcade(){ if (typeof resizeSnake==='function') resizeSnake(); if (typeof resizeTetris==='function') resizeTetris(); if (typeof resizeAsteroids==='function') resizeAsteroids(); }
+
+// Dice & Coin
+let lastDie = 6, lastCnt = 1;
+const dieSel = document.getElementById('die');
+const cntInp = document.getElementById('count');
+const rollBtn = document.getElementById('roll');
+const diceOut = document.getElementById('diceOut');
+function rollDice(d, n){ const rolls = Array.from({length:n}, () => 1 + Math.floor(Math.random()*d)); const total = rolls.reduce((a,b)=>a+b,0); return {rolls, total}; }
+function renderDice({rolls,total}, d){ diceOut.innerHTML = `<div><b>${rolls.length}×d${d}</b> → [ ${rolls.join(', ')} ] = <b>${total}</b></div>`; }
+rollBtn.addEventListener('click', (e)=>{ let d = parseInt(dieSel.value,10); let n = Math.min(20, Math.max(1, parseInt(cntInp.value||'1',10))); if (e.shiftKey){ d = lastDie; n = lastCnt; } lastDie = d; lastCnt = n; renderDice(rollDice(d,n), d); });
+
+let streak = 0, lastFace = null; const flipBtn = document.getElementById('flip'); const coinOut = document.getElementById('coinOut'); const streakEl = document.getElementById('streak');
+flipBtn.addEventListener('click', ()=>{ const face = Math.random()<0.5 ? 'Heads' : 'Tails'; streak = (face === lastFace) ? streak+1 : 1; lastFace = face; coinOut.textContent = face; streakEl.textContent = `Streak: ${streak} ${face}`; });
+
+// Leaderboards
+const scoresList = document.getElementById('scoresList');
+const scoreStatus = document.getElementById('scoreStatus');
+const playerNameEl = document.getElementById('playerName');
+playerNameEl.value = localStorage.getItem('playerName') || '';
+playerNameEl.addEventListener('change', ()=>localStorage.setItem('playerName', playerNameEl.value.trim()));
+
+async function loadScores(game){
+  try {
+    scoresList.innerHTML = '<li class="subtle">Loading…</li>';
+    const res = await fetch(`/arcade/scores/${game}?limit=10`);
+    const data = await res.json();
+    const rows = (data.scores||[]);
+    if (!rows.length){
+      scoresList.innerHTML = '<li class="subtle">No scores yet — be the first!</li>';
+      return;
+    }
+    scoresList.innerHTML = rows.map((r,i)=>`<li>${i+1}. ${escapeHtml(r.name)} — <b>${r.score}</b></li>`).join('');
+  } catch (e) {
+    scoresList.innerHTML = '<li class="subtle">Could not load scores.</li>';
+  }
+}
+
+async function submitScore(game, score){
+  if (!score || score <= 0) return;
+  const name = (playerNameEl.value || 'Anonymous').trim() || 'Anonymous';
+  try {
+    scoreStatus.textContent = 'Submitting score…';
+    const res = await fetch(`/arcade/scores/${game}`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({name, score}) });
+    const data = await res.json();
+    if (data && data.ok){
+      const rankTxt = (data.rank ? `(rank #${data.rank})` : '');
+      scoreStatus.textContent = `Saved! ${name}: ${score} ${rankTxt}`;
+      loadScores(game);
+    } else {
+      scoreStatus.textContent = 'Could not save score.';
+    }
+  } catch (e) {
+    scoreStatus.textContent = 'Could not save score.';
+  }
+}
+
+// Escape HTML for safe rendering
+function escapeHtml(s){ return (s||'').replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])); }
+
+// Snake
+const canvas = document.getElementById('snakeCanvas');
+const ctx = canvas.getContext('2d');
+const N=26; let cell = Math.floor((canvas.clientWidth||520)/N);
+let snake, dir, food, loop, speed=100, playing=false, scoreS=0;
+function resetSnake(){ snake=[{x:12,y:12},{x:11,y:12},{x:10,y:12}]; dir={x:1,y:0}; dropFood(); scoreS=0; document.getElementById('snakeScore').textContent=scoreS; }
+function dropFood(){ do { food={ x:Math.floor(Math.random()*N), y:Math.floor(Math.random()*N) }; } while (snake.some(p=>p.x===food.x&&p.y===food.y)); }
+function step(){ const head = { x: (snake[0].x+dir.x+N)%N, y: (snake[0].y+dir.y+N)%N }; if (snake.some((p,i)=>i>0 && p.x===head.x && p.y===head.y)){ ctx.save(); ctx.fillStyle='rgba(248,113,113,.3)'; ctx.fillRect(0,0,canvas.width,canvas.height); ctx.restore(); playing=false; clearInterval(loop); submitScore('snake', scoreS); return; } snake.unshift(head); if (head.x===food.x && head.y===food.y) { scoreS++; document.getElementById('snakeScore').textContent=scoreS; dropFood(); } else snake.pop(); draw(); }
+function draw(){ const cw = cell*N, ch = cell*N; ctx.clearRect(0,0,cw,ch); ctx.globalAlpha=.07; ctx.strokeStyle='#7cf'; for(let i=0;i<=N;i++){ ctx.beginPath(); ctx.moveTo(i*cell,0); ctx.lineTo(i*cell,ch); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0,i*cell); ctx.lineTo(cw,i*cell); ctx.stroke(); } ctx.globalAlpha=1; ctx.fillStyle='#fbbf24'; ctx.fillRect(food.x*cell, food.y*cell, cell, cell); ctx.fillStyle='#6ee7b7'; snake.forEach((p)=>{ ctx.fillRect(p.x*cell, p.y*cell, cell, cell); }); }
+function start(){ if (playing) return; playing=true; loop=setInterval(step, speed); }
+function pause(){ if (!playing) return; playing=false; clearInterval(loop); }
+document.getElementById('startSnake').onclick = ()=>{ resetSnake(); start(); };
+document.getElementById('pauseSnake').onclick = ()=>{ if(playing) pause(); else start(); };
+document.getElementById('speedSel').onchange = (e)=>{ speed=parseInt(e.target.value,10); if(playing){ clearInterval(loop); loop=setInterval(step, speed); } };
+// Snake will be initialized when Arcade boots
+
+// Snake Controls only when snake view visible
+const keyDirs = { ArrowUp:{x:0,y:-1}, ArrowDown:{x:0,y:1}, ArrowLeft:{x:-1,y:0}, ArrowRight:{x:1,y:0}, w:{x:0,y:-1}, s:{x:0,y:1}, a:{x:-1,y:0}, d:{x:1,y:0} };
+function arcadeActive(){ const p=document.getElementById('panel-arcade'); return p && p.classList.contains('active'); }
+window.addEventListener('keydown', (e)=>{
+  if (currentGame!=='snake' || !arcadeActive()) return;
+  if (e.code==='Space'){ e.preventDefault(); if(playing) pause(); else start(); return; }
+  const k = (e.key && e.key.length===1) ? e.key.toLowerCase() : e.key;
+  if (!keyDirs[k]) return;
+  // stop page scrolling on arrows while playing
+  if (k && k.startsWith('Arrow')) e.preventDefault();
+  const nd = keyDirs[k];
+  if (snake.length>1 && (nd.x === -dir.x && nd.y === -dir.y)) return;
+  dir = nd;
+});
+
+// Tetris
+let tCanvas = document.getElementById('tetrisCanvas');
+let tCtx = tCanvas ? tCanvas.getContext('2d') : null;
+const T_W = 10, T_H = 20; let TS = Math.floor((tCanvas.clientWidth||360) / T_W);
+let tBoard, tPiece, tNext, tX, tY, tRot, tLoop, tSpeed=550, tPlaying=false, tScore=0, tLines=0, tLevel=1;
+const SHAPES = {
+  I: [[1,1,1,1]],
+  O: [[1,1],[1,1]],
+  T: [[0,1,0],[1,1,1]],
+  S: [[0,1,1],[1,1,0]],
+  Z: [[1,1,0],[0,1,1]],
+  J: [[1,0,0],[1,1,1]],
+  L: [[0,0,1],[1,1,1]],
+};
+const COLORS = { I:'#60a5fa', O:'#fbbf24', T:'#c4b5fd', S:'#6ee7b7', Z:'#f87171', J:'#7dd3fc', L:'#f59e0b' };
+function newBoard(){ tBoard = Array.from({length:T_H}, ()=>Array(T_W).fill(null)); }
+function clone(m){ return m.map(r=>r.slice()); }
+function rotate(mat){ const h=mat.length,w=mat[0].length; const out=Array.from({length:w}, ()=>Array(h).fill(0)); for(let y=0;y<h;y++) for(let x=0;x<w;x++) out[x][h-1-y]=mat[y][x]; return out; }
+function rndPiece(){ const keys = Object.keys(SHAPES); const k = keys[Math.floor(Math.random()*keys.length)]; return {k, m: clone(SHAPES[k])}; }
+function spawn(){ tPiece = tNext || rndPiece(); tNext = rndPiece(); tX = Math.floor((T_W - tPiece.m[0].length)/2); tY = 0; tRot=0; if (collide(tX,tY,tPiece.m)) { gameOverTetris(); } }
+function collide(nx, ny, mat){ for(let y=0;y<mat.length;y++){ for(let x=0;x<mat[0].length;x++){ if(!mat[y][x]) continue; const X=nx+x, Y=ny+y; if (X<0||X>=T_W||Y>=T_H) return true; if (Y>=0 && tBoard[Y][X]) return true; } } return false; }
+function place(){ for(let y=0;y<tPiece.m.length;y++){ for(let x=0;x<tPiece.m[0].length;x++){ if(tPiece.m[y][x]){ const Y=tY+y; if (Y>=0) tBoard[Y][tX+x]=tPiece.k; } } }
+  // clear lines
+  let cleared=0; for(let y=T_H-1;y>=0;y--){ if (tBoard[y].every(v=>v)){ tBoard.splice(y,1); tBoard.unshift(Array(T_W).fill(null)); cleared++; y++; } }
+  if (cleared){ const pts=[0,100,300,500,800][cleared]||0; tScore+=pts*tLevel; tLines+=cleared; if (tLines>=tLevel*10){ tLevel++; tSpeed=Math.max(90, tSpeed-50); if (tPlaying){ clearInterval(tLoop); tLoop=setInterval(tStep,tSpeed);} } updateTetrisHUD(); }
+}
+function drawCell(x,y,k){ tCtx.fillStyle = COLORS[k]||'#7cf'; tCtx.fillRect(x*TS,y*TS, TS-1, TS-1); }
+function drawTetris(){ if (!tCtx) return; tCtx.clearRect(0,0,tCanvas.clientWidth,tCanvas.clientHeight); for(let y=0;y<T_H;y++){ for(let x=0;x<T_W;x++){ const k=tBoard[y][x]; if(k) drawCell(x,y,k); } } if (tPiece){ for(let y=0;y<tPiece.m.length;y++) for(let x=0;x<tPiece.m[0].length;x++) if(tPiece.m[y][x]) drawCell(tX+x,tY+y,tPiece.k); } }
+function tStep(){ if (!tPiece) return; if (!collide(tX, tY+1, tPiece.m)){ tY++; } else { place(); spawn(); } drawTetris(); }
+function startTetris(){ if (tPlaying) return; tPlaying=true; if(!tCanvas){ tCanvas=document.getElementById('tetrisCanvas'); } if(!tCtx && tCanvas){ tCtx=tCanvas.getContext('2d'); } newBoard(); tScore=0; tLines=0; tLevel=1; tSpeed=550; TS = Math.floor((tCanvas.clientWidth||360) / T_W); updateTetrisHUD(); spawn(); drawTetris(); clearInterval(tLoop); tLoop=setInterval(tStep, tSpeed); }
+function pauseTetris(){ if (!tPlaying) return; tPlaying=false; clearInterval(tLoop); }
+function gameOverTetris(){ pauseTetris(); submitScore('tetris', tScore); }
+function move(dx){ if (!tPiece) return; if (!collide(tX+dx, tY, tPiece.m)){ tX+=dx; drawTetris(); } }
+function rotatePiece(){ if (!tPiece) return; const r=rotate(tPiece.m); if (!collide(tX, tY, r)){ tPiece.m=r; drawTetris(); } }
+function softDrop(){ if (!tPiece) return; if (!collide(tX, tY+1, tPiece.m)){ tY++; drawTetris(); } else { place(); spawn(); drawTetris(); } }
+function hardDrop(){ if (!tPiece) return; while(!collide(tX, tY+1, tPiece.m)) tY++; place(); spawn(); drawTetris(); }
+function updateTetrisHUD(){ document.getElementById('tetrisScore').textContent=tScore; document.getElementById('tetrisLines').textContent=tLines; document.getElementById('tetrisLevel').textContent=tLevel; }
+document.getElementById('startTetris').onclick = ()=> startTetris();
+document.getElementById('pauseTetris').onclick = ()=> pauseTetris();
+window.addEventListener('keydown', (e)=>{
+  if (currentGame!=='tetris' || !arcadeActive()) return;
+  const k = (e.key && e.key.length===1) ? e.key.toLowerCase() : e.key;
+  const isArrow = k && k.startsWith('Arrow');
+  if (isArrow || k===' '){ e.preventDefault(); }
+  if (k==='ArrowLeft') move(-1);
+  else if (k==='ArrowRight') move(1);
+  else if (k==='ArrowUp' || k==='w') rotatePiece();
+  else if (k==='ArrowDown') softDrop();
+  else if (k===' ') { hardDrop(); }
+  else if (k==='p'){ if (tPlaying) pauseTetris(); else startTetris(); }
+});
+
+// Touch/hold helpers
+function bindTap(id, fn){ const el=document.getElementById(id); if(!el) return; const h=(ev)=>{ ev.preventDefault(); fn(); }; el.addEventListener('touchstart', h, {passive:false}); el.addEventListener('click', h); el.addEventListener('mousedown', h); }
+function bindHold(id, fn, interval=110, initial=220){ const el=document.getElementById(id); if(!el) return; let d=false, t1, t2; const start=(ev)=>{ ev.preventDefault(); if(d) return; d=true; fn(); t1=setTimeout(()=>{ fn(); t2=setInterval(fn, interval); }, initial); }; const end=()=>{ if(!d) return; d=false; clearTimeout(t1); clearInterval(t2); }; ['touchstart','mousedown'].forEach(e=>el.addEventListener(e,start,{passive:false})); ['touchend','touchcancel','mouseup','mouseleave'].forEach(e=>el.addEventListener(e,end)); }
+
+// Touch controls (Snake)
+bindTap('snakeUp', ()=>{ if (currentGame!=='snake') return; const nd={x:0,y:-1}; if(!(snake.length>1 && nd.x === -dir.x && nd.y === -dir.y)) dir=nd; });
+bindTap('snakeDown', ()=>{ if (currentGame!=='snake') return; const nd={x:0,y:1}; if(!(snake.length>1 && nd.x === -dir.x && nd.y === -dir.y)) dir=nd; });
+bindTap('snakeLeft', ()=>{ if (currentGame!=='snake') return; const nd={x:-1,y:0}; if(!(snake.length>1 && nd.x === -dir.x && nd.y === -dir.y)) dir=nd; });
+bindTap('snakeRight', ()=>{ if (currentGame!=='snake') return; const nd={x:1,y:0}; if(!(snake.length>1 && nd.x === -dir.x && nd.y === -dir.y)) dir=nd; });
+bindTap('snakeStartBtn', ()=>{ if (currentGame!=='snake') return; resetSnake(); start(); });
+bindTap('snakePauseBtn', ()=>{ if (currentGame!=='snake') return; if(playing) pause(); else start(); });
+
+// Touch controls (Tetris)
+bindHold('tetLeft', ()=>{ if (currentGame!=='tetris') return; move(-1); });
+bindHold('tetRight', ()=>{ if (currentGame!=='tetris') return; move(1); });
+bindTap('tetRotate', ()=>{ if (currentGame!=='tetris') return; rotatePiece(); });
+bindHold('tetSoft', ()=>{ if (currentGame!=='tetris') return; softDrop(); }, 70, 120);
+bindTap('tetHard', ()=>{ if (currentGame!=='tetris') return; hardDrop(); });
+bindTap('tetPause', ()=>{ if (currentGame!=='tetris') return; if (tPlaying) pauseTetris(); else startTetris(); });
+
+// Asteroids
+let astroCanvas = document.getElementById('astroCanvas');
+let astroCtx = astroCanvas ? astroCanvas.getContext('2d') : null;
+let astroW = (astroCanvas && astroCanvas.clientWidth) ? astroCanvas.clientWidth : 600;
+let astroH = (astroCanvas && astroCanvas.clientHeight) ? astroCanvas.clientHeight : 450;
+let astroKeys = {};
+let astroShip, astroAsts=[], astroShots=[], astroScore=0, astroLives=3, astroRunning=false, astroLoop=null, astroSpawnDelay=0;
+const astroScoreEl = document.getElementById('astroScore');
+const astroLivesEl = document.getElementById('astroLives');
+const astroMsgEl   = document.getElementById('astroMsg');
+const astroStartBtn= document.getElementById('astroStartBtn');
+const astroPauseBtn= document.getElementById('astroPauseBtn');
+
+const ATAU = Math.PI*2;
+const arnd = (a,b)=> a + Math.random()*(b-a);
+const awrap = (x, max)=> (x<0? x+max : (x>=max? x-max : x));
+const adist2 = (a,b)=> { const dx=a.x-b.x, dy=a.y-b.y; return dx*dx+dy*dy; };
+
+function aNewShip(){ return { x: astroW/2, y: astroH/2, vx:0, vy:0, ang:-Math.PI/2, thrust:false, invul:120 }; }
+function aNewAst(size=3, x, y){ const rBase = size===3?48:size===2?28:16; const verts = 10+Math.floor(Math.random()*5); const poly=[]; for(let i=0;i<verts;i++){ const a=i/verts*ATAU; const r=rBase*arnd(0.75,1.3); poly.push({a,r}); } return { x:(x??arnd(0,astroW)), y:(y??arnd(0,astroH)), vx:arnd(-1.2,1.2), vy:arnd(-1.2,1.2), rot:arnd(-0.03,0.03), ang:arnd(0,ATAU), size, r:rBase, poly}; }
+function aNewShot(x,y,ang){ return { x, y, vx: Math.cos(ang)*6, vy: Math.sin(ang)*6, life: 50 }; }
+
+function aReset(){
+  if (!astroW || astroW <= 0) astroW = 600;
+  if (!astroH || astroH <= 0) astroH = 450;
+  astroShip=aNewShip(); astroAsts=[]; astroShots=[]; astroScore=0; astroLives=3; aSpawnWave(4); aHUD(); astroMsgEl.textContent='Good luck!';
+}
+function aSpawnWave(n){
+  const W = astroW && astroW > 0 ? astroW : 600;
+  const H = astroH && astroH > 0 ? astroH : 450;
+  for (let i=0;i<n;i++){
+    let a; let guard=0;
+    do { a=aNewAst(3, Math.random()*W, Math.random()*H); guard++; if (guard>200) break; } while (adist2(a, astroShip) < 200*200);
+    astroAsts.push(a);
+  }
+}
+function aHUD(){ astroScoreEl.textContent=astroScore; astroLivesEl.textContent=astroLives; }
+
+function aControl(){ if (astroKeys['ArrowLeft']||astroKeys['a']) astroShip.ang -= 0.08; if (astroKeys['ArrowRight']||astroKeys['d']) astroShip.ang += 0.08; astroShip.thrust = !!(astroKeys['ArrowUp']||astroKeys['w']); if (astroShip.thrust){ astroShip.vx += Math.cos(astroShip.ang)*0.16; astroShip.vy += Math.sin(astroShip.ang)*0.16; } astroShip.vx*=0.99; astroShip.vy*=0.99; if (astroKeys[' ']) { aFire(); astroKeys[' ']=false; } }
+function aFire(){ if (!astroRunning) return; if (astroShots.length>6) return; const nx = astroShip.x + Math.cos(astroShip.ang)*16; const ny= astroShip.y + Math.sin(astroShip.ang)*16; astroShots.push(aNewShot(nx, ny, astroShip.ang)); }
+
+function aTick(){ aControl(); astroShip.x = awrap(astroShip.x + astroShip.vx, astroW); astroShip.y = awrap(astroShip.y + astroShip.vy, astroH); if (astroShip.invul>0) astroShip.invul--; for (const s of astroShots){ s.x+=s.vx; s.y+=s.vy; s.life--; } astroShots = astroShots.filter(s=>s.life>0 && s.x>=-10 && s.x<=astroW+10 && s.y>=-10 && s.y<=astroH+10); for (const a of astroAsts){ a.x = awrap(a.x + a.vx, astroW); a.y = awrap(a.y + a.vy, astroH); a.ang += a.rot; }
+  let newA=[]; for (let i=astroAsts.length-1;i>=0;i--){ const a=astroAsts[i]; for (let j=astroShots.length-1;j>=0;j--){ const s=astroShots[j]; if (adist2(a,s) < (a.r*a.r)){ astroScore += (a.size===3?20:a.size===2?50:100); if (a.size>1){ for(let k=0;k<2;k++){ const na=aNewAst(a.size-1,a.x,a.y); na.vx += s.vx*0.1; na.vy += s.vy*0.1; newA.push(na); } } astroAsts.splice(i,1); astroShots.splice(j,1); break; } } } astroAsts.push(...newA);
+  if (astroShip.invul<=0){ for (const a of astroAsts){ if (adist2(a, astroShip) < (a.r+12)*(a.r+12)){ astroLives--; astroShip=aNewShip(); aHUD(); if (astroLives<=0){ aGameOver(); return; } break; } } }
+  if (astroAsts.length===0 && astroSpawnDelay--<=0){ astroSpawnDelay=30; aSpawnWave(3+Math.floor(astroScore/200)); }
+  aDraw();
+}
+
+function aDraw(){ if (!astroCtx) return; astroCtx.clearRect(0,0,astroW,astroH); astroCtx.globalAlpha=0.2; for(let i=0;i<40;i++){ astroCtx.fillStyle='#7cf'; astroCtx.fillRect((i*53)%astroW, (i*97)%astroH, 2, 2);} astroCtx.globalAlpha=1; astroCtx.save(); astroCtx.translate(astroShip.x, astroShip.y); astroCtx.rotate(astroShip.ang); astroCtx.strokeStyle='#e8eaf6'; astroCtx.lineWidth=2; astroCtx.beginPath(); astroCtx.moveTo(16,0); astroCtx.lineTo(-12,9); astroCtx.lineTo(-8,0); astroCtx.lineTo(-12,-9); astroCtx.closePath(); astroCtx.stroke(); if (astroShip.thrust){ astroCtx.strokeStyle='#fbbf24'; astroCtx.beginPath(); astroCtx.moveTo(-10,0); astroCtx.lineTo(-20,0); astroCtx.stroke(); } if (astroShip.invul>0){ astroCtx.globalAlpha=0.6; astroCtx.strokeStyle='#6ee7b7'; astroCtx.beginPath(); astroCtx.arc(0,0,16,0,ATAU); astroCtx.stroke(); astroCtx.globalAlpha=1; } astroCtx.restore(); astroCtx.fillStyle='#f87171'; for (const s of astroShots){ astroCtx.beginPath(); astroCtx.arc(s.x, s.y, 2, 0, ATAU); astroCtx.fill(); } astroCtx.strokeStyle='#9aa3b2'; astroCtx.lineWidth=2; for (const a of astroAsts){ astroCtx.save(); astroCtx.translate(a.x, a.y); astroCtx.rotate(a.ang); astroCtx.beginPath(); for (let i=0;i<a.poly.length;i++){ const v=a.poly[i]; const x=Math.cos(v.a)*v.r, y=Math.sin(v.a)*v.r; if (i===0) astroCtx.moveTo(x,y); else astroCtx.lineTo(x,y);} astroCtx.closePath(); astroCtx.stroke(); astroCtx.restore(); } }
+
+function aStart(){ if (astroRunning) return; astroRunning=true; astroMsgEl.textContent='Destroy all the rocks!'; clearInterval(astroLoop); astroLoop=setInterval(aTick, 1000/60); }
+function aPause(){ if (!astroRunning) return; astroRunning=false; clearInterval(astroLoop); astroMsgEl.textContent='Paused.'; }
+function aGameOver(){ aPause(); astroMsgEl.textContent='Game Over — press Start to try again.'; submitScore('asteroids', astroScore); }
+
+function resizeAsteroids(){ const wrap = document.getElementById('viewAsteroids'); const c = document.getElementById('astroCanvas'); if (!wrap || !c) return; if (!astroCanvas) astroCanvas=c; if (!astroCtx) astroCtx=astroCanvas.getContext('2d'); const max=600; const w = Math.max(260, Math.min(max, wrap.clientWidth-4)); const h = Math.floor(w*3/4); sizedCanvas(c, w, h); astroW = w; astroH = h; aDraw(); }
+
+// Keyboard (Asteroids)
+window.addEventListener('keydown', (e)=>{ if (currentGame!=='asteroids' || !arcadeActive()) return; const k=(e.key&&e.key.length===1)?e.key.toLowerCase():e.key; if (k===' '|| (k && k.startsWith('Arrow'))) e.preventDefault(); if (k==='p'){ if (astroRunning) aPause(); else aStart(); return; } astroKeys[k] = true; });
+window.addEventListener('keyup',   (e)=>{ if (currentGame!=='asteroids' || !arcadeActive()) return; const k=(e.key&&e.key.length===1)?e.key.toLowerCase():e.key; astroKeys[k] = false; });
+
+// Buttons (Asteroids)
+if (astroStartBtn) astroStartBtn.onclick = ()=>{ aReset(); aStart(); };
+if (astroPauseBtn) astroPauseBtn.onclick = ()=>{ astroRunning? aPause(): aStart(); };
+function bindPress(id, key){ const el=document.getElementById(id); if(!el) return; const down=(ev)=>{ ev.preventDefault(); astroKeys[key]=true; }; const up=()=>{ astroKeys[key]=false; }; ['touchstart','mousedown'].forEach(e=>el.addEventListener(e,down,{passive:false})); ['touchend','touchcancel','mouseup','mouseleave'].forEach(e=>el.addEventListener(e,up)); }
+function bindTapAst(id, fn){ const el=document.getElementById(id); if(!el) return; const h=(ev)=>{ ev.preventDefault(); fn(); }; el.addEventListener('touchstart', h, {passive:false}); el.addEventListener('click', h); el.addEventListener('mousedown', h); }
+bindPress('astLeft', 'ArrowLeft');
+bindPress('astRight', 'ArrowRight');
+bindPress('astThrust', 'ArrowUp');
+bindTapAst('astFire', ()=>{ astroKeys[' ']=true; });
+bindTapAst('astPause', ()=>{ astroRunning? aPause(): aStart(); });
+bindTapAst('astStart', ()=>{ aReset(); aStart(); });
+
+// Asteroids will be initialized when Arcade boots
+
+// Initialize (arcade booted on first open)
+
+// Konami (↑↑↓↓←→←→BA)
+const KONAMI = ["ArrowUp","ArrowUp","ArrowDown","ArrowDown","ArrowLeft","ArrowRight","ArrowLeft","ArrowRight","b","a"]; let buffer = [];
+function triggerKonami(){ document.getElementById('funzone').classList.toggle('neon'); confettiBurst(); try{ bloop(); }catch(_){} }
+window.addEventListener('keydown', (e)=>{ const key = e.key.length===1 ? e.key.toLowerCase() : e.key; buffer.push(key); if (buffer.length > KONAMI.length) buffer.shift(); if (KONAMI.every((k,i)=>buffer[i]===k)) { triggerKonami(); buffer.length = 0; } });
+
+// Confetti (no deps)
+const confettiCanvas = document.getElementById('confettiCanvas'); const cctx = confettiCanvas.getContext('2d'); let confetti, confettiAnim; let confettiActive=false;
+function resizeConfetti(){ confettiCanvas.width = innerWidth; confettiCanvas.height = innerHeight; }
+function confettiBurst(){ if (!confettiActive){ addEventListener('resize', resizeConfetti); resizeConfetti(); confettiActive=true; } const colors = ['#7cf','#6ee7b7','#fbbf24','#f87171','#c4b5fd','#60a5fa']; const N=160; confetti = Array.from({length:N}, ()=>({ x: Math.random()*innerWidth, y: -20 - Math.random()*60, vx: (Math.random()-0.5)*4, vy: 2 + Math.random()*3, rot: Math.random()*Math.PI*2, vr: (Math.random()-0.5)*0.2, size: 6+Math.random()*8, color: colors[Math.floor(Math.random()*colors.length)], life: 120 + Math.random()*60 })); cancelAnimationFrame(confettiAnim); drawConfetti(); }
+function drawConfetti(){ cctx.clearRect(0,0,confettiCanvas.width,confettiCanvas.height); let alive=0; for (const p of confetti){ if (p.life<=0) continue; alive++; p.x+=p.vx; p.y+=p.vy; p.rot+=p.vr; p.vy+=0.03; p.life--; cctx.save(); cctx.translate(p.x,p.y); cctx.rotate(p.rot); cctx.fillStyle=p.color; cctx.fillRect(-p.size/2,-p.size/2,p.size,p.size); cctx.restore(); } if (alive>0) confettiAnim=requestAnimationFrame(drawConfetti); else cctx.clearRect(0,0,confettiCanvas.width,confettiCanvas.height); }
+
+// Tiny “bloop” sound (WebAudio)
+function bloop(){ const ctx = new (window.AudioContext||window.webkitAudioContext)(); const o = ctx.createOscillator(); const g = ctx.createGain(); o.type='sine'; o.frequency.setValueAtTime(660, ctx.currentTime); g.gain.setValueAtTime(0.0001, ctx.currentTime); g.gain.exponentialRampToValueAtTime(0.2, ctx.currentTime+0.02); g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime+0.25); o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.28); }
+</script>
 {% endblock %}

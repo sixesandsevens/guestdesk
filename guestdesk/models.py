@@ -60,3 +60,13 @@ class User(Base):
     role = Column(String(16), nullable=False, default="viewer")  # viewer|editor|admin
     created_at = Column(DateTime, default=datetime.utcnow)
     approved = Column(Boolean, nullable=False, default=True)
+
+
+class GameScore(Base):
+    __tablename__ = 'game_scores'
+    id = Column(Integer, primary_key=True)
+    game = Column(String(32), nullable=False, index=True)  # e.g., 'snake', 'tetris'
+    name = Column(String(40), nullable=False, default='Anonymous')
+    score = Column(Integer, nullable=False, default=0, index=True)
+    meta = Column(Text, nullable=True)  # optional JSON blob (level, duration, etc.)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
