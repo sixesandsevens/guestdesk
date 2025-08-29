@@ -41,23 +41,31 @@
       </button>
       <div class="collapse navbar-collapse" id="navMain">
         <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-          <li class="nav-item"><a class="nav-link" href="/services">Directory</a></li>
-          <li class="nav-item"><a class="nav-link" href="/schedule">Schedule</a></li>
-          <li class="nav-item"><a class="nav-link" href="/report">Report</a></li>
-          <li class="nav-item"><a class="nav-link" href="/fun">Fun Zone</a></li>
-            <li class="nav-item"><a class="nav-link" href="/admin">Staff</a></li>
+          <li class="nav-item"><a class="nav-link" href="/services">{{ t('services') }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/schedule">{{ t('schedule') }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/report">{{ t('report_issue') }}</a></li>
+          <li class="nav-item"><a class="nav-link" href="/fun">{{ t('fun_zone') }}</a></li>
+            <li class="nav-item"><a class="nav-link" href="/admin">{{ t('admin') }}</a></li>
         </ul>
       </div>
     </div>
   </nav>
 
-  {% if get_flashed_messages() %}
+  {% with msgs = get_flashed_messages(with_categories=true) %}
+  {% if msgs %}
   <div class="container mt-3">
-    {% for m in get_flashed_messages() %}
-      <div class="alert alert-info">{{ m }}</div>
+    {% for category, m in msgs %}
+      {% set cls = 'info' %}
+      {% if category in ['success','danger','warning','info','primary','secondary','light','dark'] %}
+        {% set cls = category %}
+      {% elif category == 'error' %}
+        {% set cls = 'danger' %}
+      {% endif %}
+      <div class="alert alert-{{ cls }}">{{ m }}</div>
     {% endfor %}
   </div>
   {% endif %}
+  {% endwith %}
 
   {% block header %}{% endblock %}
 
