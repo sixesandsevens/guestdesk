@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 import json
 import html as htmlmod
 from urllib import request as urlreq, error as urlerr
-from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g
+from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g, jsonify
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
@@ -330,6 +330,72 @@ def create_app():
         })
 
         return render_template('fun.html', joke=joke, quote=quote, trivia_q=trivia_q, trivia_a=trivia_a)
+
+    @app.route('/funzone')
+    def funzone():
+        return render_template('funzone.html')
+
+    # ----- Arcade leaderboards (Snake/Tetris) -----
+    @app.route('/arcade/scores/<game>', methods=['GET'])
+    def arcade_scores(game: str):
+        game = (game or '').strip().lower()
+        limit = max(1, min(50, int(request.args.get('limit', 10))))
+        db = dbs()
+        try:
+            from .models import GameScore
+        except Exception:
+            return jsonify({"scores": []})
+        rows = (
+            db.query(GameScore)
+            .filter(GameScore.game == game)
+            .order_by(GameScore.score.desc(), GameScore.created_at.asc())
+            .limit(limit)
+            .all()
+        )
+        return jsonify({
+            "scores": [
+                {
+                    "id": r.id,
+                    "name": r.name,
+                    "score": r.score,
+                    "at": r.created_at.isoformat()
+                } for r in rows
+            ]
+        })
+
+    @app.route('/arcade/scores/<game>', methods=['POST'])
+    def arcade_submit_score(game: str):
+        game = (game or '').strip().lower()
+        if not game:
+            return jsonify({"ok": False, "error": "invalid game"}), 400
+        data = request.get_json(silent=True) or request.form
+        name = (data.get('name') or 'Anonymous').strip()
+        if len(name) > 40:
+            name = name[:40]
+        try:
+            score = int(data.get('score') or 0)
+        except Exception:
+            score = 0
+        if score <= 0:
+            return jsonify({"ok": False, "error": "invalid score"}), 400
+        try:
+            from .models import GameScore
+        except Exception:
+            return jsonify({"ok": False, "error": "model missing"}), 500
+        db = dbs()
+        row = GameScore(game=game, name=name or 'Anonymous', score=score)
+        db.add(row)
+        db.commit()
+        # compute rank (1-based)
+        try:
+            greater = db.execute(
+                "SELECT COUNT(1) FROM game_scores WHERE game = :g AND score > :s",
+                {"g": game, "s": score}
+            ).scalar() or 0
+            rank = int(greater) + 1
+        except Exception:
+            rank = None
+        return jsonify({"ok": True, "id": row.id, "rank": rank, "score": row.score, "name": row.name})
 
     # ----- Staff auth & admin -----
     def current_user():
