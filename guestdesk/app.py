@@ -274,25 +274,28 @@ def create_app():
     def login_required(fn):
         @wraps(fn)
         def _wrap(*a, **kw):
-            if not session.get('user_id'):
-                flash('Please log in.', 'warning')
-                return redirect(url_for('login', next=request.path))
-            return fn(*a, **kw)
+            # Let admin session OR a logged-in user through
+            if session.get("is_admin") or session.get("admin"):
+                return fn(*a, **kw)
+            u = getattr(g, "user", None)
+            if u:
+                return fn(*a, **kw)
+            return redirect(url_for("login", next=request.path))
         return _wrap
-
-    def roles_required(*roles):
-        def decorator(fn):
+    def roles_required(*required_roles):
+        def deco(fn):
             @wraps(fn)
             def _wrap(*a, **kw):
-                if not session.get('user_id'):
-                    flash('Please log in.', 'warning')
-                    return redirect(url_for('login', next=request.path))
-                if session.get('role') not in roles:
-                    abort(403)
-                return fn(*a, **kw)
+                # one-password admin (no DB user) bypasses role checks
+                if session.get("is_admin") or session.get("admin"):
+                    return fn(*a, **kw)
+                # real user must have one of the required roles
+                u = getattr(g, "user", None)
+                if u and ((getattr(u, "role", "") or "").lower() in [r.lower() for r in required_roles]):
+                    return fn(*a, **kw)
+                return abort(403)
             return _wrap
-        return decorator
-
+        return deco
     # Ensure there is at least one admin user
     db = dbs()
     if not db.query(User).filter(User.role == 'admin').first():
