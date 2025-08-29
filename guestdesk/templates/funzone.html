@@ -29,6 +29,13 @@
   canvas { background:#070a1f; width:100%; max-width:520px; aspect-ratio:1/1; border:1px solid #2a2e52; border-radius:12px; image-rendering: pixelated; }
   .kbd { border:1px solid #2a2e52; background:#0c1130; padding:2px 6px; border-radius:6px; font-size:.85rem; color:#b9c2d6; }
   .ok { color: var(--ok); } .bad { color: var(--bad); }
+  /* Mobile overlays for game controls */
+  .touchbar { display:none; }
+  @media (max-width: 768px) {
+    .game-wrap { position: relative; width: 100%; }
+    .touchbar { display:flex; position:absolute; left:50%; transform: translateX(-50%); bottom:8px; gap:8px; background: rgba(15,18,32,.4); padding:6px; border-radius:12px; z-index:10; }
+    .touchbar .btn { width:56px; height:56px; padding:0; display:flex; align-items:center; justify-content:center; touch-action:none; user-select:none; }
+  }
 
   /* Neon Mode (Konami) */
   body.neon { background: radial-gradient(80vw 80vh at 50% 0%, #2b135b 0, #0b0f28 60%); }
@@ -111,7 +118,16 @@
       <span class="kbd">Space</span> start/pause. Clear the “paper jam” bricks!
     </p>
     <div class="row">
-      <canvas id="jamCanvas" width="800" height="520" aria-label="Printer Jam Breakout"></canvas>
+      <div class="game-wrap">
+        <canvas id="jamCanvas" width="800" height="520" aria-label="Printer Jam Breakout"></canvas>
+        <!-- mobile controls -->
+        <div class="touchbar" aria-hidden="true">
+          <button class="btn" id="jamLeft">←</button>
+          <button class="btn" id="jamRight">→</button>
+          <button class="btn" id="jamPauseTouch">⏸</button>
+          <button class="btn" id="jamStartTouch">▶</button>
+        </div>
+      </div>
       <div class="card" style="min-width:240px;">
         <div class="row"><button class="btn" id="jamStart">Start</button><button class="btn" id="jamPause">Pause</button></div>
         <p>Level: <span id="jamLevel" class="pill">1</span></p>
@@ -129,15 +145,26 @@
       Controls: <span class="kbd">←</span><span class="kbd">→</span><span class="kbd">↑</span><span class="kbd">↓</span> to waddle,
       <span class="kbd">P</span> pause. Reach the pond at the top; avoid traffic!
     </p>
-    <div class="row">
+  <div class="row">
+    <div class="game-wrap">
       <canvas id="duckCanvas" width="800" height="560" aria-label="Duck Crossing"></canvas>
-      <div class="card" style="min-width:240px;">
-        <div class="row"><button class="btn" id="duckStart">Start</button><button class="btn" id="duckPause">Pause</button></div>
-        <p>Score: <span id="duckScore" class="pill">0</span></p>
-        <p>Lives: <span id="duckLives" class="pill">3</span></p>
-        <p class="muted" id="duckMsg">Press Start to play.</p>
+      <!-- mobile controls -->
+      <div class="touchbar" aria-hidden="true">
+        <button class="btn" id="duckLeft">←</button>
+        <button class="btn" id="duckUp">↑</button>
+        <button class="btn" id="duckDown">↓</button>
+        <button class="btn" id="duckRight">→</button>
+        <button class="btn" id="duckPauseTouch">⏸</button>
+        <button class="btn" id="duckStartTouch">▶</button>
       </div>
     </div>
+    <div class="card" style="min-width:240px;">
+      <div class="row"><button class="btn" id="duckStart">Start</button><button class="btn" id="duckPause">Pause</button></div>
+      <p>Score: <span id="duckScore" class="pill">0</span></p>
+      <p>Lives: <span id="duckLives" class="pill">3</span></p>
+      <p class="muted" id="duckMsg">Press Start to play.</p>
+    </div>
+  </div>
   </section>
 </main>
 
