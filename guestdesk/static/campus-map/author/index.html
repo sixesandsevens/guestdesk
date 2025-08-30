@@ -1,0 +1,75 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Interactive Map — Author</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="sidebar">
+    <h2>Author</h2>
+    <div class="section">
+      <label class="btn">
+        <input type="file" id="bgFile" accept="image/*" hidden>
+        Load background
+      </label>
+      <button id="fitBtn">Fit to screen</button>
+      <div class="hint">Pan: drag empty space • Zoom: wheel • Reset: 0</div>
+    </div>
+
+    <div class="section">
+      <div class="row">
+        <button id="polyBtn">Add polygon</button>
+        <button id="finishBtn" disabled>Finish</button>
+        <button id="cancelBtn" disabled>Cancel</button>
+      </div>
+      <div class="hint">Click to add vertices, double‑click to finish.</div>
+    </div>
+
+    <div class="section">
+      <h3>Selected</h3>
+      <div class="field">
+        <label>Name</label>
+        <input id="nameInput" placeholder="e.g., GRACE Dorm" />
+      </div>
+      <div class="field">
+        <label>Type</label>
+        <input id="typeInput" placeholder="building | room | service | outdoor" />
+      </div>
+      <div class="field">
+        <label>Services (comma)</label>
+        <input id="servicesInput" placeholder="laundry,wifi,showers" />
+      </div>
+      <div class="field">
+        <label>Target (optional)</label>
+        <input id="targetInput" placeholder="building-7.html or any link" />
+      </div>
+      <div class="row">
+        <button id="dupBtn" disabled>Duplicate (D)</button>
+        <button id="delBtn" disabled>Delete (Del)</button>
+      </div>
+      <div class="hint">Rotate: Hold R and drag (Shift+R = 15° steps)</div>
+    </div>
+
+    <div class="section">
+      <h3>Export</h3>
+      <button id="expSvg">Export SVG</button>
+      <button id="expGeo">Export GeoJSON</button>
+      <div class="hint small">SVG embeds metadata as data-* attributes</div>
+    </div>
+  </div>
+
+  <div class="stage" id="stage">
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+      <g id="viewport">
+        <image id="bg" href="" x="0" y="0" visibility="hidden"></image>
+        <g id="features"></g>
+        <g id="temp"></g>
+      </g>
+    </svg>
+  </div>
+
+  <script src="editor.js"></script>
+</body>
+</html>

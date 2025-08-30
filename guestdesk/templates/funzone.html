@@ -29,6 +29,13 @@
   canvas { background:#070a1f; width:100%; max-width:520px; aspect-ratio:1/1; border:1px solid #2a2e52; border-radius:12px; image-rendering: pixelated; }
   .kbd { border:1px solid #2a2e52; background:#0c1130; padding:2px 6px; border-radius:6px; font-size:.85rem; color:#b9c2d6; }
   .ok { color: var(--ok); } .bad { color: var(--bad); }
+  /* Mobile overlays for game controls */
+  .touchbar { display:none; }
+  @media (max-width: 768px) {
+    .game-wrap { position: relative; width: 100%; }
+    .touchbar { display:flex; position:absolute; left:50%; transform: translateX(-50%); bottom:8px; gap:8px; background: rgba(15,18,32,.4); padding:6px; border-radius:12px; z-index:10; }
+    .touchbar .btn { width:56px; height:56px; padding:0; display:flex; align-items:center; justify-content:center; touch-action:none; user-select:none; }
+  }
 
   /* Neon Mode (Konami) */
   body.neon { background: radial-gradient(80vw 80vh at 50% 0%, #2b135b 0, #0b0f28 60%); }
@@ -53,6 +60,8 @@
   <nav class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-tab="dice">🎲 Dice & Coin</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="snake">🕹️ Snake Game</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="printerjam">🖨️ Printer Jam Escape</button>
+    <button class="tab" role="tab" aria-selected="false" data-tab="duck">🦆 Duck Crossing</button>
   </nav>
 
   <!-- Dice & Coin -->
@@ -100,21 +109,77 @@
       </div>
     </div>
   </section>
+
+  <!-- Printer Jam Escape (Breakout) -->
+  <section id="panel-printerjam" class="panel" role="tabpanel" aria-labelledby="printerjam">
+    <h2>🖨️ Printer Jam Escape</h2>
+    <p class="muted">
+      Controls: <span class="kbd">←</span><span class="kbd">→</span> move,
+      <span class="kbd">Space</span> start/pause. Clear the “paper jam” bricks!
+    </p>
+    <div class="row">
+      <div class="game-wrap">
+        <canvas id="jamCanvas" width="800" height="520" aria-label="Printer Jam Breakout"></canvas>
+        <!-- mobile controls -->
+        <div class="touchbar touchbar--below" aria-hidden="true">
+          <button class="btn" id="jamLeft">←</button>
+          <button class="btn" id="jamRight">→</button>
+          <button class="btn" id="jamPauseTouch">⏸</button>
+          <button class="btn" id="jamStartTouch">▶</button>
+        </div>
+      </div>
+      <div class="card" style="min-width:240px;">
+        <div class="row"><button class="btn" id="jamStart">Start</button><button class="btn" id="jamPause">Pause</button></div>
+        <p>Level: <span id="jamLevel" class="pill">1</span></p>
+        <p>Score: <span id="jamScore" class="pill">0</span></p>
+        <p>Lives: <span id="jamLives" class="pill">3</span></p>
+        <p class="muted" id="jamMsg">Press Start to play.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Duck Crossing (Frogger-style) -->
+  <section id="panel-duck" class="panel" role="tabpanel" aria-labelledby="duck">
+    <h2>🦆 Duck Crossing</h2>
+    <p class="muted">
+      Controls: <span class="kbd">←</span><span class="kbd">→</span><span class="kbd">↑</span><span class="kbd">↓</span> to waddle,
+      <span class="kbd">P</span> pause. Reach the pond at the top; avoid traffic!
+    </p>
+  <div class="row">
+    <div class="game-wrap">
+      <canvas id="duckCanvas" width="800" height="560" aria-label="Duck Crossing"></canvas>
+      <!-- mobile controls -->
+      <div class="touchbar touchbar--below" aria-hidden="true">
+        <button class="btn" id="duckLeft">←</button>
+        <button class="btn" id="duckUp">↑</button>
+        <button class="btn" id="duckDown">↓</button>
+        <button class="btn" id="duckRight">→</button>
+        <button class="btn" id="duckPauseTouch">⏸</button>
+        <button class="btn" id="duckStartTouch">▶</button>
+      </div>
+    </div>
+    <div class="card" style="min-width:240px;">
+      <div class="row"><button class="btn" id="duckStart">Start</button><button class="btn" id="duckPause">Pause</button></div>
+      <p>Score: <span id="duckScore" class="pill">0</span></p>
+      <p>Lives: <span id="duckLives" class="pill">3</span></p>
+      <p class="muted" id="duckMsg">Press Start to play.</p>
+    </div>
+  </div>
+  </section>
 </main>
 
 <script>
-// ------- Tabs -------
-const tabs = document.querySelectorAll('.tab');
-const panels = {
-  dice: document.getElementById('panel-dice'),
-  snake: document.getElementById('panel-snake')
-};
-tabs.forEach(t => t.addEventListener('click', () => {
-  tabs.forEach(x => x.setAttribute('aria-selected','false'));
-  t.setAttribute('aria-selected','true');
-  Object.values(panels).forEach(p => p.classList.remove('active'));
-  panels[t.dataset.tab].classList.add('active');
-}));
+// ---- Tabs (auto-discover panels) ----
+const panels = Array.from(document.querySelectorAll('section.panel'))
+  .reduce((m,p)=>{ m[p.id.replace('panel-','')] = p; return m; }, {});
+document.querySelectorAll('.tab').forEach(t=>{
+  t.addEventListener('click', ()=>{
+    document.querySelectorAll('.tab').forEach(x=>x.setAttribute('aria-selected','false'));
+    t.setAttribute('aria-selected','true');
+    Object.values(panels).forEach(p=>p.classList.remove('active'));
+    panels[t.dataset.tab].classList.add('active');
+  });
+});
 
 // ------- Dice & Coin -------
 let lastDie = 6, lastCnt = 1;
@@ -299,5 +364,8 @@ function bloop(){
   o.connect(g).connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.28);
 }
 </script>
+<!-- Extra arcade games -->
+<script src="{{ url_for('static', filename='js/game_printerjam.js') }}?v=2"></script>
+<script src="{{ url_for('static', filename='js/game_duck.js') }}?v=2"></script>
 </body>
 </html>
