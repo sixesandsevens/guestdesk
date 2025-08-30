@@ -7,6 +7,7 @@
 
   const bgFile = document.getElementById('bgFile');
   const fitBtn = document.getElementById('fitBtn');
+  const rectBtn = document.getElementById('rectBtn');
   const polyBtn = document.getElementById('polyBtn');
   const finishBtn = document.getElementById('finishBtn');
   const cancelBtn = document.getElementById('cancelBtn');
@@ -18,6 +19,18 @@
   const delBtn = document.getElementById('delBtn');
   const expSvg = document.getElementById('expSvg');
   const expGeo = document.getElementById('expGeo');
+  const guidesG = document.getElementById('guides');
+  const gridRect = document.getElementById('gridRect');
+  const gridState = document.getElementById('gridState');
+  // snap UI
+  const ui = {
+    snapVertices: document.getElementById('snapVertices'),
+    snapEdges: document.getElementById('snapEdges'),
+    snapGrid: document.getElementById('snapGrid'),
+    gridSize: document.getElementById('gridSize'),
+    snapTol: document.getElementById('snapTol'),
+    toggleGrid: document.getElementById('toggleGrid'),
+  };
 
   // Pan/zoom state
   let scale = 1, tx = 0, ty = 0;
@@ -26,7 +39,7 @@
 
   let isPanning = false, lastX=0,lastY=0;
   svg.addEventListener('mousedown', (e)=>{
-    if (e.target === svg) { isPanning = true; lastX=e.clientX; lastY=e.clientY; }
+    if (e.target === svg && mode==='idle') { isPanning = true; lastX=e.clientX; lastY=e.clientY; }
   });
   window.addEventListener('mousemove', (e)=>{
     if(isPanning){ tx += (e.clientX-lastX); ty += (e.clientY-lastY); lastX=e.clientX; lastY=e.clientY; applyView(); }
@@ -77,14 +90,18 @@
   });
 
   // Authoring state
-  let mode = 'idle';
+  let mode = 'idle'; // idle | draw (polygon) | rect (dragging)
   let currentPoly = null;
+  let rectDraft = null; // {poly, anchor:{x,y}}
   let selected = null;
   let isRotating = false;
   let rotateStart = null;
 
   polyBtn.addEventListener('click', ()=>{
     mode='draw'; currentPoly = makePolygon(); tempG.appendChild(currentPoly.g); refreshButtons();
+  });
+  rectBtn.addEventListener('click', ()=>{
+    mode='rect'; rectDraft = null; refreshButtons();
   });
   finishBtn.addEventListener('click', ()=> finishDraw());
   cancelBtn.addEventListener('click', ()=> cancelDraw());
@@ -118,9 +135,45 @@
 
   svg.addEventListener('mousedown', (e)=>{
     if(mode==='draw'){
-      const pt = clientToDoc(e);
+      const pt = snapDoc(clientToDoc(e), null);
       currentPoly.points.push([pt.x, pt.y]);
       updatePoly(currentPoly);
+      clearGuides();
+    } else if (mode==='rect'){
+      // start rectangle drag
+      const a = snapDoc(clientToDoc(e), null);
+      const poly = makePolygon([[a.x,a.y],[a.x,a.y],[a.x,a.y],[a.x,a.y]]);
+      poly.p.classList.add('ghost');
+      tempG.appendChild(poly.g);
+      rectDraft = { poly, anchor: a };
+      // drag handlers
+      let dragging = true;
+      const move = (ev)=>{
+        if(!dragging || !rectDraft) return;
+        const p = snapDoc(clientToDoc(ev), null);
+        const x1 = rectDraft.anchor.x, y1 = rectDraft.anchor.y;
+        const x2 = p.x, y2 = p.y;
+        rectDraft.poly.points = [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
+        updatePoly(rectDraft.poly);
+      };
+      const up = ()=>{
+        if(!rectDraft) return;
+        dragging = false; window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); clearGuides();
+        // finalize
+        const pts = rectDraft.poly.points;
+        const bbOk = Math.abs(pts[1][0]-pts[0][0])>2 && Math.abs(pts[3][1]-pts[0][1])>2;
+        if(bbOk){
+          rectDraft.poly.p.classList.remove('ghost');
+          featuresG.appendChild(rectDraft.poly.g);
+          wireFeature(rectDraft.poly);
+          select(rectDraft.poly);
+        } else {
+          tempG.removeChild(rectDraft.poly.g);
+        }
+        rectDraft = null; mode='idle'; refreshButtons();
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
     }
   });
 
@@ -147,6 +200,73 @@
     return { x:(x - tx)/scale, y:(y - ty)/scale };
   }
 
+  // ===== Snapping
+  function dist(a,b){ const dx=a.x-b.x, dy=a.y-b.y; return Math.hypot(dx,dy); }
+  function bbox(points){
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    for (const [x,y] of points){ if (x<minX) minX=x; if (y<minY) minY=y; if (x>maxX) maxX=x; if (y>maxY) maxY=y; }
+    return {minX,minY,maxX,maxY};
+  }
+  function getAllFeatures(){ return Array.from(featuresG.querySelectorAll(':scope > g')); }
+  function getPointsOf(g){
+    const p = g.querySelector('polygon');
+    return p.getAttribute('points').trim().split(/\s+/).map(s=>s.split(',').map(Number));
+  }
+  function clearGuides(){ guidesG.innerHTML = ''; }
+  function showGuide(a,b){
+    guidesG.innerHTML = '';
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
+    line.setAttribute('x2', b.x); line.setAttribute('y2', b.y);
+    line.setAttribute('class', 'guide');
+    guidesG.appendChild(line);
+  }
+  function snapDoc(p, movingG){
+    const tol = +ui.snapTol.value;
+    const gsize = +ui.gridSize.value || 8;
+    const out = { x:p.x, y:p.y };
+    let best = { d: tol+1, x:null, y:null };
+
+    // grid
+    if (ui.snapGrid?.checked) {
+      const gx = Math.round(p.x / gsize) * gsize;
+      const gy = Math.round(p.y / gsize) * gsize;
+      if (Math.abs(gx - p.x) <= tol) { out.x = gx; best = { d: Math.abs(gx-p.x), x:gx, y:out.y }; }
+      if (Math.abs(gy - p.y) <= tol) { out.y = gy; best = { d: Math.min(best.d, Math.abs(gy-p.y)), x:out.x, y:gy }; }
+    }
+
+    // other shapes
+    for (const g of getAllFeatures()){
+      if (g === movingG) continue;
+      const pts = getPointsOf(g);
+      if (ui.snapVertices?.checked){
+        for (const [vx,vy] of pts){
+          const d = Math.hypot(p.x-vx, p.y-vy);
+          if (d < best.d && d <= tol){ best = { d, x:vx, y:vy }; }
+        }
+      }
+      if (ui.snapEdges?.checked){
+        const bb = bbox(pts);
+        const cand = [
+          {x:bb.minX, y:null}, {x:bb.maxX, y:null},
+          {x:null, y:bb.minY}, {x:null, y:bb.maxY},
+        ];
+        for (const c of cand){
+          if (c.x!=null){ const d = Math.abs(p.x - c.x); if (d < best.d && d <= tol) best = { d, x:c.x, y:out.y }; }
+          else { const d = Math.abs(p.y - c.y); if (d < best.d && d <= tol) best = { d, x:out.x, y:c.y }; }
+        }
+      }
+    }
+    if (best.d <= tol && (best.x!=null || best.y!=null)){
+      const snapped = { x: best.x!=null ? best.x : out.x, y: best.y!=null ? best.y : out.y };
+      showGuide(p, snapped);
+      return snapped;
+    } else {
+      clearGuides();
+      return out;
+    }
+  }
+
   function updatePoly(poly){
     poly.p.setAttribute('points', poly.points.map(pt=>pt.join(',')).join(' '));
     // rebuild vertices
@@ -160,11 +280,11 @@
       c.addEventListener('mousedown', (e)=>{ e.stopPropagation(); dragging=true; });
       window.addEventListener('mousemove', (e)=>{
         if(!dragging) return;
-        const d = clientToDoc(e);
+        const d = snapDoc(clientToDoc(e), poly.g);
         poly.points[i] = [d.x, d.y];
         updatePoly(poly);
       });
-      window.addEventListener('mouseup', ()=> dragging=false);
+      window.addEventListener('mouseup', ()=> { dragging=false; clearGuides(); });
     });
   }
 
@@ -193,12 +313,12 @@
       window.addEventListener('mouseup', upHandler);
       function moveHandler(ev){
         if(!dragging || isRotating) return;
-        const now = clientToDoc(ev);
+        const now = snapDoc(clientToDoc(ev), poly.g);
         const dx = now.x - start.x, dy = now.y - start.y;
         poly.points = orig.map(([x,y])=>[x+dx,y+dy]);
         updatePoly(poly);
       }
-      function upHandler(){ dragging=false; window.removeEventListener('mousemove',moveHandler); window.removeEventListener('mouseup',upHandler); }
+      function upHandler(){ dragging=false; window.removeEventListener('mousemove',moveHandler); window.removeEventListener('mouseup',upHandler); clearGuides(); }
     });
     updatePoly(poly);
   }
@@ -335,5 +455,22 @@
     a.href = URL.createObjectURL(new Blob([content], {type:'application/octet-stream'}));
     a.download = name; a.click();
   }
+
+  // ===== Grid controls
+  function applyGrid(){
+    const size = +ui.gridSize.value || 8;
+    const pat = document.getElementById('gridPattern');
+    if (pat){ pat.setAttribute('width', size); pat.setAttribute('height', size); }
+  }
+  applyGrid();
+  ui.gridSize?.addEventListener('change', applyGrid);
+  ui.toggleGrid?.addEventListener('click', ()=>{
+    const now = gridRect.style.opacity === '0' || !gridRect.style.opacity ? '0.25' : '0';
+    gridRect.style.opacity = now;
+    if (gridState) gridState.textContent = 'grid: ' + (now==='0' ? 'hidden' : 'shown');
+  });
+  // initial grid hidden
+  gridRect.style.opacity = '0';
+  if (gridState) gridState.textContent = 'grid: hidden';
 
 })();

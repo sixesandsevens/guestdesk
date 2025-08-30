@@ -20,11 +20,35 @@
 
     <div class="section">
       <div class="row">
+        <button id="rectBtn">Add rectangle</button>
         <button id="polyBtn">Add polygon</button>
         <button id="finishBtn" disabled>Finish</button>
         <button id="cancelBtn" disabled>Cancel</button>
       </div>
-      <div class="hint">Click to add vertices, double‑click to finish.</div>
+      <div class="hint">Polygon: click to add vertices, double‑click to finish.</div>
+    </div>
+
+    <div class="section">
+      <h3>Snap & grid</h3>
+      <div class="row" style="margin-bottom:8px">
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="snapVertices" checked /> Snap to vertices</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="snapEdges" checked /> Snap to edges</label>
+        <label style="display:flex;align-items:center;gap:6px;"><input type="checkbox" id="snapGrid" checked /> Snap to grid</label>
+      </div>
+      <div class="row">
+        <label style="display:flex;align-items:center;gap:6px;">
+          Grid size
+          <input id="gridSize" type="number" value="8" min="2" step="1" style="width:80px" />
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;">
+          Tolerance
+          <input id="snapTol" type="number" value="8" min="2" step="1" style="width:80px" />
+        </label>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <button id="toggleGrid">Show/Hide Grid</button>
+        <span class="pill" id="gridState">grid: hidden</span>
+      </div>
     </div>
 
     <div class="section">
@@ -62,9 +86,16 @@
 
   <div class="stage" id="stage">
     <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <pattern id="gridPattern" width="8" height="8" patternUnits="userSpaceOnUse">
+          <path d="M 8 0 L 0 0 0 8" class="grid" />
+        </pattern>
+      </defs>
       <g id="viewport">
+        <rect id="gridRect" width="100%" height="100%" fill="url(#gridPattern)" opacity="0" pointer-events="none"></rect>
         <image id="bg" href="" x="0" y="0" visibility="hidden"></image>
         <g id="features"></g>
+        <g id="guides"></g>
         <g id="temp"></g>
       </g>
     </svg>
