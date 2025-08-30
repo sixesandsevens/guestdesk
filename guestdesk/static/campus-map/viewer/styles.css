@@ -1,0 +1,16 @@
+html, body { height: 100%; margin: 0; font-family: system-ui, sans-serif; }
+body { display: grid; grid-template-columns: 320px 1fr; background:#0f1116; color:#e7e9ee; }
+.sidebar { padding: 14px; border-right: 1px solid #242734; overflow-y:auto; }
+.stage { position: relative; background:#0b0d12; }
+.section { margin: 16px 0; padding-bottom: 12px; border-bottom: 1px dashed #32384a; }
+.btn { background:#1f2433; color:#e7e9ee; border:1px solid #2e3447; padding:8px 10px; border-radius:8px; cursor:pointer; display:inline-block; }
+button { background:#1f2433; color:#e7e9ee; border:1px solid #2e3447; padding:8px 10px; border-radius:8px; cursor:pointer; }
+input { width:100%; background:#121521; border:1px solid #2e3447; color:#e7e9ee; padding:8px; border-radius:6px; }
+#svg { width: 100%; height: 100%; display:block; }
+.feature { fill: rgba(121, 196, 255, 0.15); stroke: #74b3ff; stroke-width: 2; cursor: pointer; }
+.feature:hover { stroke:#a7d1ff; }
+.feature.selected { stroke: #8bd7a9; fill: rgba(139, 215, 169, 0.16); }
+.badge { display:inline-block; background:#232a3d; border:1px solid #2f3751; padding:3px 8px; border-radius:999px; margin-right:6px; }
+#filters { display:flex; gap:6px; flex-wrap:wrap; margin-top:8px; }
+#filters .filter { background:#1b2030; border:1px solid #2e3447; padding:4px 8px; border-radius:999px; cursor:pointer; }
+#filters .filter.active { background:#315a7a; }
