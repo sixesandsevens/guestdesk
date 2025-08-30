@@ -1,0 +1,46 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Interactive Map — Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="sidebar">
+    <h2>Map Viewer</h2>
+    <div class="section">
+      <label class="btn">
+        <input type="file" id="bgFile" accept="image/*" hidden>
+        Load background (optional)
+      </label>
+      <label class="btn">
+        <input type="file" id="overlayFile" accept=".svg,.json" hidden>
+        Load overlay (SVG/GeoJSON)
+      </label>
+      <button id="fitBtn">Fit to screen</button>
+    </div>
+
+    <div class="section">
+      <input id="searchInput" placeholder="Search by name..." />
+      <div id="filters"></div>
+    </div>
+
+    <div class="section">
+      <div id="details">Select a feature…</div>
+    </div>
+  </div>
+
+  <div class="stage" id="stage">
+    <svg id="svg" xmlns="http://www.w3.org/2000/svg">
+      <g id="viewport">
+        <image id="bg" href="" x="0" y="0" visibility="hidden"></image>
+        <g id="features"></g>
+        <g id="labels"></g>
+      </g>
+    </svg>
+  </div>
+
+  <script src="viewer.js"></script>
+</body>
+</html>
