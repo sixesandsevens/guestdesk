@@ -18,3 +18,7 @@ h3 { margin: 8px 0; }
 .feature.selected { stroke: #8bd7a9; fill: rgba(139, 215, 169, 0.16); }
 .vertex { fill: #e7e9ee; stroke:#0b0d12; stroke-width:1; cursor: move; }
 .ghost { stroke-dasharray:5 4; opacity:.6; }
+/* snapping/grid visuals */
+.guide { stroke: #7ab7ff; stroke-width:1; stroke-dasharray:4 4; pointer-events:none; }
+.grid { stroke:#2a2f42; stroke-width:1; }
+.pill { padding:2px 8px; border-radius:999px; border:1px solid #2e3447; color:#9aa3b2; font-size:12px; }
