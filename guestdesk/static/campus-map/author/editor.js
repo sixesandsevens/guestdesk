@@ -39,7 +39,7 @@
 
   let isPanning = false, lastX=0,lastY=0;
   svg.addEventListener('mousedown', (e)=>{
-    if (e.target === svg && mode==='idle') { isPanning = true; lastX=e.clientX; lastY=e.clientY; }
+    if (e.target === svg && mode==='idle' && !sDown) { isPanning = true; lastX=e.clientX; lastY=e.clientY; }
   });
   window.addEventListener('mousemove', (e)=>{
     if(isPanning){ tx += (e.clientX-lastX); ty += (e.clientY-lastY); lastX=e.clientX; lastY=e.clientY; applyView(); }
@@ -96,6 +96,10 @@
   let selected = null;
   let isRotating = false;
   let rotateStart = null;
+  let isScaling = false;
+  let scalePrev = null;
+  let sDown = false;
+  let scalingDrag = null; // { startDoc, center, startDist, orig }
 
   polyBtn.addEventListener('click', ()=>{
     mode='draw'; currentPoly = makePolygon(); tempG.appendChild(currentPoly.g); refreshButtons();
@@ -134,6 +138,29 @@
   });
 
   svg.addEventListener('mousedown', (e)=>{
+    // Start uniform scale via click-drag anywhere while holding S
+    if (sDown && selected && mode==='idle'){
+      const start = clientToDoc(e);
+      const c = centroid(selected.points);
+      const startDist = Math.hypot(start.x - c.x, start.y - c.y) || 1e-6;
+      scalingDrag = { startDoc:start, center:c, startDist, orig: selected.points.map(p=>[...p]) };
+      isScaling = true;
+      isPanning = false;
+      const move = (ev)=>{
+        if(!isScaling || !scalingDrag) return;
+        const cur = clientToDoc(ev);
+        const d1 = Math.hypot(cur.x - scalingDrag.center.x, cur.y - scalingDrag.center.y) || 1e-6;
+        let f = d1 / scalingDrag.startDist;
+        if (window.event.shiftKey){ const step=1.05; f = Math.pow(step, Math.round(Math.log(f)/Math.log(step))); }
+        f = Math.max(0.05, Math.min(40, f));
+        selected.points = scalePoints(scalingDrag.orig, scalingDrag.center.x, scalingDrag.center.y, f);
+        updatePoly(selected);
+      };
+      const up = ()=>{ isScaling=false; scalingDrag=null; scalePrev=null; window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',up); };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      return;
+    }
     if(mode==='draw'){
       const pt = snapDoc(clientToDoc(e), null);
       currentPoly.points.push([pt.x, pt.y]);
@@ -148,6 +175,7 @@
       rectDraft = { poly, anchor: a };
       // drag handlers
       let dragging = true;
+      let moved = false;
       const move = (ev)=>{
         if(!dragging || !rectDraft) return;
         const p = snapDoc(clientToDoc(ev), null);
@@ -155,13 +183,22 @@
         const x2 = p.x, y2 = p.y;
         rectDraft.poly.points = [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
         updatePoly(rectDraft.poly);
+        if (Math.abs(x2-x1) > 1 || Math.abs(y2-y1) > 1) moved = true;
       };
       const up = ()=>{
         if(!rectDraft) return;
         dragging = false; window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); clearGuides();
         // finalize
         const pts = rectDraft.poly.points;
-        const bbOk = Math.abs(pts[1][0]-pts[0][0])>2 && Math.abs(pts[3][1]-pts[0][1])>2;
+        let bbOk = Math.abs(pts[1][0]-pts[0][0])>2 && Math.abs(pts[3][1]-pts[0][1])>2;
+        if (!bbOk && !moved) {
+          // create a default sized rectangle (120x80) anchored at click point
+          const x1 = rectDraft.anchor.x, y1 = rectDraft.anchor.y;
+          const x2 = x1 + 120, y2 = y1 + 80;
+          rectDraft.poly.points = [[x1,y1],[x2,y1],[x2,y2],[x1,y2]];
+          updatePoly(rectDraft.poly);
+          bbOk = true;
+        }
         if(bbOk){
           rectDraft.poly.p.classList.remove('ghost');
           featuresG.appendChild(rectDraft.poly.g);
@@ -212,8 +249,9 @@
     const p = g.querySelector('polygon');
     return p.getAttribute('points').trim().split(/\s+/).map(s=>s.split(',').map(Number));
   }
-  function clearGuides(){ guidesG.innerHTML = ''; }
+  function clearGuides(){ if (guidesG) guidesG.innerHTML = ''; }
   function showGuide(a,b){
+    if (!guidesG) return;
     guidesG.innerHTML = '';
     const line = document.createElementNS('http://www.w3.org/2000/svg','line');
     line.setAttribute('x1', a.x); line.setAttribute('y1', a.y);
@@ -279,7 +317,7 @@
       let dragging = false;
       c.addEventListener('mousedown', (e)=>{ e.stopPropagation(); dragging=true; });
       window.addEventListener('mousemove', (e)=>{
-        if(!dragging) return;
+        if(!dragging || isScaling) return;
         const d = snapDoc(clientToDoc(e), poly.g);
         poly.points[i] = [d.x, d.y];
         updatePoly(poly);
@@ -299,6 +337,12 @@
       return [cx + dx*c - dy*s, cy + dx*s + dy*c];
     });
   }
+  function scalePoints(points, cx, cy, f){
+    return points.map(([x,y])=>{
+      const dx = x - cx, dy = y - cy;
+      return [cx + dx*f, cy + dy*f];
+    });
+  }
 
   function wireFeature(poly){
     poly.p.classList.add('feature');
@@ -312,7 +356,7 @@
       window.addEventListener('mousemove', moveHandler);
       window.addEventListener('mouseup', upHandler);
       function moveHandler(ev){
-        if(!dragging || isRotating) return;
+        if(!dragging || isRotating || isScaling) return;
         const now = snapDoc(clientToDoc(ev), poly.g);
         const dx = now.x - start.x, dy = now.y - start.y;
         poly.points = orig.map(([x,y])=>[x+dx,y+dy]);
@@ -352,11 +396,13 @@
   // Rotate: hold R; Shift+R => 15° snapping
   window.addEventListener('keydown', (e)=>{
     if(e.key.toLowerCase()==='r' && selected){ isRotating = true; rotateStart = null; }
+    if(e.key.toLowerCase()==='s'){ sDown = true; if(selected){ isScaling = true; scalePrev = null; } }
     if(e.key.toLowerCase()==='d' && selected){ duplicate(); }
     if(e.key === 'Delete' && selected){ deleteSel(); }
   });
   window.addEventListener('keyup', (e)=>{
     if(e.key.toLowerCase()==='r'){ isRotating = false; rotateStart=null; }
+    if(e.key.toLowerCase()==='s'){ sDown = false; if(!scalingDrag){ isScaling = false; scalePrev=null; } }
   });
   window.addEventListener('mousemove', (e)=>{
     if(!isRotating || !selected) return;
@@ -373,6 +419,26 @@
     selected.points = rotatePoints(selected.points, c.x, c.y, da);
     updatePoly(selected);
     rotateStart = doc;
+  });
+
+  // Uniform scale: hold S and drag away/toward center
+  window.addEventListener('mousemove', (e)=>{
+    if(!isScaling || !selected) return;
+    const doc = clientToDoc(e);
+    const c = centroid(selected.points);
+    if(!scalePrev){ scalePrev = doc; return; }
+    const d0 = Math.hypot(scalePrev.x - c.x, scalePrev.y - c.y);
+    const d1 = Math.hypot(doc.x - c.x, doc.y - c.y);
+    if(d0 < 1e-6 || d1 < 1e-6){ scalePrev = doc; return; }
+    let f = d1 / d0;
+    if (window.event.shiftKey){
+      const step = 1.05; // ~5% steps
+      f = Math.pow(step, Math.round(Math.log(f)/Math.log(step)));
+    }
+    f = Math.max(0.05, Math.min(40, f));
+    selected.points = scalePoints(selected.points, c.x, c.y, f);
+    updatePoly(selected);
+    scalePrev = doc;
   });
 
   function duplicate(){
@@ -470,7 +536,7 @@
     if (gridState) gridState.textContent = 'grid: ' + (now==='0' ? 'hidden' : 'shown');
   });
   // initial grid hidden
-  gridRect.style.opacity = '0';
+  if (gridRect) gridRect.style.opacity = '0';
   if (gridState) gridState.textContent = 'grid: hidden';
 
 })();
