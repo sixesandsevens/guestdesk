@@ -38,12 +38,14 @@
   {% endfor %}
 </div>
 
-<h5 class="mt-4">{{ t('services') }}</h5>
-<div class="row g-2">
-  {% for c in cats %}
-    <div class="col-6 col-md-3 col-lg-2">
-      <a class="btn btn-outline-secondary w-100" href="{{ url_for('services', cat=c) }}">{{ c }} ({{ counts[c] }})</a>
-    </div>
-  {% endfor %}
-</div>
+{% if SHOW_HOME_SERVICES %}
+  <h5 class="mt-4">{{ t('services') }}</h5>
+  <div class="row g-2">
+    {% for c in cats %}
+      <div class="col-6 col-md-3 col-lg-2">
+        <a class="btn btn-outline-secondary w-100" href="{{ url_for('services', cat=c) }}">{{ c }} ({{ counts[c] }})</a>
+      </div>
+    {% endfor %}
+  </div>
+{% endif %}
 {% endblock %}

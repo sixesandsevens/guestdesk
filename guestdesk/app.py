@@ -72,6 +72,8 @@ def t(key):
 
 def create_app():
     app = Flask(__name__)
+    # Feature flags (available to templates)
+    app.config.setdefault("SHOW_HOME_SERVICES", False)
     # --- Jinja filter: "HH:MM" (24h) -> "h:MM AM/PM"
     def h12(t: str) -> str:
         if not t:
@@ -133,6 +135,11 @@ def create_app():
             user_name=session.get('username'),
             user_role=session.get('role'),
         )
+
+    @app.context_processor
+    def inject_flags():
+        # makes SHOW_HOME_SERVICES available in all templates
+        return dict(SHOW_HOME_SERVICES=app.config["SHOW_HOME_SERVICES"])
 
     @app.route('/lang/<code>')
     def set_lang(code):
