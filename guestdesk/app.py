@@ -5,11 +5,13 @@ import json
 import html as htmlmod
 from urllib import request as urlreq, error as urlerr
 from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g, jsonify
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from .models import Base, Service, ProgramSlot, Announcement, Submission, User
+from .emailer import send_issue_notification
+from guestdesk.analytics import init_analytics
 
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
@@ -91,20 +93,34 @@ def create_app():
 
     app.jinja_env.filters["h12"] = h12
     app.config['SECRET_KEY'] = SECRET_KEY
+    # Privacy analytics toggles
+    app.config.setdefault("ANALYTICS_ENABLED", True)
+    app.config.setdefault("ANALYTICS_IP_SALT", os.environ.get("ANALYTICS_IP_SALT", ""))
     os.makedirs(DATA_DIR, exist_ok=True)
     db_path = os.path.join(DATA_DIR, "guestdesk.db")
     engine = create_engine(f"sqlite:///{db_path}", future=True, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     Session = scoped_session(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False))
+    # Initialize analytics blueprint (and ensure table exists)
+    try:
+        init_analytics(app, engine)
+    except Exception:
+        # Keep app running even if analytics init fails
+        pass
 
     def dbs(): return Session()
 
-    # --- lightweight migration: ensure users.approved exists ---
+    # --- lightweight migration: ensure users.approved and service flags exist ---
     try:
         with engine.connect() as conn:
             cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(users)').all()]
             if 'approved' not in cols:
                 conn.exec_driver_sql('ALTER TABLE users ADD COLUMN approved INTEGER NOT NULL DEFAULT 1')
+            s_cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(services)').all()]
+            if 'availability' not in s_cols:
+                conn.exec_driver_sql("ALTER TABLE services ADD COLUMN availability TEXT NOT NULL DEFAULT 'scheduled'")
+            if 'is_offsite' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN is_offsite INTEGER NOT NULL DEFAULT 0')
     except Exception:
         # Best-effort; app can still run without this if table doesn't exist yet
         pass
@@ -226,6 +242,31 @@ def create_app():
             db = dbs()
             db.add(sub)
             db.commit()
+            # Send notification email (non-blocking on failure)
+            payload = {}
+            try:
+                obj = locals().get('sub') or locals().get('submission')
+                if obj:
+                    for k in (
+                        'id','kind','category','title','summary','description','details',
+                        'name','email','phone','priority','status','created','created_at','location',
+                        'building','contact_name','contact_info'
+                    ):
+                        if hasattr(obj, k):
+                            payload[k] = getattr(obj, k)
+            except Exception:
+                pass
+            try:
+                payload.update({k: v for k, v in (request.form or {}).items() if v})
+            except Exception:
+                pass
+            try:
+                payload['admin_url'] = url_for('admin_index', _external=True)
+            except Exception:
+                pass
+            ok, err = send_issue_notification(payload)
+            if not ok:
+                app.logger.error('Issue email failed: %s', err)
             return render_template('thanks.html', sub=sub)
         return render_template('submit_kind.html', kind=kind, form={})
 
@@ -504,13 +545,28 @@ def create_app():
     @app.route('/admin')
     def admin_index():
         # Admin/editor dashboard
+        # Safe defaults so template rendering never fails if queries error or user lacks access
+        svc_count = 0
+        ann_count = 0
+        sub_count = 0
+        recents = []
+
         if session.get('is_admin') or session.get('role') in ('admin', 'editor'):
-            db = dbs()
-            svc_count = db.query(Service).count()
-            ann_count = db.query(Announcement).count()
-            sub_count = db.query(Submission).count()
-            recents = db.query(Submission).order_by(Submission.created_at.desc()).limit(5).all()
-            return render_template('admin/index.html', svc_count=svc_count, ann_count=ann_count, sub_count=sub_count, recents=recents)
+            try:
+                db = dbs()
+                svc_count = db.query(Service).count()
+                ann_count = db.query(Announcement).count()
+                sub_count = db.query(Submission).count()
+                recents = (
+                    db.query(Submission)
+                    .order_by(Submission.created_at.desc())
+                    .limit(5)
+                    .all()
+                )
+            except Exception as e:
+                # Log and continue with defaults
+                app.logger.exception("Admin dashboard load failed: %s", e)
+        return render_template('admin/index.html', svc_count=svc_count, ann_count=ann_count, sub_count=sub_count, recents=recents)
         # logged in but not staff/admin -> send to staff login to switch accounts
         if session.get('user_id'):
             flash('Staff access only. Please sign in with a staff account.', 'warning')
@@ -519,6 +575,53 @@ def create_app():
         return redirect(url_for('login', next='/admin'))
 
     # --- manage services ---
+    @app.route('/admin/analytics')
+    @roles_required('admin')
+    def admin_analytics():
+        # Simple aggregated analytics dashboard
+        db_session = sessionmaker(bind=engine)()
+        try:
+            top_pages = db_session.execute(text(
+                """
+                SELECT path, COUNT(*) AS views, ROUND(AVG(duration_ms)) AS avg_ms
+                FROM analytics_events GROUP BY path ORDER BY views DESC LIMIT 20
+                """
+            )).mappings().all()
+
+            devices = db_session.execute(text(
+                """
+                SELECT COALESCE(device,'unknown') device, COUNT(*) cnt
+                FROM analytics_events GROUP BY device ORDER BY cnt DESC
+                """
+            )).mappings().all()
+
+            oses = db_session.execute(text(
+                """
+                SELECT os, COUNT(*) cnt FROM analytics_events
+                GROUP BY os ORDER BY cnt DESC LIMIT 10
+                """
+            )).mappings().all()
+
+            browsers = db_session.execute(text(
+                """
+                SELECT browser, COUNT(*) cnt FROM analytics_events
+                GROUP BY browser ORDER BY cnt DESC LIMIT 10
+                """
+            )).mappings().all()
+
+            totals = db_session.execute(text(
+                """
+                SELECT COUNT(*) AS events, COUNT(DISTINCT client_id) AS visitors
+                FROM analytics_events
+                """
+            )).mappings().first()
+
+            return render_template('admin/analytics.html',
+                top_pages=top_pages, devices=devices,
+                oses=oses, browsers=browsers, totals=totals)
+        finally:
+            db_session.close()
+
     @app.route('/admin/services')
     @roles_required('admin', 'editor')
     def admin_services():
@@ -534,6 +637,8 @@ def create_app():
             s = Service(
                 name=request.form.get('name') or 'Unnamed',
                 category=request.form.get('category') or 'Other',
+                availability=(request.form.get('availability') or 'scheduled'),
+                is_offsite=bool(request.form.get('is_offsite')),
                 description=request.form.get('description') or '',
                 location=request.form.get('location') or '',
                 contact=request.form.get('contact') or '',
@@ -545,6 +650,28 @@ def create_app():
             flash('Service created.', 'success')
             return redirect(url_for('admin_services'))
         return render_template('admin/services_new.html')
+
+    @app.route('/admin/services/<int:sid>/edit', methods=['GET', 'POST'])
+    @roles_required('admin', 'editor')
+    def admin_services_edit(sid: int):
+        db = dbs()
+        s = db.get(Service, sid)
+        if not s:
+            abort(404)
+        if request.method == 'POST':
+            s.name = request.form.get('name') or s.name
+            s.category = request.form.get('category') or s.category
+            s.availability = request.form.get('availability') or s.availability
+            s.is_offsite = bool(request.form.get('is_offsite'))
+            s.description = request.form.get('description') or ''
+            s.location = request.form.get('location') or ''
+            s.contact = request.form.get('contact') or ''
+            s.schedule_note = request.form.get('schedule_note') or ''
+            s.external_link = request.form.get('external_link') or ''
+            db.commit()
+            flash('Service updated.', 'success')
+            return redirect(url_for('admin_services'))
+        return render_template('admin/service_edit.html', service=s)
 
     @app.route('/admin/services/<int:sid>/delete', methods=['POST'])
     @roles_required('admin')
