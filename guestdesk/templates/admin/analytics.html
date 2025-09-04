@@ -1,0 +1,76 @@
+{% extends 'base.html' %}
+{% block content %}
+<h2>Analytics</h2>
+
+<div class="row g-4">
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="fw-semibold">Total Events</div>
+      <div class="display-6">{{ totals.events }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-3">
+    <div class="card"><div class="card-body">
+      <div class="fw-semibold">Unique Visitors</div>
+      <div class="display-6">{{ totals.visitors }}</div>
+    </div></div>
+  </div>
+  <div class="col-md-6"></div>
+  </div>
+
+<div class="row g-4 mt-1">
+  <div class="col-lg-6">
+    <div class="card"><div class="card-body">
+      <h5 class="card-title">Top Pages</h5>
+      <table class="table table-sm">
+        <thead><tr><th>Path</th><th class="text-end">Views</th><th class="text-end">Avg ms</th></tr></thead>
+        <tbody>
+        {% for r in top_pages %}
+        <tr>
+          <td><code>{{ r.path }}</code></td>
+          <td class="text-end">{{ r.views }}</td>
+          <td class="text-end">{{ r.avg_ms }}</td>
+        </tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div></div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card"><div class="card-body">
+      <h5 class="card-title">Devices</h5>
+      <table class="table table-sm">
+        <tbody>
+        {% for r in devices %}
+          <tr><td>{{ r.device }}</td><td class="text-end">{{ r.cnt }}</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      <div class="row">
+        <div class="col-sm-6">
+          <h6 class="mt-3">Top OS</h6>
+          <table class="table table-sm">
+            <tbody>
+              {% for r in oses %}
+              <tr><td>{{ r.os }}</td><td class="text-end">{{ r.cnt }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        <div class="col-sm-6">
+          <h6 class="mt-3">Top Browsers</h6>
+          <table class="table table-sm">
+            <tbody>
+              {% for r in browsers %}
+              <tr><td>{{ r.browser }}</td><td class="text-end">{{ r.cnt }}</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</div>
+{% endblock %}
+

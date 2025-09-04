@@ -8,12 +8,21 @@
 </div>
 <div class="table-responsive">
 <table class="table table-striped table-sm align-middle">
-  <thead><tr><th>Name</th><th>Category</th><th>Location</th><th>Contact</th><th>Schedule</th><th></th></tr></thead>
+  <thead><tr><th>Name</th><th>Tags</th><th>Location</th><th>Contact</th><th>Schedule</th><th></th></tr></thead>
   <tbody>
     {% for s in rows %}
     <tr>
-      <td><a href="{{ url_for('service_detail', sid=s.id) }}">{{ s.name }}</a></td>
-      <td>{{ s.category }}</td>
+      <td>
+        <a href="{{ url_for('service_detail', sid=s.id) }}">{{ s.name }}</a>
+        <div class="small"><a href="{{ url_for('admin_services_edit', sid=s.id) }}">Edit</a></div>
+      </td>
+      <td class="small">
+        {% if s.category %}<span class="badge bg-secondary-subtle text-dark">{{ s.category }}</span>{% endif %}
+        {% if s.availability == 'on_call' %}<span class="badge bg-warning text-dark">On call</span>{% endif %}
+        {% if s.availability == 'by_appt' %}<span class="badge bg-info text-dark">By appt</span>{% endif %}
+        {% if s.availability == 'hotline' %}<span class="badge bg-danger">Hotline</span>{% endif %}
+        {% if s.is_offsite %}<span class="badge bg-primary-subtle text-dark">Off-site</span>{% endif %}
+      </td>
       <td>{{ s.location }}</td>
       <td>{{ s.contact }}</td>
       <td><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_slots', sid=s.id) }}">Slots</a></td>

@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, func
 
 
 
@@ -12,6 +12,10 @@ class Service(Base):
     id = Column(Integer, primary_key=True)
     name = Column(String(120), nullable=False)
     category = Column(String(64), nullable=False) # Food, Showers, Laundry, Mail, ID, Medical, Legal, Employment, Transport, Other
+    # Availability mode: 'scheduled' | 'on_call' | 'by_appt' | 'hotline'
+    availability = Column(String(20), nullable=False, default='scheduled')
+    # Off-site / phone-only / mobile unit flag
+    is_offsite = Column(Boolean, nullable=False, default=False)
     description = Column(Text, nullable=True)
     location = Column(String(120), nullable=True)
     contact = Column(String(120), nullable=True)
@@ -70,3 +74,25 @@ class GameScore(Base):
     score = Column(Integer, nullable=False, default=0, index=True)
     meta = Column(Text, nullable=True)  # optional JSON blob (level, duration, etc.)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AnalyticsEvent(Base):
+    __tablename__ = "analytics_events"
+
+    id = Column(Integer, primary_key=True)
+    client_id = Column(String(64), index=True, nullable=True)
+    session_id = Column(String(64), index=True, nullable=True)
+    path = Column(Text, index=True, nullable=False)
+    referrer = Column(Text, nullable=True)
+
+    started_at = Column(DateTime, nullable=False)
+    ended_at = Column(DateTime, nullable=False)
+    duration_ms = Column(Integer, nullable=False, default=0)
+
+    ip_hash = Column(String(32), index=True, nullable=True)
+    user_agent = Column(Text, nullable=True)
+    device = Column(String(32), index=True)
+    os = Column(String(64), index=True)
+    browser = Column(String(64), index=True)
+
+    created_at = Column(DateTime, nullable=False, server_default=func.now())
