@@ -18,6 +18,23 @@
       </select>
     </div>
   </div>
+  <div class="row g-2 mt-1">
+    <div class="col-md-6">
+      <label class="form-label">Availability</label>
+      <select class="form-select" name="availability">
+        <option value="scheduled" selected>Scheduled (has posted times)</option>
+        <option value="on_call">On call / responds to requests</option>
+        <option value="by_appt">By appointment</option>
+        <option value="hotline">Hotline / 24×7 phone</option>
+      </select>
+    </div>
+    <div class="col-md-6 d-flex align-items-end">
+      <div class="form-check">
+        <input class="form-check-input" type="checkbox" id="is_offsite" name="is_offsite" value="1">
+        <label class="form-check-label" for="is_offsite">Off-site / phone-only / mobile unit</label>
+      </div>
+    </div>
+  </div>
   <div class="mb-2">
     <label class="form-label">Description</label>
     <textarea name="description" class="form-control" rows="5"></textarea>
