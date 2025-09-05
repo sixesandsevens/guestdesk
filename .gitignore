@@ -31,3 +31,10 @@ ENV/
 # Build artifacts
 dist/
 build/
+
+# env files
+.env
+opt/guestdesk/.env
+
+# env files
+/.env
