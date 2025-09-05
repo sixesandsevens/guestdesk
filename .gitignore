@@ -38,6 +38,8 @@ build/
 *.tar.gz
 *.tgz
 *.7z
+*.bak
+*.bak.*
 
 # Legacy one-off scripts
 apply_login_fix.py
