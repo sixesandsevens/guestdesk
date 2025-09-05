@@ -10,8 +10,8 @@ from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from .models import Base, Service, ProgramSlot, Announcement, Submission, User
-from .emailer import send_issue_notification
 from guestdesk.analytics import init_analytics
+from .mailer import send_category_notification
 
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
@@ -74,6 +74,13 @@ def t(key):
 
 def create_app():
     app = Flask(__name__)
+    # Load env-driven configuration (e.g., mail settings)
+    try:
+        app.config.from_object("guestdesk.config.Config")
+    except Exception:
+        # Safe to continue if config module is missing
+        pass
+    # Email is handled via guestdesk.mailer using env-driven SMTP; no Flask-Mail init needed.
     # Feature flags (available to templates)
     app.config.setdefault("SHOW_HOME_SERVICES", False)
     # --- Jinja filter: "HH:MM" (24h) -> "h:MM AM/PM"
@@ -156,6 +163,11 @@ def create_app():
     def inject_flags():
         # makes SHOW_HOME_SERVICES available in all templates
         return dict(SHOW_HOME_SERVICES=app.config["SHOW_HOME_SERVICES"])
+
+    @app.context_processor
+    def inject_asset_version():
+        # expose ASSET_VERSION for cache-busting static assets
+        return dict(ASSET_VERSION=app.config.get("ASSET_VERSION", "1"))
 
     @app.route('/lang/<code>')
     def set_lang(code):
@@ -242,33 +254,64 @@ def create_app():
             db = dbs()
             db.add(sub)
             db.commit()
-            # Send notification email (non-blocking on failure)
-            payload = {}
+            # Send category-specific notification (non-blocking on failure)
             try:
-                obj = locals().get('sub') or locals().get('submission')
-                if obj:
-                    for k in (
-                        'id','kind','category','title','summary','description','details',
-                        'name','email','phone','priority','status','created','created_at','location',
-                        'building','contact_name','contact_info'
-                    ):
-                        if hasattr(obj, k):
-                            payload[k] = getattr(obj, k)
-            except Exception:
-                pass
-            try:
-                payload.update({k: v for k, v in (request.form or {}).items() if v})
-            except Exception:
-                pass
-            try:
-                payload['admin_url'] = url_for('admin_index', _external=True)
-            except Exception:
-                pass
-            ok, err = send_issue_notification(payload)
-            if not ok:
-                app.logger.error('Issue email failed: %s', err)
+                msg_text = (
+                    (request.form.get('message') or '').strip()
+                    or (request.form.get('description') or '').strip()
+                    or (request.form.get('body') or '').strip()
+                )
+                extra_bits = []
+                if request.form.get('category'):
+                    extra_bits.append(f"Category: {request.form.get('category')}")
+                if request.form.get('building'):
+                    extra_bits.append(f"Building: {request.form.get('building')}")
+                if request.form.get('location'):
+                    extra_bits.append(f"Location: {request.form.get('location')}")
+                if request.form.get('contact_info'):
+                    extra_bits.append(f"Contact: {request.form.get('contact_info')}")
+                extra = "; ".join(extra_bits) if extra_bits else None
+
+                default_subjects = {
+                    'maintenance': 'GuestDesk: Maintenance Issue',
+                    'grievance': 'GuestDesk: Grievance',
+                    'suggestion': 'GuestDesk: Suggestion / Idea',
+                    'question': 'GuestDesk: Question',
+                }
+                subject = (request.form.get('subject') or '').strip() or default_subjects.get(kind, 'GuestDesk: Submission')
+
+                send_category_notification(
+                    kind,
+                    {
+                        'name': (request.form.get('contact_name') or '').strip() or None,
+                        'email': (request.form.get('email') or '').strip() or None,
+                        'phone': (request.form.get('phone') or '').strip() or None,
+                        'subject': subject,
+                        'message': msg_text,
+                        'url': request.url,
+                        'extra': extra,
+                    },
+                    reply_to=(request.form.get('email') or '').strip() or None,
+                )
+            except Exception as e:
+                app.logger.exception('Failed to send %s email: %s', kind, e)
             return render_template('thanks.html', sub=sub)
         return render_template('submit_kind.html', kind=kind, form={})
+
+    # Development-only mail smoke test
+    @app.get('/_mail_test')
+    def _mail_test():
+        try:
+            send_category_notification("maintenance", {
+                "name": "Smoke Test",
+                "email": "no-reply@gracemarketplace.org",
+                "message": "This is a smoke test from /_mail_test.",
+                "url": request.url,
+            })
+            return "ok", 200
+        except Exception as e:
+            app.logger.exception("Smoke test failed: %s", e)
+            return f"error: {e}", 500
 
     # ----- Fun zone -----
     OFFLINE_JOKES = [
@@ -381,7 +424,15 @@ def create_app():
 
     @app.route('/funzone')
     def funzone():
-        return render_template('funzone.html')
+        # Render base funzone then enhance with mobile controls script
+        html = render_template('funzone.html')
+        try:
+            js_url = url_for('static', filename='vendor/funzone_mobile.js')
+            if '</body>' in html:
+                html = html.replace('</body>', f'<script src="{js_url}"></script></body>')
+        except Exception:
+            pass
+        return html
 
     # ----- Arcade leaderboards (Snake/Tetris) -----
     @app.route('/arcade/scores/<game>', methods=['GET'])
