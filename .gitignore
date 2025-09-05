@@ -32,6 +32,16 @@ ENV/
 dist/
 build/
 
+# Archives and binary drops
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.7z
+
+# Legacy one-off scripts
+apply_login_fix.py
+
 # env files
 .env
 opt/guestdesk/.env
