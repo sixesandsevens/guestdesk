@@ -30,11 +30,66 @@
   </div>
   {% endif %}
 
+  {% if kind == 'grievance' %}
+  <div class="row g-2">
+    <div class="col-md-6">
+      <label class="form-label">Your Name *</label>
+      <input name="name" type="text" class="form-control" required value="{{ form.name or '' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Phone</label>
+      <input name="phone" type="tel" class="form-control" value="{{ form.phone or '' }}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Email</label>
+      <input name="email" type="email" class="form-control" value="{{ form.email or '' }}">
+    </div>
+  </div>
+  <div class="mb-2">
+    <label class="form-label">Staff Involved</label>
+    <input name="staff_involved" type="text" class="form-control" value="{{ form.staff_involved or '' }}">
+  </div>
+  <div class="mb-2">
+    <div class="form-check form-check-inline">
+      <input class="form-check-input" type="checkbox" name="involves_grace_staff" id="involves_grace_staff" {% if form.involves_grace_staff %}checked{% endif %}>
+      <label class="form-check-label" for="involves_grace_staff">GRACE Staff</label>
+    </div>
+    <div class="form-check form-check-inline">
+      <input class="form-check-input" type="checkbox" name="involves_policies" id="involves_policies" {% if form.involves_policies %}checked{% endif %}>
+      <label class="form-check-label" for="involves_policies">Policies &amp; Procedures</label>
+    </div>
+    <div class="form-check form-check-inline">
+      <input class="form-check-input" type="checkbox" name="involves_volunteer" id="involves_volunteer" {% if form.involves_volunteer %}checked{% endif %}>
+      <label class="form-check-label" for="involves_volunteer">Volunteer</label>
+    </div>
+    <div class="form-check form-check-inline">
+      <input class="form-check-input" type="checkbox" id="involves_other_chk" {% if form.involves_other %}checked{% endif %}>
+      <label class="form-check-label" for="involves_other_chk">Other</label>
+    </div>
+    <input class="form-control d-inline-block ms-2" style="max-width: 300px;" name="involves_other" type="text" placeholder="If Other, describe…" value="{{ form.involves_other or '' }}" {% if not form.involves_other %}disabled{% endif %}>
+  </div>
+  <div class="row g-2">
+    <div class="col-md-4">
+      <label class="form-label">Incident Date</label>
+      <input name="incident_date" type="date" class="form-control" value="{{ form.incident_date or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">Incident Time</label>
+      <input name="incident_time" type="time" class="form-control" value="{{ form.incident_time or '' }}">
+    </div>
+  </div>
+  <div class="mb-2 mt-2">
+    <label class="form-label">Description *</label>
+    <textarea name="description" class="form-control" rows="6" required>{{ form.description or '' }}</textarea>
+  </div>
+  {% else %}
   <div class="mb-2">
     <label class="form-label">Details *</label>
     <textarea name="body" class="form-control" rows="6" required>{{ form.body or '' }}</textarea>
   </div>
+  {% endif %}
 
+  {% if kind != 'grievance' %}
   <div class="row g-2">
     <div class="col-md-6">
       <label class="form-label">Your Name (optional)</label>
@@ -45,9 +100,20 @@
       <input name="contact_info" class="form-control" placeholder="phone or email" value="{{ form.contact_info or '' }}">
     </div>
   </div>
+  {% endif %}
 
   <div class="mt-3">
     <button class="btn btn-primary">{{ t('submit') }}</button>
   </div>
 </form>
+{% if kind == 'grievance' %}
+<script>
+  (function(){
+    const chk = document.getElementById('involves_other_chk');
+    const txt = document.querySelector('input[name="involves_other"]');
+    function sync(){ txt.disabled = !chk.checked; if(!chk.checked){ txt.value=''; } }
+    if(chk && txt){ chk.addEventListener('change', sync); sync(); }
+  })();
+</script>
+{% endif %}
 {% endblock %}

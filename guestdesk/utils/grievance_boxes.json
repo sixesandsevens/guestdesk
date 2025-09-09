@@ -1,0 +1,20 @@
+{
+  "name":              [79, 700, 260, 20],
+  "phone":             [139, 708, 200, 16],
+  "email":             [398, 708, 220, 16],
+  "staff_involved":    [240, 678, 300, 16],
+
+  "involves_staff":    [128, 644, 14, 14],
+  "involves_policies": [318, 644, 14, 14],
+  "involves_volunteer":[438, 644, 14, 14],
+  "involves_other_chk":[528, 644, 14, 14],
+  "involves_other_txt":[575, 644, 60, 14],
+
+  "incident_date":     [127, 620, 140, 16],
+  "incident_time":     [342, 620, 120, 16],
+
+  "description":       [40, 624, 535, 110],
+
+  "id":                [482, 773, 150, 12],
+  "submitted":         [482, 764, 150, 12]
+}

@@ -307,7 +307,8 @@ def create_app():
         if kind not in ['maintenance','grievance','suggestion','question']:
             abort(404)
         if request.method == 'POST':
-            body = (request.form.get('body') or '').strip()
+            # Accept 'description' as the required field for grievances
+            body = ((request.form.get('description') or '') if kind == 'grievance' else (request.form.get('body') or '')).strip()
             if not body:
                 flash('Please add some details.', 'danger')
                 return render_template('submit_kind.html', kind=kind, form=request.form)
@@ -390,13 +391,43 @@ def create_app():
                     pdf_bytes = None
                     if render_grievance_pdf is not None:
                         try:
-                            render_grievance_pdf(
+                            result = render_grievance_pdf(
                                 data,
                                 current_app.config.get('GRIEVANCE_TEMPLATE_PDF'),
                                 pdf_path,
                             )
-                            with open(pdf_path, 'rb') as f:
-                                pdf_bytes = f.read()
+                            try:
+                                app.logger.info(
+                                    'grievance_pdf: result_type=%s tuple=%s path=%s',
+                                    type(result).__name__, isinstance(result, tuple), pdf_path
+                                )
+                            except Exception:
+                                pass
+                            # Newer utils return (path, bytes). Backward-compat: if only path, read from disk.
+                            if isinstance(result, tuple) and len(result) == 2:
+                                pdf_bytes = result[1]
+                            else:
+                                # Legacy: try to read from disk if it exists; otherwise create a minimal in-memory PDF
+                                import os as _os
+                                if _os.path.exists(pdf_path):
+                                    with open(pdf_path, 'rb') as f:
+                                        pdf_bytes = f.read()
+                                else:
+                                    try:
+                                        import io as _io
+                                        from reportlab.pdfgen import canvas as _canvas
+                                        from reportlab.lib.pagesizes import letter as _letter
+                                        _buf = _io.BytesIO()
+                                        _c = _canvas.Canvas(_buf, pagesize=_letter)
+                                        _c.setFont('Helvetica-Bold', 12)
+                                        _c.drawString(40, 770, f'Grievance {grv_id}')
+                                        _c.setFont('Helvetica', 10)
+                                        _c.drawString(40, 752, f'Submitted: {data["submitted_at"]}')
+                                        _c.drawString(40, 736, 'Attachment generated without template (fallback).')
+                                        _c.save()
+                                        pdf_bytes = _buf.getvalue()
+                                    except Exception:
+                                        pdf_bytes = None
                         except Exception as _e:
                             app.logger.exception('Failed to render grievance PDF: %s', _e)
 
