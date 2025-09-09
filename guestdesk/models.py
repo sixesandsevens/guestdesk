@@ -154,3 +154,9 @@ class ServiceOverride(Base):
 
 from sqlalchemy.orm import relationship
 ServiceSeries.overrides = relationship("ServiceOverride", backref="series", cascade="all, delete-orphan")
+
+# ---- App Settings (key/value store) ----
+class Setting(Base):
+    __tablename__ = 'settings'
+    key = Column(String(64), primary_key=True)
+    value = Column(Text, nullable=True)

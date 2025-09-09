@@ -31,10 +31,38 @@ class Config:
     )
 
     # Recipient defaults for categories (override via env)
+    # Legacy single-address envs are still honored as fallbacks
     ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "admin@gracemarketplace.org")
     GRIEVANCE_EMAIL = os.getenv("GRIEVANCE_EMAIL", "jkupfer@gracemarketplace.org")
     SUGGESTION_EMAIL = os.getenv("SUGGESTION_EMAIL", "jkupfer@gracemarketplace.org")
     QUESTION_EMAIL = os.getenv("QUESTION_EMAIL", "jkupfer@gracemarketplace.org")
 
+    # List-based recipient settings (comma-separated in env)
+    MAINTENANCE_EMAIL_TO = [x.strip() for x in (os.getenv("MAINTENANCE_EMAIL_TO") or ADMIN_EMAIL).split(',') if x.strip()]
+    SUGGESTION_EMAIL_TO = [x.strip() for x in (os.getenv("SUGGESTION_EMAIL_TO") or SUGGESTION_EMAIL).split(',') if x.strip()]
+    QUESTION_EMAIL_TO   = [x.strip() for x in (os.getenv("QUESTION_EMAIL_TO")   or QUESTION_EMAIL).split(',') if x.strip()]
+
     # Static asset version for cache-busting (optional)
     ASSET_VERSION = os.getenv("ASSET_VERSION", "1")
+
+    # --- Grievance PDF settings ---
+    GRIEVANCE_TEMPLATE_PDF = os.getenv(
+        "GRIEVANCE_TEMPLATE_PDF",
+        "/opt/guestdesk/guestdesk/static/pdf/Grievance_template.pdf",
+    )
+    GRIEVANCE_ARCHIVE_DIR = os.getenv(
+        "GRIEVANCE_ARCHIVE_DIR",
+        "/opt/guestdesk/forms/grievances",
+    )
+    GRIEVANCE_EMAIL_TO = (
+        os.getenv(
+            "GRIEVANCE_EMAIL_TO",
+            "jkupfer@gracemarketplace.org,matt@example.org",
+        ).split(",")
+    )
+    GRIEVANCE_EMAIL_CC = (
+        os.getenv("GRIEVANCE_EMAIL_CC", "").split(",")
+        if os.getenv("GRIEVANCE_EMAIL_CC")
+        else []
+    )
+    GRIEVANCE_FROM = os.getenv("GRIEVANCE_FROM", "no-reply@guestdesk.local")

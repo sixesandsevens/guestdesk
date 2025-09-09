@@ -45,7 +45,9 @@
           <li class="nav-item"><a class="nav-link" href="/schedule">{{ t('schedule') }}</a></li>
           <li class="nav-item"><a class="nav-link" href="/report">{{ t('report_issue') }}</a></li>
           <li class="nav-item"><a class="nav-link" href="/fun">{{ t('fun_zone') }}</a></li>
+          {% if user_role in ['admin', 'editor'] %}
           <li class="nav-item"><a class="nav-link" href="/admin">{{ t('admin') }}</a></li>
+          {% endif %}
           {% if user_name %}
             <li class="nav-item"><span class="nav-link disabled">Hi, {{ user_name }}</span></li>
             <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">{{ t('logout') }}</a></li>

@@ -4,15 +4,15 @@ from datetime import datetime, timedelta
 import json
 import html as htmlmod
 from urllib import request as urlreq, error as urlerr
-from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g, jsonify
+from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g, jsonify, current_app
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride
+from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting
 from guestdesk.analytics import init_analytics
 from .services_calendar import expand_between
-from .mailer import send_category_notification
+from .mailer import send_category_notification, send_mail
 
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
@@ -117,6 +117,23 @@ def create_app():
         pass
 
     def dbs(): return Session()
+
+    # Load settings from DB into app.config (override defaults)
+    try:
+        db = dbs()
+        for s in db.query(Setting).all():
+            key = s.key
+            val = s.value or ""
+            if key in (
+                "GRIEVANCE_EMAIL_TO", "GRIEVANCE_EMAIL_CC",
+                "MAINTENANCE_EMAIL_TO", "SUGGESTION_EMAIL_TO", "QUESTION_EMAIL_TO",
+            ):
+                app.config[key] = [x.strip() for x in val.split(',') if x.strip()]
+            else:
+                app.config[key] = val
+        db.close()
+    except Exception:
+        pass
 
     # --- lightweight migration: ensure users.approved and service flags exist ---
     try:
@@ -333,19 +350,93 @@ def create_app():
                 }
                 subject = (request.form.get('subject') or '').strip() or default_subjects.get(kind, 'GuestDesk: Submission')
 
-                send_category_notification(
-                    kind,
-                    {
-                        'name': (request.form.get('contact_name') or '').strip() or None,
-                        'email': (request.form.get('email') or '').strip() or None,
-                        'phone': (request.form.get('phone') or '').strip() or None,
-                        'subject': subject,
-                        'message': msg_text,
-                        'url': request.url,
-                        'extra': extra,
-                    },
-                    reply_to=(request.form.get('email') or '').strip() or None,
-                )
+                if kind == 'grievance':
+                    # Lazy import so app can boot even if PDF libs missing
+                    try:
+                        from .utils.grievance_pdf import render_grievance_pdf, generate_grv_id
+                    except Exception as _imp_err:
+                        app.logger.warning('Grievance PDF dependencies not available: %s', _imp_err)
+                        render_grievance_pdf = None
+                        def generate_grv_id(now=None):
+                            now = now or _dt.datetime.utcnow()
+                            return f"GRV-{now.strftime('%Y')}-{int(now.timestamp())}"
+                    # Generate PDF and email to configured recipients
+                    import datetime as _dt
+                    now = _dt.datetime.utcnow()
+                    y, m = now.strftime('%Y'), now.strftime('%m')
+                    grv_id = generate_grv_id(now)
+
+                    data = {
+                        "id": grv_id,
+                        "submitted_at": now.strftime('%Y-%m-%d %H:%MZ'),
+                        "name": (request.form.get('name') or request.form.get('contact_name') or '').strip(),
+                        "phone": (request.form.get('phone') or request.form.get('contact_info') or '').strip(),
+                        "email": (request.form.get('email') or '').strip(),
+                        "staff_involved": (request.form.get('staff_involved') or '').strip(),
+                        "involves": {
+                            "grace_staff": bool(request.form.get('involves_grace_staff')),
+                            "policies_procedures": bool(request.form.get('involves_policies')),
+                            "volunteer": bool(request.form.get('involves_volunteer')),
+                            "other_text": (request.form.get('involves_other') or '').strip(),
+                        },
+                        "incident_date": (request.form.get('incident_date') or '').strip(),
+                        "incident_time": (request.form.get('incident_time') or '').strip(),
+                        "description": msg_text,
+                    }
+
+                    archive_dir = os.path.join(current_app.config.get('GRIEVANCE_ARCHIVE_DIR', '/opt/guestdesk/forms/grievances'), y, m)
+                    pdf_path = os.path.join(archive_dir, f"{grv_id}.pdf")
+
+                    pdf_bytes = None
+                    if render_grievance_pdf is not None:
+                        try:
+                            render_grievance_pdf(
+                                data,
+                                current_app.config.get('GRIEVANCE_TEMPLATE_PDF'),
+                                pdf_path,
+                            )
+                            with open(pdf_path, 'rb') as f:
+                                pdf_bytes = f.read()
+                        except Exception as _e:
+                            app.logger.exception('Failed to render grievance PDF: %s', _e)
+
+                    to_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_TO', []) if e and e.strip()]
+                    cc_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_CC', []) if e and e.strip()]
+                    sender = current_app.config.get('GRIEVANCE_FROM')
+
+                    attachments = []
+                    if pdf_bytes:
+                        attachments.append(("application/pdf", f"{grv_id}.pdf", pdf_bytes))
+
+                    send_mail(
+                        subject=f"[GuestDesk] Grievance {grv_id}",
+                        body=(
+                            "A new grievance has been submitted.\n\n"
+                            f"ID: {grv_id}\n"
+                            f"Submitted: {data['submitted_at']}\n"
+                            f"From: {data['name']} ({data['phone']}, {data['email']})\n"
+                        ),
+                        to=to_list or [current_app.config.get('GRIEVANCE_EMAIL') or current_app.config.get('ADMIN_EMAIL')],
+                        cc=cc_list,
+                        sender=sender,
+                        attachments=attachments,
+                        reply_to=data['email'] or None,
+                    )
+                else:
+                    # Default behavior for other categories
+                    send_category_notification(
+                        kind,
+                        {
+                            'name': (request.form.get('contact_name') or '').strip() or None,
+                            'email': (request.form.get('email') or '').strip() or None,
+                            'phone': (request.form.get('phone') or '').strip() or None,
+                            'subject': subject,
+                            'message': msg_text,
+                            'url': request.url,
+                            'extra': extra,
+                        },
+                        reply_to=(request.form.get('email') or '').strip() or None,
+                    )
             except Exception as e:
                 app.logger.exception('Failed to send %s email: %s', kind, e)
             return render_template('thanks.html', sub=sub)
@@ -647,36 +738,28 @@ def create_app():
 
     # --- Admin landing ---
     @app.route('/admin')
+    @roles_required('admin', 'editor')
     def admin_index():
         # Admin/editor dashboard
-        # Safe defaults so template rendering never fails if queries error or user lacks access
         svc_count = 0
         ann_count = 0
         sub_count = 0
         recents = []
-
-        if session.get('is_admin') or session.get('role') in ('admin', 'editor'):
-            try:
-                db = dbs()
-                svc_count = db.query(Service).count()
-                ann_count = db.query(Announcement).count()
-                sub_count = db.query(Submission).count()
-                recents = (
-                    db.query(Submission)
-                    .order_by(Submission.created_at.desc())
-                    .limit(5)
-                    .all()
-                )
-            except Exception as e:
-                # Log and continue with defaults
-                app.logger.exception("Admin dashboard load failed: %s", e)
+        try:
+            db = dbs()
+            svc_count = db.query(Service).count()
+            ann_count = db.query(Announcement).count()
+            sub_count = db.query(Submission).count()
+            recents = (
+                db.query(Submission)
+                .order_by(Submission.created_at.desc())
+                .limit(5)
+                .all()
+            )
+        except Exception as e:
+            # Log and continue with defaults
+            app.logger.exception("Admin dashboard load failed: %s", e)
         return render_template('admin/index.html', svc_count=svc_count, ann_count=ann_count, sub_count=sub_count, recents=recents)
-        # logged in but not staff/admin -> send to staff login to switch accounts
-        if session.get('user_id'):
-            flash('Staff access only. Please sign in with a staff account.', 'warning')
-            return redirect(url_for('login', next='/admin'))
-        # not logged in -> go log in and come back
-        return redirect(url_for('login', next='/admin'))
 
     # --- manage services ---
     @app.route('/admin/analytics')
@@ -684,6 +767,44 @@ def create_app():
     def admin_analytics():
         # Render dashboard shell; data loads via JSON APIs below
         return render_template('admin/analytics.html')
+
+    # --- Email settings (admin) ---
+    @app.route('/admin/email-settings', methods=['GET', 'POST'])
+    @roles_required('admin')
+    def admin_email_settings():
+        db = dbs()
+        keys = [
+            'MAINTENANCE_EMAIL_TO',
+            'GRIEVANCE_EMAIL_TO', 'GRIEVANCE_EMAIL_CC', 'GRIEVANCE_FROM',
+            'SUGGESTION_EMAIL_TO', 'QUESTION_EMAIL_TO',
+        ]
+        if request.method == 'POST':
+            for k in keys:
+                raw = (request.form.get(k) or '').strip()
+                # Persist as plain string; lists are CSV
+                s = db.get(Setting, k)
+                if not s:
+                    s = Setting(key=k, value=raw)
+                    db.add(s)
+                else:
+                    s.value = raw
+                # Also update live app config
+                if k in ('GRIEVANCE_EMAIL_TO', 'GRIEVANCE_EMAIL_CC', 'MAINTENANCE_EMAIL_TO', 'SUGGESTION_EMAIL_TO', 'QUESTION_EMAIL_TO'):
+                    app.config[k] = [x.strip() for x in raw.split(',') if x.strip()]
+                else:
+                    app.config[k] = raw
+            db.commit()
+            flash('Email settings updated.', 'success')
+            return redirect(url_for('admin_email_settings'))
+        # Compose current values (lists joined by commas)
+        vals = {}
+        for k in keys:
+            v = app.config.get(k)
+            if isinstance(v, (list, tuple)):
+                vals[k] = ','.join(v)
+            else:
+                vals[k] = v or ''
+        return render_template('admin/email_settings.html', vals=vals)
 
     # ---- Analytics JSON APIs ----
     def _date_range():

@@ -11,6 +11,7 @@
   {% if user_role == 'admin' %}
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_users') }}">Manage Users</a></div>
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_analytics') }}">Analytics</a></div>
+  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_email_settings') }}">Email Settings</a></div>
   {% endif %}
 </div>
 <h6>Recent Submissions</h6>

@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% import '_macros.html' as m %}
+
+{% block content %}
+<h4 class="mb-3">Email Settings</h4>
+<form method="post">
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Maintenance To (comma-separated)</label>
+      <input class="form-control" name="MAINTENANCE_EMAIL_TO" value="{{ vals.MAINTENANCE_EMAIL_TO }}" placeholder="admin@example.org,manager@example.org">
+      <div class="form-text">Used for maintenance submissions.</div>
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Default From</label>
+      <input class="form-control" name="GRIEVANCE_FROM" value="{{ vals.GRIEVANCE_FROM }}" placeholder="no-reply@guestdesk.local">
+      <div class="form-text">Sender used for grievance emails.</div>
+    </div>
+  </div>
+
+  <hr>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Grievance To (comma-separated)</label>
+      <input class="form-control" name="GRIEVANCE_EMAIL_TO" value="{{ vals.GRIEVANCE_EMAIL_TO }}" placeholder="a@x.org,b@y.org">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Grievance CC (comma-separated)</label>
+      <input class="form-control" name="GRIEVANCE_EMAIL_CC" value="{{ vals.GRIEVANCE_EMAIL_CC }}" placeholder="">
+    </div>
+  </div>
+
+  <hr>
+  <div class="row g-3">
+    <div class="col-md-6">
+      <label class="form-label">Suggestion To (comma-separated)</label>
+      <input class="form-control" name="SUGGESTION_EMAIL_TO" value="{{ vals.SUGGESTION_EMAIL_TO }}" placeholder="suggestions@example.org,team@example.org">
+    </div>
+    <div class="col-md-6">
+      <label class="form-label">Question To (comma-separated)</label>
+      <input class="form-control" name="QUESTION_EMAIL_TO" value="{{ vals.QUESTION_EMAIL_TO }}" placeholder="questions@example.org,helpdesk@example.org">
+    </div>
+  </div>
+
+  <div class="mt-3">
+    <button class="btn btn-primary">Save</button>
+    <a class="btn btn-outline-secondary" href="{{ url_for('admin_index') }}">Cancel</a>
+  </div>
+</form>
+{% endblock %}

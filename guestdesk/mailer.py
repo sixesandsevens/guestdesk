@@ -36,25 +36,45 @@ def _smtp_settings():
         "enabled": enabled,
     }
 
-def _recipient_for(category: str) -> str:
-    """Pick recipient based on category using app config with sensible defaults."""
+def _recipient_for(category: str) -> list[str]:
+    """Pick recipients based on category. Returns a list of emails.
+
+    Prefers list-based settings (e.g., MAINTENANCE_EMAIL_TO). Falls back to
+    legacy single-address settings/envs if list is not present.
+    """
     c = (category or "").strip().lower()
     cfg = getattr(current_app, "config", {})
+
+    def _as_list(val, fallback_key=None):
+        if isinstance(val, (list, tuple)):
+            return [x for x in val if x]
+        if isinstance(val, str) and ',' in val:
+            return [x.strip() for x in val.split(',') if x.strip()]
+        if isinstance(val, str) and val.strip():
+            return [val.strip()]
+        if fallback_key:
+            fv = cfg.get(fallback_key) or os.getenv(fallback_key, '')
+            return _as_list(fv)
+        return []
+
     if c in ("maintenance", "maintenance issue", "maintenance issues"):
-        return cfg.get("ADMIN_EMAIL") or os.getenv("ADMIN_EMAIL", "admin@gracemarketplace.org")
+        return _as_list(cfg.get("MAINTENANCE_EMAIL_TO"), fallback_key="ADMIN_EMAIL")
     if c in ("grievance", "file a grievance"):
-        return cfg.get("GRIEVANCE_EMAIL") or os.getenv("GRIEVANCE_EMAIL", "jkupfer@gracemarketplace.org")
+        return _as_list(cfg.get("GRIEVANCE_EMAIL_TO"), fallback_key="GRIEVANCE_EMAIL")
     if c in ("suggestion", "suggestions", "idea", "ideas", "suggestion/ideas"):
-        return cfg.get("SUGGESTION_EMAIL") or os.getenv("SUGGESTION_EMAIL", "jkupfer@gracemarketplace.org")
+        return _as_list(cfg.get("SUGGESTION_EMAIL_TO"), fallback_key="SUGGESTION_EMAIL")
     if c in ("question", "ask a question"):
-        return cfg.get("QUESTION_EMAIL") or os.getenv("QUESTION_EMAIL", "jkupfer@gracemarketplace.org")
-    return cfg.get("ADMIN_EMAIL") or os.getenv("ADMIN_EMAIL", "admin@gracemarketplace.org")
+        return _as_list(cfg.get("QUESTION_EMAIL_TO"), fallback_key="QUESTION_EMAIL")
+    return _as_list(cfg.get("MAINTENANCE_EMAIL_TO"), fallback_key="ADMIN_EMAIL")
 
 
 def send_mail(subject: str,
               body: str,
               to: Union[str, Iterable[str]],
-              reply_to: Optional[str] = None) -> None:
+              reply_to: Optional[str] = None,
+              sender: Optional[str] = None,
+              cc: Optional[Iterable[str]] = None,
+              attachments: Optional[Iterable[tuple]] = None) -> None:
     """Send an email via SMTP using flexible env config.
 
     - Honors EMAIL_ENABLED/MAIL_ENABLED flags (both must be truthy to send).
@@ -71,11 +91,26 @@ def send_mail(subject: str,
 
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = cfg["sender"]
+    msg["From"] = sender or cfg["sender"]
     msg["To"] = ", ".join(to)
+    if cc:
+        # Normalize and set Cc header
+        cc_list = [c for c in cc if c]
+        if cc_list:
+            msg["Cc"] = ", ".join(cc_list)
     if reply_to:
         msg["Reply-To"] = reply_to
     msg.set_content(body or "")
+
+    # Attachments: list of (mime_type, filename, bytes)
+    if attachments:
+        for att in attachments:
+            try:
+                mime, fname, data = att
+            except Exception:
+                continue
+            maintype, subtype = (mime.split("/", 1) + ["octet-stream"])[:2]
+            msg.add_attachment(data, maintype=maintype, subtype=subtype, filename=fname)
 
     # Connect and send
     if cfg["use_ssl"]:
@@ -105,7 +140,7 @@ def send_category_notification(category: str,
       In this mode, subject/body are constructed from the payload.
     - If the second arg is a string, it is used as subject and `body` must be provided.
     """
-    to_addr = _recipient_for(category)
+    to_list = _recipient_for(category)
 
     if isinstance(payload_or_subject, dict):
         payload = payload_or_subject
@@ -122,9 +157,9 @@ def send_category_notification(category: str,
             lines.append("Message:")
             lines.append(str(msg_text))
         body_text = "\n\n".join([line for line in lines if line is not None])
-        send_mail(subject=subj, body=body_text, to=[to_addr], reply_to=reply_to or payload.get("email"))
+        send_mail(subject=subj, body=body_text, to=to_list, reply_to=reply_to or payload.get("email"))
         return
 
     # subject/body mode
     subject = str(payload_or_subject)
-    send_mail(subject=subject, body=body or "", to=[to_addr], reply_to=reply_to)
+    send_mail(subject=subject, body=body or "", to=to_list, reply_to=reply_to)
