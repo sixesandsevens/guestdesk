@@ -95,4 +95,62 @@ class AnalyticsEvent(Base):
     os = Column(String(64), index=True)
     browser = Column(String(64), index=True)
 
+    # Extended metrics (nullable for back-compat)
+    category = Column(String(32), nullable=True, index=True)   # page|form|funzone|admin
+    action = Column(String(32), nullable=True)                 # view|submit|play|...
+    label = Column(String(128), nullable=True)                 # e.g., maintenance, printer_jam
+    referrer_path = Column(Text, nullable=True)
+    is_staff = Column(Boolean, nullable=True, default=False, index=True)
+    page_load_ms = Column(Integer, nullable=True)
+    anon_id = Column(String(64), nullable=True, index=True)
+
     created_at = Column(DateTime, nullable=False, server_default=func.now())
+
+
+# ---- Recurring Service Schedules ----
+class ServiceSeries(Base):
+    __tablename__ = "service_series"
+
+    id = Column(Integer, primary_key=True)
+    title = Column(String(200), nullable=False)
+    location = Column(String(200), nullable=True)
+    category = Column(String(50), nullable=True)
+    notes = Column(Text, nullable=True)
+    tz = Column(String(64), nullable=True, default="America/New_York")
+
+    # Link to owning service (optional)
+    service_id = Column(Integer, ForeignKey('services.id', ondelete="CASCADE"), nullable=True, index=True)
+
+    # Base instance times (local time)
+    dtstart = Column(DateTime, nullable=False)
+    dtend = Column(DateTime, nullable=False)
+
+    # Recurrence: RFC 5545 rule text + explicit include/exclude lists
+    rrule = Column(Text, nullable=True)
+    # Store as JSON string in TEXT for broad DB compatibility
+    rdate = Column(Text, nullable=True)   # JSON array string of ISO datetimes
+    exdate = Column(Text, nullable=True)  # JSON array string of ISO dates/datetimes
+
+    is_all_day = Column(Boolean, nullable=False, default=False)
+    is_active = Column(Boolean, nullable=False, default=True)
+
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+class ServiceOverride(Base):
+    __tablename__ = "service_overrides"
+
+    id = Column(Integer, primary_key=True)
+    series_id = Column(Integer, ForeignKey("service_series.id", ondelete="CASCADE"), index=True, nullable=True)
+    # Direct override for a baseline slot occurrence (no series)
+    service_id = Column(Integer, ForeignKey('services.id', ondelete="CASCADE"), index=True, nullable=True)
+    # Original instance start (local time) this override targets
+    instance_start = Column(DateTime, nullable=False)
+
+    new_title = Column(String(200), nullable=True)
+    new_location = Column(String(200), nullable=True)
+    new_dtstart = Column(DateTime, nullable=True)
+    new_dtend = Column(DateTime, nullable=True)
+    cancelled = Column(Boolean, nullable=False, default=False)
+
+from sqlalchemy.orm import relationship
+ServiceSeries.overrides = relationship("ServiceOverride", backref="series", cascade="all, delete-orphan")

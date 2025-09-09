@@ -9,8 +9,9 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-from .models import Base, Service, ProgramSlot, Announcement, Submission, User
+from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride
 from guestdesk.analytics import init_analytics
+from .services_calendar import expand_between
 from .mailer import send_category_notification
 
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
@@ -128,6 +129,58 @@ def create_app():
                 conn.exec_driver_sql("ALTER TABLE services ADD COLUMN availability TEXT NOT NULL DEFAULT 'scheduled'")
             if 'is_offsite' not in s_cols:
                 conn.exec_driver_sql('ALTER TABLE services ADD COLUMN is_offsite INTEGER NOT NULL DEFAULT 0')
+            # AnalyticsEvent columns (backfill if missing)
+            a_cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(analytics_events)').all()]
+            for col, ddl in [
+                ('category', 'TEXT'),
+                ('action', 'TEXT'),
+                ('label', 'TEXT'),
+                ('referrer_path', 'TEXT'),
+                ('is_staff', 'INTEGER'),
+                ('page_load_ms', 'INTEGER'),
+                ('anon_id', 'TEXT')
+            ]:
+                if col not in a_cols:
+                    conn.exec_driver_sql(f'ALTER TABLE analytics_events ADD COLUMN {col} {ddl}')
+            # Calendar tables (create or backfill columns)
+            try:
+                conn.exec_driver_sql('CREATE TABLE IF NOT EXISTS service_series (\n\
+                    id INTEGER PRIMARY KEY,\n\
+                    title TEXT NOT NULL,\n\
+                    location TEXT, category TEXT, notes TEXT, tz TEXT,\n\
+                    service_id INTEGER,\n\
+                    dtstart TEXT NOT NULL, dtend TEXT NOT NULL,\n\
+                    rrule TEXT, rdate TEXT, exdate TEXT,\n\
+                    is_all_day INTEGER DEFAULT 0, is_active INTEGER DEFAULT 1,\n\
+                    created_at TEXT, updated_at TEXT\n\
+                )')
+            except Exception:
+                pass
+            ss_cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(service_series)').all()] if conn else []
+            if 'service_id' not in ss_cols:
+                conn.exec_driver_sql('ALTER TABLE service_series ADD COLUMN service_id INTEGER')
+            try:
+                conn.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_service_series_service_id ON service_series(service_id)')
+            except Exception:
+                pass
+            try:
+                conn.exec_driver_sql('CREATE TABLE IF NOT EXISTS service_overrides (\n\
+                    id INTEGER PRIMARY KEY,\n\
+                    series_id INTEGER,\n\
+                    service_id INTEGER,\n\
+                    instance_start TEXT NOT NULL,\n\
+                    new_title TEXT, new_location TEXT, new_dtstart TEXT, new_dtend TEXT,\n\
+                    cancelled INTEGER DEFAULT 0\n\
+                )')
+            except Exception:
+                pass
+            so_cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(service_overrides)').all()] if conn else []
+            if 'service_id' not in so_cols:
+                conn.exec_driver_sql('ALTER TABLE service_overrides ADD COLUMN service_id INTEGER')
+            try:
+                conn.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_service_overrides_service_id ON service_overrides(service_id)')
+            except Exception:
+                pass
     except Exception:
         # Best-effort; app can still run without this if table doesn't exist yet
         pass
@@ -629,49 +682,150 @@ def create_app():
     @app.route('/admin/analytics')
     @roles_required('admin')
     def admin_analytics():
-        # Simple aggregated analytics dashboard
-        db_session = sessionmaker(bind=engine)()
-        try:
-            top_pages = db_session.execute(text(
-                """
-                SELECT path, COUNT(*) AS views, ROUND(AVG(duration_ms)) AS avg_ms
-                FROM analytics_events GROUP BY path ORDER BY views DESC LIMIT 20
-                """
-            )).mappings().all()
+        # Render dashboard shell; data loads via JSON APIs below
+        return render_template('admin/analytics.html')
 
-            devices = db_session.execute(text(
-                """
-                SELECT COALESCE(device,'unknown') device, COUNT(*) cnt
-                FROM analytics_events GROUP BY device ORDER BY cnt DESC
-                """
-            )).mappings().all()
+    # ---- Analytics JSON APIs ----
+    def _date_range():
+        from datetime import date, timedelta
+        s = request.args.get('from')
+        e = request.args.get('to')
+        if not s or not e:
+            end = date.today()
+            start = end - timedelta(days=29)
+        else:
+            from datetime import datetime as _dt
+            start = _dt.fromisoformat(s).date()
+            end = _dt.fromisoformat(e).date()
+        return start, end
 
-            oses = db_session.execute(text(
-                """
-                SELECT os, COUNT(*) cnt FROM analytics_events
-                GROUP BY os ORDER BY cnt DESC LIMIT 10
-                """
-            )).mappings().all()
+    def _between_clause(col: str) -> str:
+        return f"{col} >= :start AND {col} < :endp1"
 
-            browsers = db_session.execute(text(
-                """
-                SELECT browser, COUNT(*) cnt FROM analytics_events
-                GROUP BY browser ORDER BY cnt DESC LIMIT 10
-                """
-            )).mappings().all()
-
-            totals = db_session.execute(text(
-                """
-                SELECT COUNT(*) AS events, COUNT(DISTINCT client_id) AS visitors
+    @app.get('/admin/analytics/api/summary')
+    @roles_required('admin')
+    def analytics_api_summary():
+        start, end = _date_range()
+        with engine.connect() as conn:
+            res = conn.execute(text(
+                f"""
+                SELECT COUNT(*) AS total,
+                       COUNT(DISTINCT COALESCE(NULLIF(ip_hash,''), client_id)) AS uniques,
+                       SUM(CASE WHEN (path LIKE '/submit/%' OR path='/report') THEN 1 ELSE 0 END) AS form_submissions,
+                       SUM(CASE WHEN COALESCE(is_staff,0)=1 THEN 1 ELSE 0 END) AS staff
                 FROM analytics_events
+                WHERE {_between_clause('started_at')}
                 """
-            )).mappings().first()
+            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().first()
+        guests = (res['total'] or 0) - int(res['staff'] or 0)
+        return jsonify(dict(total=int(res['total'] or 0), uniques=int(res['uniques'] or 0), form_submissions=int(res['form_submissions'] or 0), staff=int(res['staff'] or 0), guests=guests))
 
-            return render_template('admin/analytics.html',
-                top_pages=top_pages, devices=devices,
-                oses=oses, browsers=browsers, totals=totals)
-        finally:
-            db_session.close()
+    @app.get('/admin/analytics/api/timeseries')
+    @roles_required('admin')
+    def analytics_api_timeseries():
+        start, end = _date_range()
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                f"""
+                SELECT DATE(started_at) AS d,
+                       COUNT(*) AS hits,
+                       COUNT(DISTINCT COALESCE(NULLIF(ip_hash,''), client_id)) AS uniques
+                FROM analytics_events
+                WHERE {_between_clause('started_at')}
+                GROUP BY d ORDER BY d
+                """
+            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
+        return jsonify([{"date": str(r['d']), "hits": int(r['hits']), "uniques": int(r['uniques'])} for r in rows])
+
+    @app.get('/admin/analytics/api/top-pages')
+    @roles_required('admin')
+    def analytics_api_top_pages():
+        start, end = _date_range()
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                f"""
+                SELECT path, COUNT(*) AS views, ROUND(AVG(duration_ms)) AS avg_ms
+                FROM analytics_events
+                WHERE {_between_clause('started_at')}
+                GROUP BY path ORDER BY views DESC LIMIT 25
+                """
+            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
+        return jsonify([{"path": r['path'], "views": int(r['views']), "avg_ms": int(r['avg_ms'] or 0)} for r in rows])
+
+    @app.get('/admin/analytics/api/flows')
+    @roles_required('admin')
+    def analytics_api_flows():
+        start, end = _date_range()
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                f"""
+                SELECT COALESCE(NULLIF(referrer_path,''), referrer) AS src,
+                       path AS dst,
+                       COUNT(*) AS c
+                FROM analytics_events
+                WHERE {_between_clause('started_at')} AND COALESCE(referrer_path, referrer) IS NOT NULL
+                GROUP BY src, dst ORDER BY c DESC LIMIT 50
+                """
+            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
+        return jsonify([{"from": r['src'] or "(direct)", "to": r['dst'], "count": int(r['c'])} for r in rows])
+
+    @app.get('/admin/analytics/api/categories')
+    @roles_required('admin')
+    def analytics_api_categories():
+        start, end = _date_range()
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                f"""
+                SELECT CASE
+                         WHEN path LIKE '/admin%%' THEN 'admin'
+                         WHEN path LIKE '/fun%%' THEN 'funzone'
+                         WHEN path = '/report' OR path LIKE '/submit/%%' THEN 'form'
+                         ELSE 'page'
+                       END AS cat,
+                       COUNT(*) AS c
+                FROM analytics_events
+                WHERE {_between_clause('started_at')}
+                GROUP BY cat
+                """
+            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
+        return jsonify([{"category": r['cat'], "count": int(r['c'])} for r in rows])
+
+    @app.get('/admin/analytics/api/forms')
+    @roles_required('admin')
+    def analytics_api_forms():
+        start, end = _date_range()
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                f"""
+                SELECT CASE
+                         WHEN path LIKE '/submit/%%' THEN substr(path, length('/submit/')+1)
+                         ELSE 'unknown'
+                       END AS form,
+                       COUNT(*) AS c
+                FROM analytics_events
+                WHERE {_between_clause('started_at')}
+                  AND (path LIKE '/submit/%%' OR path = '/report')
+                GROUP BY form ORDER BY c DESC
+                """
+            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
+        return jsonify([{"form": r['form'], "count": int(r['c'])} for r in rows])
+
+    @app.get('/admin/analytics/api/perf')
+    @roles_required('admin')
+    def analytics_api_perf():
+        start, end = _date_range()
+        with engine.connect() as conn:
+            rows = conn.execute(text(
+                f"""
+                SELECT path, ROUND(AVG(COALESCE(page_load_ms, duration_ms))) AS avg
+                FROM analytics_events
+                WHERE {_between_clause('started_at')}
+                GROUP BY path
+                ORDER BY avg DESC
+                LIMIT 25
+                """
+            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
+        return jsonify([{"path": r['path'], "avg_ms": int(r['avg'] or 0)} for r in rows])
 
     @app.route('/admin/services')
     @roles_required('admin', 'editor')
@@ -679,6 +833,112 @@ def create_app():
         db = dbs()
         rows = db.query(Service).order_by(Service.category, Service.name).all()
         return render_template('admin/services.html', rows=rows)
+
+    # ---- Services Calendar ----
+    @app.route('/admin/services/calendar')
+    @roles_required('admin', 'editor')
+    def admin_services_calendar():
+        return render_template('admin/services_calendar.html', sid=None)
+
+    @app.route('/admin/services/<int:sid>/calendar')
+    @roles_required('admin', 'editor')
+    def admin_services_calendar_one(sid:int):
+        return render_template('admin/services_calendar.html', sid=sid)
+
+    @app.get('/admin/services/feed')
+    @roles_required('admin', 'editor')
+    def admin_services_feed():
+        from dateutil.parser import isoparse
+        try:
+            s = request.args.get('start') or ''
+            e = request.args.get('end') or ''
+            start = isoparse(s)
+            end = isoparse(e)
+        except Exception:
+            return jsonify([])
+        svc_id = request.args.get('service_id', type=int)
+        db = dbs()
+        try:
+            from .services_calendar import merged_occurrences
+            events = merged_occurrences(db, start, end, service_id=svc_id)
+            return jsonify(events)
+        finally:
+            db.close()
+
+    @app.post('/admin/services/series')
+    @roles_required('admin', 'editor')
+    def admin_series_create():
+        data = request.get_json(force=True)
+        db = dbs()
+        try:
+            s = ServiceSeries(
+                title=data.get('title') or 'Untitled Service',
+                location=data.get('location'),
+                category=data.get('category'),
+                notes=data.get('notes'),
+                tz=data.get('tz') or 'America/New_York',
+                dtstart=(fromiso(data.get('dtstart'))),
+                dtend=(fromiso(data.get('dtend'))),
+                rrule=data.get('rrule'),
+                rdate=data.get('rdate') or [],
+                exdate=data.get('exdate') or [],
+                is_all_day=bool(data.get('is_all_day', False)),
+                is_active=True,
+            )
+            db.add(s)
+            db.commit()
+            return jsonify({'id': s.id}), 201
+        finally:
+            db.close()
+
+    @app.put('/admin/services/series/<int:series_id>')
+    @roles_required('admin', 'editor')
+    def admin_series_update(series_id:int):
+        data = request.get_json(force=True)
+        db = dbs()
+        try:
+            s = db.get(ServiceSeries, series_id)
+            if not s:
+                abort(404)
+            for k in ['title','location','category','notes','tz','rrule','rdate','exdate','is_all_day','is_active']:
+                if k in data:
+                    setattr(s, k, data[k])
+            if 'dtstart' in data:
+                s.dtstart = fromiso(data.get('dtstart'))
+            if 'dtend' in data:
+                s.dtend = fromiso(data.get('dtend'))
+            db.commit()
+            return jsonify({'ok': True})
+        finally:
+            db.close()
+
+    @app.post('/admin/services/override')
+    @roles_required('admin', 'editor')
+    def admin_series_override():
+        data = request.get_json(force=True)
+        db = dbs()
+        try:
+            ov = ServiceOverride(
+                series_id = (int(data['series_id']) if data.get('series_id') else None),
+                service_id = (int(data['service_id']) if data.get('service_id') else None),
+                instance_start = fromiso(data.get('instance_start')),
+                new_title = data.get('new_title'),
+                new_location = data.get('new_location'),
+                new_dtstart = (fromiso(data['new_dtstart']) if data.get('new_dtstart') else None),
+                new_dtend = (fromiso(data['new_dtend']) if data.get('new_dtend') else None),
+                cancelled = bool(data.get('cancelled', False)),
+            )
+            db.add(ov)
+            db.commit()
+            return jsonify({'id': ov.id}), 201
+        finally:
+            db.close()
+
+    def fromiso(s:str|None):
+        from dateutil.parser import isoparse as _isoparse
+        if not s:
+            return None
+        return _isoparse(s)
 
     @app.route('/admin/services/new', methods=['GET', 'POST'])
     @roles_required('admin', 'editor')

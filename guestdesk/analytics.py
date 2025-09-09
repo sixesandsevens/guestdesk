@@ -1,6 +1,8 @@
 from __future__ import annotations
 import hmac, hashlib
 from datetime import datetime
+from urllib.parse import urlparse
+import ipaddress
 from flask import Blueprint, current_app, request, jsonify
 from user_agents import parse as ua_parse
 from sqlalchemy.orm import sessionmaker
@@ -20,6 +22,25 @@ def _ip_hash(ip: str, salt: str) -> str | None:
         return None
     h = hmac.new(salt.encode("utf-8"), ip.encode("utf-8"), hashlib.sha256).hexdigest()
     return h[:32]
+
+
+def _is_staff_ip(ip: str) -> bool:
+    """Check if the IP is within any CIDR from STAFF_CIDRS config."""
+    try:
+        raw = (current_app.config.get("STAFF_CIDRS") or "")
+        cidrs = [c.strip() for c in raw.split(",") if c.strip()]
+        if not cidrs:
+            return False
+        ip_obj = ipaddress.ip_address((ip or '').split(',')[0].strip())
+        nets = []
+        for c in cidrs:
+            try:
+                nets.append(ipaddress.ip_network(c, strict=False))
+            except Exception:
+                continue
+        return any(ip_obj in n for n in nets)
+    except Exception:
+        return False
 
 
 @analytics_bp.post("/collect")
@@ -62,19 +83,36 @@ def collect():
     salt = current_app.config.get("ANALYTICS_IP_SALT", "")
     ip_hash = _ip_hash(ip, salt) if salt else None
 
+    # compute referrer_path if not provided
+    ref = data.get("referrer") or ""
+    ref_path = data.get("referrer_path") or None
+    if not ref_path and ref:
+        try:
+            u = urlparse(ref)
+            ref_path = u.path + (('?' + u.query) if u.query else '')
+        except Exception:
+            ref_path = None
+
     ev = AnalyticsEvent(
         client_id=(data.get("client_id") or None),
+        anon_id=(data.get("anon_id") or data.get("client_id") or None),
         session_id=(data.get("session_id") or None),
         path=(data.get("path") or "/"),
-        referrer=(data.get("referrer") or None),
+        referrer=(ref or None),
+        referrer_path=ref_path,
         started_at=start,
         ended_at=end,
         duration_ms=duration_ms,
+        page_load_ms=(int(data.get("page_load_ms") or 0) or None),
         ip_hash=ip_hash,
         user_agent=ua_raw,
         device=device,
         os=str(ua.os),
         browser=str(ua.browser),
+        category=(data.get("category") or None),
+        action=(data.get("action") or None),
+        label=(data.get("label") or None),
+        is_staff=_is_staff_ip(ip),
     )
 
     db = SessionLocal()

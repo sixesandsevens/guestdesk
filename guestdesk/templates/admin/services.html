@@ -25,7 +25,10 @@
       </td>
       <td>{{ s.location }}</td>
       <td>{{ s.contact }}</td>
-      <td><a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_slots', sid=s.id) }}">Slots</a></td>
+      <td>
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_slots', sid=s.id) }}">Slots</a>
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_services_calendar_one', sid=s.id) }}">Calendar</a>
+      </td>
       <td>
         <form method="post" action="{{ url_for('admin_services_delete', sid=s.id) }}" onsubmit="return confirm('Delete this service?')">
           <button class="btn btn-sm btn-outline-danger">Delete</button>

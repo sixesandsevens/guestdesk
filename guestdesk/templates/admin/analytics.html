@@ -1,76 +1,80 @@
 {% extends 'base.html' %}
 {% block content %}
-<h2>Analytics</h2>
+<div class="container py-3">
+  <h1 class="mb-3">Analytics</h1>
 
-<div class="row g-4">
-  <div class="col-md-3">
-    <div class="card"><div class="card-body">
-      <div class="fw-semibold">Total Events</div>
-      <div class="display-6">{{ totals.events }}</div>
-    </div></div>
-  </div>
-  <div class="col-md-3">
-    <div class="card"><div class="card-body">
-      <div class="fw-semibold">Unique Visitors</div>
-      <div class="display-6">{{ totals.visitors }}</div>
-    </div></div>
-  </div>
-  <div class="col-md-6"></div>
-  </div>
+  <form class="row g-2 align-items-end" id="filters">
+    <div class="col-auto">
+      <label class="form-label">From</label>
+      <input type="date" class="form-control" id="from">
+    </div>
+    <div class="col-auto">
+      <label class="form-label">To</label>
+      <input type="date" class="form-control" id="to">
+    </div>
+    <div class="col-auto">
+      <label class="form-label">&nbsp;</label>
+      <div>
+        <button type="button" class="btn btn-primary" id="apply">Apply</button>
+        <button type="button" class="btn btn-outline-secondary" data-preset="7">7d</button>
+        <button type="button" class="btn btn-outline-secondary" data-preset="30">30d</button>
+        <button type="button" class="btn btn-outline-secondary" data-preset="90">90d</button>
+      </div>
+    </div>
+  </form>
 
-<div class="row g-4 mt-1">
-  <div class="col-lg-6">
-    <div class="card"><div class="card-body">
-      <h5 class="card-title">Top Pages</h5>
-      <table class="table table-sm">
-        <thead><tr><th>Path</th><th class="text-end">Views</th><th class="text-end">Avg ms</th></tr></thead>
-        <tbody>
-        {% for r in top_pages %}
-        <tr>
-          <td><code>{{ r.path }}</code></td>
-          <td class="text-end">{{ r.views }}</td>
-          <td class="text-end">{{ r.avg_ms }}</td>
-        </tr>
-        {% endfor %}
-        </tbody>
-      </table>
-    </div></div>
+  <div class="row row-cols-1 row-cols-sm-2 row-cols-lg-4 g-3 my-2" id="summary">
+    <div class="col"><div class="card p-3"><div class="small text-muted">Events</div><div class="fs-3" id="sum-total">–</div></div></div>
+    <div class="col"><div class="card p-3"><div class="small text-muted">Unique Visitors</div><div class="fs-3" id="sum-uniques">–</div></div></div>
+    <div class="col"><div class="card p-3"><div class="small text-muted">Form Submissions</div><div class="fs-3" id="sum-forms">–</div></div></div>
+    <div class="col"><div class="card p-3"><div class="small text-muted">Staff vs Guests</div><div class="fs-6"><span id="sum-staff">–</span> staff / <span id="sum-guests">–</span> guests</div></div></div>
   </div>
 
-  <div class="col-lg-6">
-    <div class="card"><div class="card-body">
-      <h5 class="card-title">Devices</h5>
-      <table class="table table-sm">
-        <tbody>
-        {% for r in devices %}
-          <tr><td>{{ r.device }}</td><td class="text-end">{{ r.cnt }}</td></tr>
-        {% endfor %}
-        </tbody>
-      </table>
-      <div class="row">
-        <div class="col-sm-6">
-          <h6 class="mt-3">Top OS</h6>
-          <table class="table table-sm">
-            <tbody>
-              {% for r in oses %}
-              <tr><td>{{ r.os }}</td><td class="text-end">{{ r.cnt }}</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
-        </div>
-        <div class="col-sm-6">
-          <h6 class="mt-3">Top Browsers</h6>
-          <table class="table table-sm">
-            <tbody>
-              {% for r in browsers %}
-              <tr><td>{{ r.browser }}</td><td class="text-end">{{ r.cnt }}</td></tr>
-              {% endfor %}
-            </tbody>
-          </table>
+  <div class="card p-3 my-3">
+    <h5>Visits Over Time</h5>
+    <div style="position:relative; height:320px;">
+      <canvas id="ts"></canvas>
+    </div>
+  </div>
+
+  <div class="row g-3 my-1">
+    <div class="col-lg-6">
+      <div class="card p-3">
+        <h5>Top Pages</h5>
+        <table class="table table-sm" id="tbl-pages"><thead><tr><th>Path</th><th>Views</th><th>Avg ms</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card p-3">
+        <h5>Top Flows</h5>
+        <table class="table table-sm" id="tbl-flows"><thead><tr><th>From</th><th>→</th><th>To</th><th>Count</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 my-1">
+    <div class="col-lg-6">
+      <div class="card p-3">
+        <h5>Categories</h5>
+        <div style="position:relative; height:300px;">
+          <canvas id="cats"></canvas>
         </div>
       </div>
-    </div></div>
+    </div>
+    <div class="col-lg-6">
+      <div class="card p-3">
+        <h5>Form Submissions</h5>
+        <table class="table table-sm" id="tbl-forms"><thead><tr><th>Form</th><th>Count</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+  </div>
+
+  <div class="card p-3 my-3">
+    <h5>Slowest Pages (avg load)</h5>
+    <table class="table table-sm" id="tbl-perf"><thead><tr><th>Path</th><th>Avg ms</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
-{% endblock %}
 
+<script src="{{ url_for('static', filename='vendor/chartjs/chart.umd.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/analytics/analytics_dashboard.js') }}?v={{ ASSET_VERSION }}"></script>
+{% endblock %}

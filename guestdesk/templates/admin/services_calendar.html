@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container py-3">
+  <h1 class="mb-3">Services Calendar</h1>
+  <div class="mb-2 d-flex gap-2">
+    <a href="{{ url_for('admin_services') }}" class="btn btn-outline-secondary">Back to Services</a>
+    <button id="new-series" class="btn btn-primary">New service</button>
+  </div>
+  <div id="calendar" data-feed="{{ url_for('admin_services_feed') }}{% if sid %}?service_id={{ sid }}{% endif %}"></div>
+</div>
+
+<script src="{{ url_for('static', filename='vendor/fullcalendar/index.global.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/analytics/services_calendar.js') }}?v={{ ASSET_VERSION }}"></script>
+{% endblock %}
