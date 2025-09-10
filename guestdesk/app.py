@@ -1131,6 +1131,62 @@ def create_app():
             pass
         return jsonify({"ok": True})
 
+    @app.post('/admin/grievance-calibrate/preview')
+    @roles_required('admin')
+    def admin_calibrator_preview():
+        """Render a temporary PDF using posted boxes (without saving)."""
+        try:
+            payload = request.get_json(force=True)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+        tid = (payload.get('template') or 'grievance').strip()
+        reg = _load_registry()
+        meta = reg.get(tid)
+        if not meta:
+            return jsonify({"error": "template not found"}), 404
+        boxes_def = payload.get('fields') or {}
+        # Convert calibrator schema to simple boxes mapping
+        simple = {}
+        for k, defn in (boxes_def or {}).items():
+            mode = (defn.get('mode') or 'single').lower()
+            if mode == 'checkbox':
+                size = float(defn.get('size') or 16)
+                cx, cy = defn.get('center') or [0, 0]
+                x, y = float(cx) - size/2, float(cy) - size/2
+                simple[k] = [x, y, size, size]
+            else:
+                box = defn.get('box') or [0, 0, 0, 0]
+                simple[k] = [float(box[0]), float(box[1]), float(box[2]), float(box[3])]
+        # Build minimal fake data for preview
+        from .utils.grievance_pdf import render_grievance_pdf
+        import tempfile, time as _time
+        now = _time.strftime('%Y-%m-%d %H:%MZ')
+        data = {
+            "id": "GRV-PREVIEW",
+            "submitted_at": now,
+            "name": "Preview Name",
+            "phone": "555-0000",
+            "email": "preview@example.org",
+            "staff_involved": "Staff Member",
+            "involves": {"grace_staff": True, "policies_procedures": False, "volunteer": True, "other_text": "Other"},
+            "incident_date": "2025-01-01",
+            "incident_time": "10:00",
+            "description": "Preview paragraph. Adjust boxes in the calibrator and try again.",
+        }
+        tpl_path = meta.get('pdf_path')
+        with tempfile.NamedTemporaryFile(prefix='grv_preview_', suffix='.pdf', delete=False) as tf:
+            out_path = tf.name
+        try:
+            render_grievance_pdf(data, tpl_path, out_path, boxes_override=simple)
+            with open(out_path, 'rb') as f:
+                pdf_bytes = f.read()
+        finally:
+            try:
+                os.unlink(out_path)
+            except Exception:
+                pass
+        return app.response_class(pdf_bytes, mimetype='application/pdf')
+
     @app.route('/admin/services')
     @roles_required('admin', 'editor')
     def admin_services():

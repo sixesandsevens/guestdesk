@@ -71,8 +71,19 @@ def clamp_box(b, max_w: float, max_h: float):
     return (x, y, w, h)
 
 
-def load_boxes():
-    path = BOXES_PATH
+def load_boxes(path: str | None = None, override_boxes: dict | None = None):
+    """Load field boxes.
+
+    - If override_boxes is provided, use it (values may be lists/tuples).
+    - Else read from given path or default BOXES_PATH.
+    - Returns mapping {key: (x,y,w,h)}
+    """
+    if override_boxes is not None:
+        try:
+            return {k: tuple(override_boxes[k]) for k in override_boxes}
+        except Exception:
+            pass
+    path = path or BOXES_PATH
     try:
         with open(path, "r") as f:
             obj = json.load(f)
@@ -350,7 +361,7 @@ def generate_grv_id(now=None):
     return f"GRV-{now.strftime('%Y')}-{int(now.timestamp())}"
 
 
-def render_grievance_pdf(data, template_path, out_path):
+def render_grievance_pdf(data, template_path, out_path, *, boxes_override: dict | None = None, boxes_path_override: str | None = None):
     """Render a grievance PDF using a required template.
 
     Returns (out_path, bytes). Raises RuntimeError on any template/merge error.
@@ -387,7 +398,7 @@ def render_grievance_pdf(data, template_path, out_path):
     c = canvas.Canvas(packet, pagesize=(W, H))
 
     # Load boxes and optional calibration overlays
-    BOX0 = load_boxes()
+    BOX0 = load_boxes(path=boxes_path_override, override_boxes=boxes_override)
     BOX = boxes_with_global_offset(BOX0)
     # Safety: clamp to page after global shift (helps avoid off-page in DEBUG passes)
     BOX = {k: clamp_box(v, W, H) for k, v in BOX.items()}

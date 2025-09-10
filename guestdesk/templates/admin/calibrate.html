@@ -48,6 +48,7 @@
       <button id="btnLoad">Load current JSON</button>
       <button id="btnReset">Reset</button>
       <button id="btnSave">Save JSON</button>
+      <button id="btnPreview">Preview PDF</button>
     </div>
     <div class="row">
       <label>Selected field</label>
@@ -218,6 +219,17 @@ async function saveBoxes(){
   await fetch(API.save, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
   toast('Saved');
 }
+
+document.getElementById('btnPreview').onclick = async ()=>{
+  // capture current positions without saving
+  Object.keys(state.fields).forEach(captureToState);
+  const payload = { template: state.templateId, meta: { page:0, dpi:72 }, fields: state.fields };
+  const res = await fetch('/admin/grievance-calibrate/preview', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  if(!res.ok){ toast('Preview failed'); return; }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  window.open(url, '_blank');
+};
 
 document.getElementById('btnLoad').onclick = loadBoxes;
 document.getElementById('btnSave').onclick = saveBoxes;
