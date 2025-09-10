@@ -82,13 +82,7 @@ def create_app():
         # Safe to continue if config module is missing
         pass
     # Grievance template sanity log (helps catch path/env mismatches early)
-    try:
-        tpl = app.config.get("GRIEVANCE_TEMPLATE_PDF")
-        app.logger.info(f"[GRIEVANCE] Template path = {tpl}")
-        if not (tpl and os.path.exists(tpl)):
-            app.logger.error(f"[GRIEVANCE] Template NOT FOUND at {tpl}")
-    except Exception:
-        pass
+    # PDF template logging removed (we no longer generate PDFs)
     # Email is handled via guestdesk.mailer using env-driven SMTP; no Flask-Mail init needed.
     # Feature flags (available to templates)
     app.config.setdefault("SHOW_HOME_SERVICES", False)
@@ -360,98 +354,28 @@ def create_app():
                 subject = (request.form.get('subject') or '').strip() or default_subjects.get(kind, 'GuestDesk: Submission')
 
                 if kind == 'grievance':
-                    # Lazy import so app can boot even if PDF libs missing
-                    try:
-                        from .utils.grievance_pdf import render_grievance_pdf, generate_grv_id
-                    except Exception as _imp_err:
-                        app.logger.warning('Grievance PDF dependencies not available: %s', _imp_err)
-                        render_grievance_pdf = None
-                        def generate_grv_id(now=None):
-                            now = now or _dt.datetime.utcnow()
-                            return f"GRV-{now.strftime('%Y')}-{int(now.timestamp())}"
-                    # Generate PDF and email to configured recipients
                     import datetime as _dt
                     now = _dt.datetime.utcnow()
-                    y, m = now.strftime('%Y'), now.strftime('%m')
-                    grv_id = generate_grv_id(now)
-
-                    other_txt = (request.form.get('involves_other') or '').strip()
-                    other_chk = bool(request.form.get('involves_other_chk'))
-                    data = {
-                        "id": grv_id,
-                        "submitted_at": now.strftime('%Y-%m-%d %H:%MZ'),
-                        "name": (request.form.get('name') or request.form.get('contact_name') or '').strip(),
-                        "phone": (request.form.get('phone') or request.form.get('contact_info') or '').strip(),
-                        "email": (request.form.get('email') or '').strip(),
-                        "staff_involved": (request.form.get('staff_involved') or '').strip(),
-                        "involves": {
-                            "grace_staff": bool(request.form.get('involves_grace_staff')),
-                            "policies_procedures": bool(request.form.get('involves_policies')),
-                            "volunteer": bool(request.form.get('involves_volunteer')),
-                            "other_text": other_txt,
-                            "other_checked": other_chk or bool(other_txt),
-                        },
-                        "incident_date": (request.form.get('incident_date') or '').strip(),
-                        "incident_time": (request.form.get('incident_time') or '').strip(),
-                        "description": msg_text,
-                    }
-
-                    archive_dir = os.path.join(current_app.config.get('GRIEVANCE_ARCHIVE_DIR', '/opt/guestdesk/forms/grievances'), y, m)
-                    pdf_path = os.path.join(archive_dir, f"{grv_id}.pdf")
-
-                    pdf_bytes = None
-                    if render_grievance_pdf is not None:
-                        tpl = current_app.config.get('GRIEVANCE_TEMPLATE_PDF')
-                        current_app.logger.info(f"[GRIEVANCE] Using template {tpl}")
-                        if not (tpl and os.path.exists(tpl)):
-                            current_app.logger.error(f"[GRIEVANCE] Missing template: {tpl}")
-                            return "Template missing, check server path/permissions", 500
-                        try:
-                            result = render_grievance_pdf(data, tpl, pdf_path)
-                            try:
-                                app.logger.info(
-                                    'grievance_pdf: result_type=%s tuple=%s path=%s',
-                                    type(result).__name__, isinstance(result, tuple), pdf_path
-                                )
-                            except Exception:
-                                pass
-                            # New utils return (path, bytes). If path-only, read from disk.
-                            if isinstance(result, tuple) and len(result) == 2:
-                                pdf_bytes = result[1]
-                            else:
-                                if os.path.exists(pdf_path):
-                                    with open(pdf_path, 'rb') as f:
-                                        pdf_bytes = f.read()
-                        except RuntimeError as _e:
-                            current_app.logger.error(f"[GRIEVANCE] PDF generation failed: {_e}")
-                        except Exception as _e:
-                            app.logger.exception('Failed to render grievance PDF: %s', _e)
-
+                    grv_id = f"GRV-{now.strftime('%Y')}-{int(now.timestamp())}"
                     to_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_TO', []) if e and e.strip()]
                     cc_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_CC', []) if e and e.strip()]
                     sender = current_app.config.get('GRIEVANCE_FROM')
-
-                    attachments = []
-                    body_extra = ""
-                    if pdf_bytes:
-                        attachments.append(("application/pdf", f"{grv_id}.pdf", pdf_bytes))
-                    else:
-                        body_extra = "\n(Note: PDF attachment missing due to template/merge error. Check server logs for [GRIEVANCE].)\n"
-
                     send_mail(
                         subject=f"[GuestDesk] Grievance {grv_id}",
                         body=(
                             "A new grievance has been submitted.\n\n"
                             f"ID: {grv_id}\n"
-                            f"Submitted: {data['submitted_at']}\n"
-                            f"From: {data['name']} ({data['phone']}, {data['email']})\n"
-                            f"{body_extra}"
+                            f"Submitted: {now.strftime('%Y-%m-%d %H:%MZ')}\n"
+                            f"From: {(request.form.get('name') or request.form.get('contact_name') or '').strip()} ("
+                            f"{(request.form.get('phone') or request.form.get('contact_info') or '').strip()}, "
+                            f"{(request.form.get('email') or '').strip()})\n\n"
+                            f"Message:\n{msg_text}\n"
                         ),
                         to=to_list or [current_app.config.get('GRIEVANCE_EMAIL') or current_app.config.get('ADMIN_EMAIL')],
                         cc=cc_list,
                         sender=sender,
-                        attachments=attachments,
-                        reply_to=data['email'] or None,
+                        attachments=[],
+                        reply_to=(request.form.get('email') or '').strip() or None,
                     )
                 else:
                     # Default behavior for other categories
@@ -488,22 +412,7 @@ def create_app():
             app.logger.exception("Smoke test failed: %s", e)
             return f"error: {e}", 500
 
-    # Optional health check for grievance template and archive permissions
-    @app.get('/__grievance_health')
-    def grievance_health():
-        try:
-            tpl = current_app.config.get("GRIEVANCE_TEMPLATE_PDF")
-            arc = current_app.config.get("GRIEVANCE_ARCHIVE_DIR")
-            tpl_exists = bool(tpl and os.path.exists(tpl))
-            can_write = bool(arc and os.path.isdir(arc) and os.access(arc, os.W_OK))
-            return jsonify({
-                "template_path": tpl,
-                "template_exists": tpl_exists,
-                "archive_dir": arc,
-                "can_write_archive": can_write,
-            }), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
+    # (Removed) PDF grievance health endpoint
 
     # ----- Fun zone -----
     OFFLINE_JOKES = [
@@ -996,196 +905,7 @@ def create_app():
             ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
         return jsonify([{"path": r['path'], "avg_ms": int(r['avg'] or 0)} for r in rows])
 
-    # ---- PDF Calibrator (Admin) ----
-    import json as _json
-    _REG_PATH = "/opt/guestdesk/guestdesk/utils/pdf_templates.json"
-
-    def _load_registry():
-        try:
-            with open(_REG_PATH, 'r') as f:
-                return _json.load(f)
-        except Exception:
-            return {}
-
-    @app.get('/admin/grievance-calibrate')
-    @roles_required('admin')
-    def admin_calibrator():
-        return render_template('admin/calibrate.html')
-
-    @app.get('/admin/grievance-calibrate/registry')
-    @roles_required('admin')
-    def admin_calibrator_registry():
-        try:
-            with open(_REG_PATH, 'r') as f:
-                data = f.read()
-            return app.response_class(data, mimetype='application/json')
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
-    @app.get('/admin/grievance-calibrate/template')
-    @roles_required('admin')
-    def admin_calibrator_template():
-        tid = (request.args.get('template') or 'grievance').strip()
-        reg = _load_registry()
-        meta = reg.get(tid)
-        if not meta:
-            return jsonify({"error": "template not found"}), 404
-        # Add a web-accessible URL for the PDF if only a filesystem path is present
-        try:
-            pdf_url = meta.get('pdf_url')
-            pdf_path = meta.get('pdf_path')
-            if not pdf_url and pdf_path:
-                # If the file lives under our app static dir, expose via /static
-                static_root = os.path.abspath(os.path.join(os.getcwd(), 'static'))
-                abs_path = os.path.abspath(pdf_path)
-                if abs_path.startswith(static_root):
-                    rel = abs_path[len(static_root):].lstrip('/')
-                    pdf_url = url_for('static', filename=rel)
-                else:
-                    # Common deployment path: /opt/guestdesk/guestdesk/static/...
-                    prefix = '/opt/guestdesk/guestdesk/static/'
-                    if abs_path.startswith(prefix):
-                        rel = abs_path[len(prefix):]
-                        pdf_url = url_for('static', filename=rel)
-            resp = dict(meta)
-            if pdf_url:
-                resp['pdf_url'] = pdf_url
-            return jsonify(resp)
-        except Exception:
-            return jsonify(meta)
-
-    def _infer_mode(key: str):
-        if key.startswith('involves_') and (key.endswith('chk') or key in ('involves_staff','involves_policies','involves_volunteer')):
-            return 'checkbox'
-        if key in ('description',):
-            return 'paragraph'
-        return 'single'
-
-    @app.get('/admin/grievance-calibrate/boxes')
-    @roles_required('admin')
-    def admin_calibrator_boxes_get():
-        tid = (request.args.get('template') or 'grievance').strip()
-        reg = _load_registry()
-        meta = reg.get(tid)
-        if not meta:
-            return jsonify({"error": "template not found"}), 404
-        path = meta.get('boxes_path')
-        try:
-            with open(path, 'r') as f:
-                raw = _json.load(f)
-        except Exception:
-            raw = {}
-        # Support both calibrator schema and legacy simple mapping
-        if 'fields' in raw:
-            return jsonify(raw)
-        fields = {}
-        for k, v in (raw or {}).items():
-            if not isinstance(v, (list, tuple)) or len(v) < 4:
-                continue
-            mode = _infer_mode(k)
-            if mode == 'checkbox':
-                x, y, w, h = v[:4]
-                cx, cy = x + w/2, y + h/2
-                size = min(w, h)
-                fields[k] = {"mode": mode, "center": [cx, cy], "size": size}
-            else:
-                fields[k] = {"mode": mode, "box": [float(v[0]), float(v[1]), float(v[2]), float(v[3])]} 
-        return jsonify({"$schema": "https://guestdesk/schemas/boxes.v1.json", "meta": {"page":0, "dpi":72}, "fields": fields})
-
-    @app.post('/admin/grievance-calibrate/boxes')
-    @roles_required('admin')
-    def admin_calibrator_boxes_post():
-        try:
-            payload = request.get_json(force=True)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
-        tid = (payload.get('template') or 'grievance').strip()
-        reg = _load_registry()
-        meta = reg.get(tid)
-        if not meta:
-            return jsonify({"error": "template not found"}), 404
-        fields = payload.get('fields') or {}
-        # Convert to legacy simple mapping used by renderer
-        simple = {}
-        for k, defn in fields.items():
-            mode = (defn.get('mode') or 'single').lower()
-            if mode == 'checkbox':
-                size = float(defn.get('size') or 16)
-                cx, cy = defn.get('center') or [0, 0]
-                x, y = float(cx) - size/2, float(cy) - size/2
-                simple[k] = [x, y, size, size]
-            else:
-                box = defn.get('box') or [0, 0, 0, 0]
-                simple[k] = [float(box[0]), float(box[1]), float(box[2]), float(box[3])]
-        out_path = meta.get('boxes_path')
-        tmp = f"{out_path}.tmp"
-        try:
-            with open(tmp, 'w') as f:
-                _json.dump(simple, f, indent=2)
-            os.replace(tmp, out_path)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-        try:
-            os.utime(out_path, None)
-        except Exception:
-            pass
-        return jsonify({"ok": True})
-
-    @app.post('/admin/grievance-calibrate/preview')
-    @roles_required('admin')
-    def admin_calibrator_preview():
-        """Render a temporary PDF using posted boxes (without saving)."""
-        try:
-            payload = request.get_json(force=True)
-        except Exception as e:
-            return jsonify({"error": str(e)}), 400
-        tid = (payload.get('template') or 'grievance').strip()
-        reg = _load_registry()
-        meta = reg.get(tid)
-        if not meta:
-            return jsonify({"error": "template not found"}), 404
-        boxes_def = payload.get('fields') or {}
-        # Convert calibrator schema to simple boxes mapping
-        simple = {}
-        for k, defn in (boxes_def or {}).items():
-            mode = (defn.get('mode') or 'single').lower()
-            if mode == 'checkbox':
-                size = float(defn.get('size') or 16)
-                cx, cy = defn.get('center') or [0, 0]
-                x, y = float(cx) - size/2, float(cy) - size/2
-                simple[k] = [x, y, size, size]
-            else:
-                box = defn.get('box') or [0, 0, 0, 0]
-                simple[k] = [float(box[0]), float(box[1]), float(box[2]), float(box[3])]
-        # Build minimal fake data for preview
-        from .utils.grievance_pdf import render_grievance_pdf
-        import tempfile, time as _time
-        now = _time.strftime('%Y-%m-%d %H:%MZ')
-        data = {
-            "id": "GRV-PREVIEW",
-            "submitted_at": now,
-            "name": "Preview Name",
-            "phone": "555-0000",
-            "email": "preview@example.org",
-            "staff_involved": "Staff Member",
-            "involves": {"grace_staff": True, "policies_procedures": False, "volunteer": True, "other_text": "Other"},
-            "incident_date": "2025-01-01",
-            "incident_time": "10:00",
-            "description": "Preview paragraph. Adjust boxes in the calibrator and try again.",
-        }
-        tpl_path = meta.get('pdf_path')
-        with tempfile.NamedTemporaryFile(prefix='grv_preview_', suffix='.pdf', delete=False) as tf:
-            out_path = tf.name
-        try:
-            render_grievance_pdf(data, tpl_path, out_path, boxes_override=simple)
-            with open(out_path, 'rb') as f:
-                pdf_bytes = f.read()
-        finally:
-            try:
-                os.unlink(out_path)
-            except Exception:
-                pass
-        return app.response_class(pdf_bytes, mimetype='application/pdf')
+    # PDF calibrator removed
 
     @app.route('/admin/services')
     @roles_required('admin', 'editor')

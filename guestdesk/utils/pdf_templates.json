@@ -1,9 +1,0 @@
-{
-  "grievance": {
-    "label": "Guest Grievance",
-    "pdf_path": "/opt/guestdesk/guestdesk/static/pdf/Grievance_template.pdf",
-    "boxes_path": "/opt/guestdesk/guestdesk/utils/grievance_boxes.json",
-    "pad": 3
-  }
-}
-

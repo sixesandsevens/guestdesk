@@ -1,2 +1,1 @@
-reportlab
-PyPDF2
+# (PDF generation purged)

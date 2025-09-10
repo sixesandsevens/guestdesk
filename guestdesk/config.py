@@ -45,15 +45,7 @@ class Config:
     # Static asset version for cache-busting (optional)
     ASSET_VERSION = os.getenv("ASSET_VERSION", "1")
 
-    # --- Grievance PDF settings ---
-    GRIEVANCE_TEMPLATE_PDF = os.getenv(
-        "GRIEVANCE_TEMPLATE_PDF",
-        "/opt/guestdesk/guestdesk/static/pdf/Grievance_template.pdf",
-    )
-    GRIEVANCE_ARCHIVE_DIR = os.getenv(
-        "GRIEVANCE_ARCHIVE_DIR",
-        "/opt/guestdesk/forms/grievances",
-    )
+    # (Removed) Grievance PDF settings
     GRIEVANCE_EMAIL_TO = (
         os.getenv(
             "GRIEVANCE_EMAIL_TO",
