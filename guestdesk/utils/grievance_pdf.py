@@ -5,7 +5,8 @@ import datetime as dt
 from reportlab.pdfgen import canvas
 from reportlab.pdfbase import pdfmetrics
 from reportlab.lib.pagesizes import letter
-from PyPDF2 import PdfReader, PdfWriter
+from PyPDF2 import PdfReader, PdfWriter, Transformation
+from PyPDF2.errors import PdfReadError
 
 
 DEFAULT_BOX = {
@@ -25,13 +26,32 @@ DEFAULT_BOX = {
     "submitted":          (440, 750, 150, 12),
 }
 
+# Config paths and toggles
 BOXES_PATH = os.getenv(
     "GRIEVANCE_BOXES_JSON",
     "/opt/guestdesk/guestdesk/utils/grievance_boxes.json",
 )
 
-# Baseline padding (points) for single-line fields
-BASELINE_PAD = float(os.getenv("GRIEVANCE_BASELINE_PAD", "3"))
+# Baseline padding (points) for single-line fields (support alias env)
+BASELINE_PAD = float(os.getenv("GRV_BASELINE_PAD", os.getenv("GRIEVANCE_BASELINE_PAD", "3")))
+
+# Debug flag
+DEBUG_PDF = (os.getenv("GRIEVANCE_DEBUG_PDF", os.getenv("DEBUG_PDF", "0")) in ("1", "true", "True"))
+
+# Global overlay shift (applied to all boxes)
+GLOBAL_DX = float(os.getenv("GRV_GLOBAL_DX", "0") or 0)
+GLOBAL_DY = float(os.getenv("GRV_GLOBAL_DY", "0") or 0)
+
+
+def box_add(b, dx: float, dy: float):
+    x, y, w, h = b
+    return (x + dx, y + dy, w, h)
+
+
+def boxes_with_global_offset(BOX: dict) -> dict:
+    if not (GLOBAL_DX or GLOBAL_DY):
+        return BOX
+    return {k: box_add(v, GLOBAL_DX, GLOBAL_DY) for k, v in BOX.items()}
 
 
 def load_boxes():
@@ -108,22 +128,69 @@ def draw_in_box(c: canvas.Canvas, text: str, box, font="Helvetica", size=11, val
 
 
 def draw_checkbox_x(c: canvas.Canvas, box, checked: bool):
-    if not checked:
-        return
     x, y, w, h = box
     cx, cy = x + w / 2, y + h / 2
+    if DEBUG_PDF:
+        try:
+            c.setDash(1, 1)
+            c.line(cx - 2, cy, cx + 2, cy)
+            c.line(cx, cy - 2, cx, cy + 2)
+            c.setDash()
+        except Exception:
+            pass
+    if not checked:
+        return
     c.setFont("Helvetica", h)
     # Slight vertical optical adjustment
-    c.drawCentredString(cx, cy - h * 0.35, "✗")
+    c.drawCentredString(cx, cy - h * 0.32, "✗")
 
 
-def draw_in_box_bottom(c: canvas.Canvas, text: str, box, font: str = "Helvetica", size: int = 11, pad: float = BASELINE_PAD):
-    """Draw single-line text bottom-aligned within box (for fields with printed baselines)."""
+def draw_in_box_bottom(c: canvas.Canvas, text: str, box, font: str = "Helvetica", size: int = 11, pad: float = BASELINE_PAD, dbg_label: str | None = None):
+    """Draw single-line text bottom-aligned within box (for fields with printed baselines).
+
+    When DEBUG_PDF is true and dbg_label provided, draw a small hint like
+    "[name:bottom]" near the baseline to confirm the bottom drawer is used.
+    """
     x, y, w, h = box
     c.setFont(font, size)
     t = (text or "").strip()
     # Left-align; adjust if future forms require center/right
     c.drawString(x, y + pad, t)
+    if DEBUG_PDF and dbg_label:
+        try:
+            c.setFont("Helvetica", 6)
+            c.drawString(x + w + 3, y + pad, f"[{dbg_label}:bottom]")
+        except Exception:
+            pass
+
+def draw_paragraph_in_box(c: canvas.Canvas, text: str, box, font: str = "Helvetica", size: int = 11, leading: float = 13):
+    """Top-aligned paragraph with width-based wrapping and ellipsis when clipped."""
+    x, y, w, h = box
+    c.setFont(font, size)
+    words = (text or "").split()
+    lines: list[str] = []
+    line = ""
+    for wd in words:
+        test = (line + " " + wd).strip()
+        if pdfmetrics.stringWidth(test, font, size) <= w:
+            line = test
+        else:
+            lines.append(line)
+            line = wd
+    if line:
+        lines.append(line)
+    max_lines = max(1, int(h // leading))
+    clipped = len(lines) > max_lines
+    lines = lines[:max_lines]
+    if clipped:
+        last = lines[-1]
+        while last and pdfmetrics.stringWidth(last + "…", font, size) > w:
+            last = last[:-1]
+        lines[-1] = (last + "…") if last else "…"
+    yy = y + h - leading
+    for ln in lines:
+        c.drawString(x, yy, ln)
+        yy -= leading
 
 
 def draw_box_guides(c: canvas.Canvas, BOX: dict):
@@ -178,32 +245,39 @@ def generate_grv_id(now=None):
 
 
 def render_grievance_pdf(data, template_path, out_path):
-    # Try reading template to match its exact page size; fallback to Letter if missing
-    base_page = None
-    W, H = letter
+    """Render a grievance PDF using a required template.
+
+    Returns (out_path, bytes). Raises RuntimeError on any template/merge error.
+    """
+    if not template_path or not os.path.exists(template_path):
+        raise RuntimeError(f"Template missing: {template_path}")
+
+    # Read template and determine exact page size + rotation
     try:
         template_reader = PdfReader(template_path)
         base_page = template_reader.pages[0]
-        mb = getattr(base_page, 'mediabox', None) or getattr(base_page, 'MediaBox', None)
+        mb = getattr(base_page, "mediabox", None) or getattr(base_page, "MediaBox", None)
         try:
             W = float(mb.width)
             H = float(mb.height)
         except Exception:
-            # Fallback for tuple-like mediabox
             W = float(mb[2]) - float(mb[0])
             H = float(mb[3]) - float(mb[1])
-    except Exception:
-        # No template available; continue with a blank page overlay at Letter size
-        base_page = None
+        try:
+            rotation = int(getattr(base_page, "rotation", None) or base_page.get("/Rotate", 0)) % 360
+        except Exception:
+            rotation = 0
+    except (PdfReadError, Exception) as e:
+        raise RuntimeError(f"Failed to read template: {e}") from e
 
     # 1) overlay in memory with template's size
     packet = io.BytesIO()
     c = canvas.Canvas(packet, pagesize=(W, H))
 
     # Load boxes and optional calibration overlays
-    BOX = load_boxes()
-    dbg = os.getenv("GRIEVANCE_DEBUG_PDF", os.getenv("DEBUG_PDF", "0"))
-    if str(dbg).lower() in ("1", "true", "yes", "on"):
+    BOX0 = load_boxes()
+    BOX = boxes_with_global_offset(BOX0)
+    if DEBUG_PDF:
         draw_box_guides(c, BOX)
         draw_grid(c, W, H, step=36)
         draw_checkbox_centers(c, BOX, [
@@ -215,6 +289,8 @@ def render_grievance_pdf(data, template_path, out_path):
             debug_lines = [
                 f"DBG {dt.datetime.utcnow():%Y-%m-%d %H:%M:%SZ}",
                 f"BOXES_PATH={BOXES_PATH}",
+                f"TPL_SIZE={W}x{H} ROT={rotation}",
+                f"GLOBAL_DX={GLOBAL_DX} GLOBAL_DY={GLOBAL_DY} BASE_PAD={BASELINE_PAD}",
                 f"name={BOX.get('name')}",
                 f"phone={BOX.get('phone')}",
                 f"email={BOX.get('email')}",
@@ -231,49 +307,53 @@ def render_grievance_pdf(data, template_path, out_path):
     draw_in_box(c, data.get("id", ""), BOX["id"], font="Helvetica-Bold", size=10, halign="right", valign="middle")
     draw_in_box(c, f"Submitted: {data.get('submitted_at','')}", BOX["submitted"], font="Helvetica", size=9, halign="right", valign="middle")
 
-    # Fields (single-line on printed baselines: bottom align with small pad)
-    draw_in_box_bottom(c, data.get("name", ""), BOX["name"], size=11, pad=3)
-    draw_in_box_bottom(c, data.get("phone", ""), BOX["phone"], size=11, pad=3)
-    draw_in_box_bottom(c, data.get("email", ""), BOX["email"], size=11, pad=3)
-    draw_in_box_bottom(c, data.get("staff_involved", ""), BOX["staff_involved"], size=11, pad=3)
+    # Fields (single-line on printed baselines: bottom align with debug hints)
+    draw_in_box_bottom(c, data.get("name", ""),           BOX["name"],           size=11, pad=BASELINE_PAD, dbg_label="name")
+    draw_in_box_bottom(c, data.get("phone", ""),          BOX["phone"],          size=11, pad=BASELINE_PAD, dbg_label="phone")
+    draw_in_box_bottom(c, data.get("email", ""),          BOX["email"],          size=11, pad=BASELINE_PAD, dbg_label="email")
+    draw_in_box_bottom(c, data.get("staff_involved", ""), BOX["staff_involved"], size=11, pad=BASELINE_PAD, dbg_label="staff")
 
     inv = data.get("involves", {}) or {}
     draw_checkbox_x(c, BOX["involves_staff"], bool(inv.get("grace_staff")))
     draw_checkbox_x(c, BOX["involves_policies"], bool(inv.get("policies_procedures")))
     draw_checkbox_x(c, BOX["involves_volunteer"], bool(inv.get("volunteer")))
-    draw_checkbox_x(c, BOX["involves_other_chk"], bool(inv.get("other_text")))
+    other_checked = bool(inv.get("other_checked")) or bool(inv.get("other_text"))
+    draw_checkbox_x(c, BOX["involves_other_chk"], other_checked)
     draw_in_box(c, inv.get("other_text", ""), BOX["involves_other_txt"], size=10, valign="middle")
 
-    draw_in_box_bottom(c, data.get("incident_date", ""), BOX["incident_date"], size=11, pad=3)
-    draw_in_box_bottom(c, data.get("incident_time", ""), BOX["incident_time"], size=11, pad=3)
+    draw_in_box_bottom(c, data.get("incident_date", ""), BOX["incident_date"], size=11, pad=BASELINE_PAD, dbg_label="date")
+    draw_in_box_bottom(c, data.get("incident_time", ""), BOX["incident_time"], size=11, pad=BASELINE_PAD, dbg_label="time")
 
-    # Description as paragraph (top-aligned)
-    draw_in_box(c, data.get("description", ""), BOX["description"], size=11, valign="top", halign="left", leading=13, ellipsis=True)
+    # Description as paragraph (top-aligned with soft ellipsis)
+    draw_paragraph_in_box(c, data.get("description", ""), BOX["description"], size=11, leading=13)
 
-
-def nudge_box(BOX: dict, key: str, dx: float = 0, dy: float = 0, dw: float = 0, dh: float = 0):
-    """Temporarily adjust a box in-memory for testing; write final values to JSON when satisfied."""
-    x, y, w, h = BOX[key]
-    BOX[key] = (x + dx, y + dy, w + dw, h + dh)
-
+    # Finalize overlay
     c.save()
     packet.seek(0)
 
-    # 2) Merge overlay with template if present; otherwise, use overlay alone
-
-    overlay_reader = PdfReader(packet)
-    overlay_page = overlay_reader.pages[0]
+    # 2) Merge overlay with template; raise if merge fails
+    try:
+        overlay_reader = PdfReader(packet)
+        overlay_page = overlay_reader.pages[0]
+    except Exception as e:
+        raise RuntimeError(f"Failed to read overlay: {e}") from e
 
     writer = PdfWriter()
-    if base_page is not None:
-        try:
+    try:
+        if rotation in (90, 180, 270):
+            # Rotate overlay to match template rotation, then translate into viewbox
+            if rotation == 90:
+                t = Transformation().rotate(90).translate(H, 0)
+            elif rotation == 180:
+                t = Transformation().rotate(180).translate(W, H)
+            else:  # 270
+                t = Transformation().rotate(270).translate(0, W)
+            base_page.merge_transformed_page(overlay_page, t)
+        else:
             base_page.merge_page(overlay_page)
-            writer.add_page(base_page)
-        except Exception:
-            # If merge fails for any reason, fall back to overlay only
-            writer.add_page(overlay_page)
-    else:
-        writer.add_page(overlay_page)
+        writer.add_page(base_page)
+    except Exception as e:
+        raise RuntimeError(f"Template merge failed: {e}") from e
 
     # Write to memory first (for email attachment), then persist to disk
     mem = io.BytesIO()
@@ -288,3 +368,9 @@ def nudge_box(BOX: dict, key: str, dx: float = 0, dy: float = 0, dw: float = 0, 
         pass
 
     return out_path, data_bytes
+
+
+def nudge_box(BOX: dict, key: str, dx: float = 0, dy: float = 0, dw: float = 0, dh: float = 0):
+    """Temporarily adjust a box in-memory for testing; write final values to JSON when satisfied."""
+    x, y, w, h = BOX[key]
+    BOX[key] = (x + dx, y + dy, w + dw, h + dh)

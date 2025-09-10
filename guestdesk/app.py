@@ -81,6 +81,14 @@ def create_app():
     except Exception:
         # Safe to continue if config module is missing
         pass
+    # Grievance template sanity log (helps catch path/env mismatches early)
+    try:
+        tpl = app.config.get("GRIEVANCE_TEMPLATE_PDF")
+        app.logger.info(f"[GRIEVANCE] Template path = {tpl}")
+        if not (tpl and os.path.exists(tpl)):
+            app.logger.error(f"[GRIEVANCE] Template NOT FOUND at {tpl}")
+    except Exception:
+        pass
     # Email is handled via guestdesk.mailer using env-driven SMTP; no Flask-Mail init needed.
     # Feature flags (available to templates)
     app.config.setdefault("SHOW_HOME_SERVICES", False)
@@ -367,6 +375,8 @@ def create_app():
                     y, m = now.strftime('%Y'), now.strftime('%m')
                     grv_id = generate_grv_id(now)
 
+                    other_txt = (request.form.get('involves_other') or '').strip()
+                    other_chk = bool(request.form.get('involves_other_chk'))
                     data = {
                         "id": grv_id,
                         "submitted_at": now.strftime('%Y-%m-%d %H:%MZ'),
@@ -378,7 +388,8 @@ def create_app():
                             "grace_staff": bool(request.form.get('involves_grace_staff')),
                             "policies_procedures": bool(request.form.get('involves_policies')),
                             "volunteer": bool(request.form.get('involves_volunteer')),
-                            "other_text": (request.form.get('involves_other') or '').strip(),
+                            "other_text": other_txt,
+                            "other_checked": other_chk or bool(other_txt),
                         },
                         "incident_date": (request.form.get('incident_date') or '').strip(),
                         "incident_time": (request.form.get('incident_time') or '').strip(),
@@ -390,12 +401,13 @@ def create_app():
 
                     pdf_bytes = None
                     if render_grievance_pdf is not None:
+                        tpl = current_app.config.get('GRIEVANCE_TEMPLATE_PDF')
+                        current_app.logger.info(f"[GRIEVANCE] Using template {tpl}")
+                        if not (tpl and os.path.exists(tpl)):
+                            current_app.logger.error(f"[GRIEVANCE] Missing template: {tpl}")
+                            return "Template missing, check server path/permissions", 500
                         try:
-                            result = render_grievance_pdf(
-                                data,
-                                current_app.config.get('GRIEVANCE_TEMPLATE_PDF'),
-                                pdf_path,
-                            )
+                            result = render_grievance_pdf(data, tpl, pdf_path)
                             try:
                                 app.logger.info(
                                     'grievance_pdf: result_type=%s tuple=%s path=%s',
@@ -403,31 +415,15 @@ def create_app():
                                 )
                             except Exception:
                                 pass
-                            # Newer utils return (path, bytes). Backward-compat: if only path, read from disk.
+                            # New utils return (path, bytes). If path-only, read from disk.
                             if isinstance(result, tuple) and len(result) == 2:
                                 pdf_bytes = result[1]
                             else:
-                                # Legacy: try to read from disk if it exists; otherwise create a minimal in-memory PDF
-                                import os as _os
-                                if _os.path.exists(pdf_path):
+                                if os.path.exists(pdf_path):
                                     with open(pdf_path, 'rb') as f:
                                         pdf_bytes = f.read()
-                                else:
-                                    try:
-                                        import io as _io
-                                        from reportlab.pdfgen import canvas as _canvas
-                                        from reportlab.lib.pagesizes import letter as _letter
-                                        _buf = _io.BytesIO()
-                                        _c = _canvas.Canvas(_buf, pagesize=_letter)
-                                        _c.setFont('Helvetica-Bold', 12)
-                                        _c.drawString(40, 770, f'Grievance {grv_id}')
-                                        _c.setFont('Helvetica', 10)
-                                        _c.drawString(40, 752, f'Submitted: {data["submitted_at"]}')
-                                        _c.drawString(40, 736, 'Attachment generated without template (fallback).')
-                                        _c.save()
-                                        pdf_bytes = _buf.getvalue()
-                                    except Exception:
-                                        pdf_bytes = None
+                        except RuntimeError as _e:
+                            current_app.logger.error(f"[GRIEVANCE] PDF generation failed: {_e}")
                         except Exception as _e:
                             app.logger.exception('Failed to render grievance PDF: %s', _e)
 
@@ -436,8 +432,11 @@ def create_app():
                     sender = current_app.config.get('GRIEVANCE_FROM')
 
                     attachments = []
+                    body_extra = ""
                     if pdf_bytes:
                         attachments.append(("application/pdf", f"{grv_id}.pdf", pdf_bytes))
+                    else:
+                        body_extra = "\n(Note: PDF attachment missing due to template/merge error. Check server logs for [GRIEVANCE].)\n"
 
                     send_mail(
                         subject=f"[GuestDesk] Grievance {grv_id}",
@@ -446,6 +445,7 @@ def create_app():
                             f"ID: {grv_id}\n"
                             f"Submitted: {data['submitted_at']}\n"
                             f"From: {data['name']} ({data['phone']}, {data['email']})\n"
+                            f"{body_extra}"
                         ),
                         to=to_list or [current_app.config.get('GRIEVANCE_EMAIL') or current_app.config.get('ADMIN_EMAIL')],
                         cc=cc_list,
@@ -487,6 +487,23 @@ def create_app():
         except Exception as e:
             app.logger.exception("Smoke test failed: %s", e)
             return f"error: {e}", 500
+
+    # Optional health check for grievance template and archive permissions
+    @app.get('/__grievance_health')
+    def grievance_health():
+        try:
+            tpl = current_app.config.get("GRIEVANCE_TEMPLATE_PDF")
+            arc = current_app.config.get("GRIEVANCE_ARCHIVE_DIR")
+            tpl_exists = bool(tpl and os.path.exists(tpl))
+            can_write = bool(arc and os.path.isdir(arc) and os.access(arc, os.W_OK))
+            return jsonify({
+                "template_path": tpl,
+                "template_exists": tpl_exists,
+                "archive_dir": arc,
+                "can_write_archive": can_write,
+            }), 200
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
 
     # ----- Fun zone -----
     OFFLINE_JOKES = [

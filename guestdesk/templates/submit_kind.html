@@ -63,7 +63,7 @@
       <label class="form-check-label" for="involves_volunteer">Volunteer</label>
     </div>
     <div class="form-check form-check-inline">
-      <input class="form-check-input" type="checkbox" id="involves_other_chk" {% if form.involves_other %}checked{% endif %}>
+      <input class="form-check-input" type="checkbox" name="involves_other_chk" id="involves_other_chk" {% if form.involves_other %}checked{% endif %}>
       <label class="form-check-label" for="involves_other_chk">Other</label>
     </div>
     <input class="form-control d-inline-block ms-2" style="max-width: 300px;" name="involves_other" type="text" placeholder="If Other, describe…" value="{{ form.involves_other or '' }}" {% if not form.involves_other %}disabled{% endif %}>
