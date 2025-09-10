@@ -1,0 +1,234 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>PDF Calibrator</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui; margin: 0; display: grid; grid-template-columns: 320px 1fr; height: 100vh; }
+    aside { padding: 12px; border-right: 1px solid #ddd; overflow: auto; }
+    main { position: relative; background:#fafafa; overflow: auto; }
+    #stage-wrap { position: relative; margin: 16px; display:inline-block; }
+    #pdfCanvas { display:block; position: relative; z-index:1; }
+    #konva { position:absolute; left:0; top:0; z-index:2; }
+    .row { margin: 8px 0; }
+    label { display:block; font-size:12px; margin-bottom:4px; }
+    input, select, button, textarea { width:100%; padding:6px; }
+    #coords { font-family: ui-monospace, SFMono-Regular, monospace; font-size:12px; white-space:pre; background:#f6f6f6; border:1px solid #eee; padding:6px; height:120px; overflow:auto; }
+  </style>
+  <!-- PDF.js -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script> pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; </script>
+  <!-- Konva -->
+  <script src="https://unpkg.com/konva@9/konva.min.js"></script>
+  <!-- Tiny toast -->
+  <script>
+    function toast(msg){ try{ const d=document.createElement('div'); d.textContent=msg; Object.assign(d.style,{position:'fixed',right:'12px',bottom:'12px',background:'#333',color:'#fff',padding:'8px 12px',borderRadius:'6px'}); document.body.appendChild(d); setTimeout(()=>d.remove(),2000);}catch(e){} }
+  </script>
+</head>
+<body>
+  <aside>
+    <h3>PDF Calibrator</h3>
+    <div class="row">
+      <label>Template</label>
+      <select id="template"></select>
+    </div>
+    <div class="row">
+      <label>Mode</label>
+      <select id="mode">
+        <option value="single">single (baseline)</option>
+        <option value="paragraph">paragraph</option>
+        <option value="checkbox">checkbox</option>
+      </select>
+    </div>
+    <div class="row">
+      <label>Pad (baseline)</label>
+      <input id="pad" type="number" step="1" value="3" />
+    </div>
+    <div class="row">
+      <button id="btnLoad">Load current JSON</button>
+      <button id="btnReset">Reset</button>
+      <button id="btnSave">Save JSON</button>
+    </div>
+    <div class="row">
+      <label>Selected field</label>
+      <select id="field"></select>
+      <button id="btnAdd">Add field</button>
+      <button id="btnDel">Delete field</button>
+    </div>
+    <div class="row"><label>Live coords</label><div id="coords"></div></div>
+    <div class="row"><label><input type="checkbox" id="snap" checked> Snap (2 pt)</label></div>
+    <div class="row"><label><input type="checkbox" id="showGrid" checked> Show grid</label></div>
+    <div class="row"><label><input type="checkbox" id="showBaseline" checked> Show baselines</label></div>
+  </aside>
+
+  <main>
+    <div id="stage-wrap"><canvas id="pdfCanvas"></canvas><div id="konva"></div></div>
+  </main>
+
+<script>
+const API = {
+  registry: '/admin/grievance-calibrate/registry',
+  template: '/admin/grievance-calibrate/template?template=',
+  boxes:    '/admin/grievance-calibrate/boxes?template=',
+  save:     '/admin/grievance-calibrate/boxes',
+};
+
+let stage, layer, gridLayer, width=612, height=792;
+let state = { templateId: 'grievance', pad: 3, fields: {}, selection: null };
+
+function snap2(v) { return document.getElementById('snap').checked ? Math.round(v/2)*2 : v; }
+
+async function loadRegistry(){
+  const res = await fetch(API.registry); const reg = await res.json();
+  const sel = document.getElementById('template'); sel.innerHTML='';
+  Object.entries(reg).forEach(([id,meta])=>{
+    const opt = document.createElement('option'); opt.value=id; opt.textContent = meta.label || id;
+    sel.appendChild(opt);
+  });
+  sel.value = state.templateId;
+}
+
+async function loadTemplateMeta(){
+  const res = await fetch(API.template + state.templateId); const meta = await res.json();
+  state.pad = meta.pad || 3;
+  document.getElementById('pad').value = state.pad;
+  const url = meta.pdf_url || meta.pdf_path || '';
+  if(!url){ toast('No PDF URL found for template'); return; }
+  await renderPdfToCanvas(url);
+}
+
+async function renderPdfToCanvas(url){
+  const loadingTask = pdfjsLib.getDocument(url);
+  const pdf = await loadingTask.promise; const page = await pdf.getPage(1);
+  const viewport = page.getViewport({scale:1});
+  width = viewport.width; height = viewport.height;
+
+  const canvas = document.getElementById('pdfCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = width; canvas.height = height;
+  const overlay = document.getElementById('konva');
+  overlay.style.width = width + 'px';
+  overlay.style.height = height + 'px';
+  try {
+    await page.render({canvasContext: ctx, viewport}).promise;
+  } catch(e){
+    toast('Failed to render PDF: '+ e);
+    console.error('PDF render error', e);
+  }
+
+  initKonva();
+}
+
+function initKonva(){
+  const wrap = document.getElementById('konva'); wrap.innerHTML='';
+  stage = new Konva.Stage({container: 'konva', width, height});
+  gridLayer = new Konva.Layer(); layer = new Konva.Layer();
+  stage.add(gridLayer); stage.add(layer);
+  drawGrid();
+}
+
+function drawGrid(){
+  gridLayer.destroyChildren();
+  if(!document.getElementById('showGrid').checked){ gridLayer.draw(); return; }
+  const minor=12, mid=36, major=72;
+  for(let x=0;x<=width;x+=minor) gridLayer.add(new Konva.Line({points:[x,0,x,height], stroke:'#e9e9e9', strokeWidth:0.5}));
+  for(let y=0;y<=height;y+=minor) gridLayer.add(new Konva.Line({points:[0,y,width,y], stroke:'#e9e9e9', strokeWidth:0.5}));
+  for(let x=0;x<=width;x+=mid)   gridLayer.add(new Konva.Line({points:[x,0,x,height], stroke:'#d4d4d4', strokeWidth:0.75}));
+  for(let y=0;y<=height;y+=mid)   gridLayer.add(new Konva.Line({points:[0,y,width,y], stroke:'#d4d4d4', strokeWidth:0.75}));
+  for(let x=0;x<=width;x+=major){ gridLayer.add(new Konva.Line({points:[x,0,x,height], stroke:'#c33', strokeWidth:1})); gridLayer.add(new Konva.Text({x:x+2,y:2,text:String(x),fontSize:9,fill:'#333'})); }
+  for(let y=0;y<=height;y+=major){ gridLayer.add(new Konva.Line({points:[0,y,width,y], stroke:'#c33', strokeWidth:1})); gridLayer.add(new Konva.Text({x:4,y:y+2,text:String(y),fontSize:9,fill:'#333'})); }
+  gridLayer.draw();
+}
+
+function addRectField(name, def){
+  const mode = def.mode || 'single';
+  let group = new Konva.Group({ draggable:true, name });
+  if(mode === 'checkbox'){
+    const size = def.size || 16; const cx = def.center?.[0] || 100; const cy = def.center?.[1] || 100;
+    const rect = new Konva.Rect({ x: cx - size/2, y: cy - size/2, width: size, height: size, stroke:'#0a84ff', strokeWidth:1, dash:[2,2] });
+    const label = new Konva.Text({ x: rect.x()+2, y: rect.y()-12, text: name, fontSize: 10, fill:'#0a84ff', listening:false });
+    group.add(rect); group.add(label);
+    group.on('dragmove',()=>{ rect.x(snap2(rect.x())); rect.y(snap2(rect.y())); showCoords(name); layer.draw(); });
+    const tr = new Konva.Transformer({nodes:[rect], rotateEnabled:false, enabledAnchors:['top-left','top-right','bottom-left','bottom-right']});
+    rect.on('transform',()=>{ rect.width(snap2(rect.width())); rect.height(snap2(rect.height())); showCoords(name); });
+    group.on('dragmove',()=>{ label.position({x:rect.x()+2, y: rect.y()-12}); });
+    rect.on('transform',()=>{ label.position({x:rect.x()+2, y: rect.y()-12}); });
+    group.on('click',()=>{ state.selection=name; showCoords(name); highlight(name); });
+    layer.add(group); layer.add(tr);
+  } else {
+    const [x=100,y=600,w=200,h=16] = def.box || [];
+    const rect = new Konva.Rect({ x, y, width:w, height:h, stroke:'#0a84ff', strokeWidth:1, dash:[4,3] });
+    const baseline = new Konva.Line({ points:[x, y+Number(document.getElementById('pad').value), x+w, y+Number(document.getElementById('pad').value)], stroke:'#0a84ff', strokeWidth:1 });
+    const label = new Konva.Text({ x: x+2, y: y-12, text: name, fontSize: 10, fill:'#0a84ff', listening:false });
+    group.add(rect); group.add(baseline); group.add(label); group.draggable(true);
+    group.on('dragmove',()=>{ group.x(snap2(group.x())); group.y(snap2(group.y())); baseline.points([rect.x(), rect.y()+Number(document.getElementById('pad').value), rect.x()+rect.width(), rect.y()+Number(document.getElementById('pad').value)]); showCoords(name); layer.draw(); });
+    const tr = new Konva.Transformer({nodes:[rect], rotateEnabled:false, enabledAnchors:['middle-left','middle-right','bottom-right','top-right','top-left','bottom-left','top-center','bottom-center']});
+    rect.on('transform',()=>{ rect.width(snap2(rect.width())); rect.height(snap2(rect.height())); baseline.points([rect.x(), rect.y()+Number(document.getElementById('pad').value), rect.x()+rect.width(), rect.y()+Number(document.getElementById('pad').value)]); showCoords(name); });
+    group.on('dragmove',()=>{ label.position({x:rect.x()+2, y: rect.y()-12}); });
+    rect.on('transform',()=>{ label.position({x:rect.x()+2, y: rect.y()-12}); });
+    group.on('click',()=>{ state.selection=name; showCoords(name); highlight(name); });
+    layer.add(group); layer.add(tr);
+  }
+  layer.draw();
+}
+
+function highlight(name){
+  layer.find('Group').each(g=>{
+    const rect = g.findOne('Rect');
+    if(!rect) return;
+    if(g.name()===name){ rect.stroke('#e83e8c'); rect.strokeWidth(2); }
+    else { rect.stroke('#0a84ff'); rect.strokeWidth(1); }
+  });
+  layer.draw();
+}
+
+function showCoords(name){
+  const pad = Number(document.getElementById('pad').value);
+  const g = layer.findOne(`Group[name='${name}']`); if(!g) return;
+  const rect = g.findOne('Rect');
+  const isCheckbox = (rect.width() === rect.height()) && rect.dash()[0]===2;
+  let txt='';
+  if(isCheckbox){ const cx = rect.x()+rect.width()/2, cy=rect.y()+rect.height()/2; txt = `${name}: checkbox\ncenter=(${cx.toFixed(1)}, ${cy.toFixed(1)}), size=${rect.width().toFixed(1)}`; }
+  else { const x=rect.x(), y=rect.y(), w=rect.width(), h=rect.height(); txt = `${name}: ${state.fields[name]?.mode || 'single'}\nbox=(${x.toFixed(1)}, ${y.toFixed(1)}, ${w.toFixed(1)}, ${h.toFixed(1)})\nbaseline=${(y+pad).toFixed(1)}` }
+  document.getElementById('coords').textContent = txt; state.selection = name;
+}
+
+function refreshFieldsDropdown(){ const sel=document.getElementById('field'); sel.innerHTML=''; Object.keys(state.fields).forEach(k=>{ const opt=document.createElement('option'); opt.value=k; opt.textContent=k; sel.appendChild(opt); }); }
+
+async function loadBoxes(){
+  const res = await fetch(API.boxes + state.templateId); const j = await res.json();
+  state.fields = j.fields || {};
+  layer.destroyChildren();
+  Object.entries(state.fields).forEach(([name, def])=> addRectField(name, def));
+  layer.draw(); refreshFieldsDropdown();
+}
+
+function captureToState(name){
+  const g = layer.findOne(`Group[name='${name}']`); if(!g) return;
+  const rect = g.findOne('Rect');
+  const isCheckbox = (rect.width()===rect.height()) && rect.dash()[0]===2;
+  if(isCheckbox){ const cx=rect.x()+rect.width()/2, cy=rect.y()+rect.height()/2; state.fields[name] = { mode:'checkbox', center:[+cx.toFixed(1), +cy.toFixed(1)], size:+rect.width().toFixed(1) }; }
+  else { state.fields[name] = state.fields[name] || { mode: document.getElementById('mode').value }; const x=+rect.x().toFixed(1), y=+rect.y().toFixed(1), w=+rect.width().toFixed(1), h=+rect.height().toFixed(1); state.fields[name].box=[x,y,w,h]; if(!state.fields[name].mode) state.fields[name].mode='single'; }
+}
+
+async function saveBoxes(){
+  Object.keys(state.fields).forEach(captureToState);
+  const meta = { page:0, dpi:72 };
+  const payload = { template: state.templateId, meta, fields: state.fields };
+  await fetch(API.save, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload)});
+  toast('Saved');
+}
+
+document.getElementById('btnLoad').onclick = loadBoxes;
+document.getElementById('btnSave').onclick = saveBoxes;
+document.getElementById('btnReset').onclick = ()=>{ layer.destroyChildren(); layer.draw(); };
+document.getElementById('template').onchange = async (e)=>{ state.templateId=e.target.value; await loadTemplateMeta(); await loadBoxes(); };
+document.getElementById('pad').onchange = ()=>{ state.pad = Number(document.getElementById('pad').value); drawGrid(); loadBoxes(); };
+document.getElementById('showGrid').onchange = drawGrid;
+document.getElementById('btnAdd').onclick = ()=>{ const name=prompt('Field key (e.g., phone / description / involves_staff):'); if(!name) return; const mode=document.getElementById('mode').value; state.fields[name] = (mode==='checkbox' ? { mode, center:[100,100], size:16 } : { mode, box:[100,600,200,16]}); addRectField(name, state.fields[name]); refreshFieldsDropdown(); };
+document.getElementById('btnDel').onclick = ()=>{ const name=document.getElementById('field').value; if(!name) return; delete state.fields[name]; const g = layer.findOne(`Group[name='${name}']`); g?.destroy(); layer.draw(); refreshFieldsDropdown(); };
+
+(async function init(){ await loadRegistry(); await loadTemplateMeta(); await loadBoxes(); })();
+</script>
+</body>
+</html>

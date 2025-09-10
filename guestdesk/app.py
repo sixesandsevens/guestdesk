@@ -996,6 +996,141 @@ def create_app():
             ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
         return jsonify([{"path": r['path'], "avg_ms": int(r['avg'] or 0)} for r in rows])
 
+    # ---- PDF Calibrator (Admin) ----
+    import json as _json
+    _REG_PATH = "/opt/guestdesk/guestdesk/utils/pdf_templates.json"
+
+    def _load_registry():
+        try:
+            with open(_REG_PATH, 'r') as f:
+                return _json.load(f)
+        except Exception:
+            return {}
+
+    @app.get('/admin/grievance-calibrate')
+    @roles_required('admin')
+    def admin_calibrator():
+        return render_template('admin/calibrate.html')
+
+    @app.get('/admin/grievance-calibrate/registry')
+    @roles_required('admin')
+    def admin_calibrator_registry():
+        try:
+            with open(_REG_PATH, 'r') as f:
+                data = f.read()
+            return app.response_class(data, mimetype='application/json')
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    @app.get('/admin/grievance-calibrate/template')
+    @roles_required('admin')
+    def admin_calibrator_template():
+        tid = (request.args.get('template') or 'grievance').strip()
+        reg = _load_registry()
+        meta = reg.get(tid)
+        if not meta:
+            return jsonify({"error": "template not found"}), 404
+        # Add a web-accessible URL for the PDF if only a filesystem path is present
+        try:
+            pdf_url = meta.get('pdf_url')
+            pdf_path = meta.get('pdf_path')
+            if not pdf_url and pdf_path:
+                # If the file lives under our app static dir, expose via /static
+                static_root = os.path.abspath(os.path.join(os.getcwd(), 'static'))
+                abs_path = os.path.abspath(pdf_path)
+                if abs_path.startswith(static_root):
+                    rel = abs_path[len(static_root):].lstrip('/')
+                    pdf_url = url_for('static', filename=rel)
+                else:
+                    # Common deployment path: /opt/guestdesk/guestdesk/static/...
+                    prefix = '/opt/guestdesk/guestdesk/static/'
+                    if abs_path.startswith(prefix):
+                        rel = abs_path[len(prefix):]
+                        pdf_url = url_for('static', filename=rel)
+            resp = dict(meta)
+            if pdf_url:
+                resp['pdf_url'] = pdf_url
+            return jsonify(resp)
+        except Exception:
+            return jsonify(meta)
+
+    def _infer_mode(key: str):
+        if key.startswith('involves_') and (key.endswith('chk') or key in ('involves_staff','involves_policies','involves_volunteer')):
+            return 'checkbox'
+        if key in ('description',):
+            return 'paragraph'
+        return 'single'
+
+    @app.get('/admin/grievance-calibrate/boxes')
+    @roles_required('admin')
+    def admin_calibrator_boxes_get():
+        tid = (request.args.get('template') or 'grievance').strip()
+        reg = _load_registry()
+        meta = reg.get(tid)
+        if not meta:
+            return jsonify({"error": "template not found"}), 404
+        path = meta.get('boxes_path')
+        try:
+            with open(path, 'r') as f:
+                raw = _json.load(f)
+        except Exception:
+            raw = {}
+        # Support both calibrator schema and legacy simple mapping
+        if 'fields' in raw:
+            return jsonify(raw)
+        fields = {}
+        for k, v in (raw or {}).items():
+            if not isinstance(v, (list, tuple)) or len(v) < 4:
+                continue
+            mode = _infer_mode(k)
+            if mode == 'checkbox':
+                x, y, w, h = v[:4]
+                cx, cy = x + w/2, y + h/2
+                size = min(w, h)
+                fields[k] = {"mode": mode, "center": [cx, cy], "size": size}
+            else:
+                fields[k] = {"mode": mode, "box": [float(v[0]), float(v[1]), float(v[2]), float(v[3])]} 
+        return jsonify({"$schema": "https://guestdesk/schemas/boxes.v1.json", "meta": {"page":0, "dpi":72}, "fields": fields})
+
+    @app.post('/admin/grievance-calibrate/boxes')
+    @roles_required('admin')
+    def admin_calibrator_boxes_post():
+        try:
+            payload = request.get_json(force=True)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 400
+        tid = (payload.get('template') or 'grievance').strip()
+        reg = _load_registry()
+        meta = reg.get(tid)
+        if not meta:
+            return jsonify({"error": "template not found"}), 404
+        fields = payload.get('fields') or {}
+        # Convert to legacy simple mapping used by renderer
+        simple = {}
+        for k, defn in fields.items():
+            mode = (defn.get('mode') or 'single').lower()
+            if mode == 'checkbox':
+                size = float(defn.get('size') or 16)
+                cx, cy = defn.get('center') or [0, 0]
+                x, y = float(cx) - size/2, float(cy) - size/2
+                simple[k] = [x, y, size, size]
+            else:
+                box = defn.get('box') or [0, 0, 0, 0]
+                simple[k] = [float(box[0]), float(box[1]), float(box[2]), float(box[3])]
+        out_path = meta.get('boxes_path')
+        tmp = f"{out_path}.tmp"
+        try:
+            with open(tmp, 'w') as f:
+                _json.dump(simple, f, indent=2)
+            os.replace(tmp, out_path)
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        try:
+            os.utime(out_path, None)
+        except Exception:
+            pass
+        return jsonify({"ok": True})
+
     @app.route('/admin/services')
     @roles_required('admin', 'editor')
     def admin_services():
