@@ -1,0 +1,440 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex align-items-center justify-content-between">
+    <h2>Form PDF: <code>{{ form_key }}</code></h2>
+    <a class="btn btn-link" href="{{ url_for('admin_index') }}">Admin Home</a>
+  </div>
+
+  <div class="row g-3">
+    <div class="col-md-7">
+      <div class="card">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <span>Template PDF</span>
+          <div class="d-flex gap-2 align-items-center">
+            <label class="me-2"><input type="checkbox" id="toggleGrid" checked> Grid</label>
+            <label class="me-2"><input type="checkbox" id="toggleSnap" checked> Snap</label>
+            <label class="me-2"><input type="checkbox" id="toggleLabels" checked> Labels</label>
+            <label class="me-2"><input type="checkbox" id="toggleFallback"> System viewer</label>
+            <button class="btn btn-sm btn-outline-secondary" id="reloadPdfBtn">Reload</button>
+            {% if file_url %}
+            <a class="btn btn-sm btn-outline-secondary" href="{{ file_url }}" target="_blank" rel="noopener">Open PDF</a>
+            {% endif %}
+          </div>
+        </div>
+        <div class="card-body" id="pdfCardBody">
+          <div>Page: {{ page_w }} x {{ page_h }} pt</div>
+          <form class="mt-2" action="{{ url_for('admin_form_pdf_upload', form_key=form_key) }}" method="post" enctype="multipart/form-data">
+            <div class="input-group">
+              <input class="form-control" type="file" name="file" accept="application/pdf">
+              <button class="btn btn-outline-primary" type="submit">Upload/Replace</button>
+            </div>
+          </form>
+          {% if not file_url %}
+          <div class="alert alert-warning mt-2">No template uploaded yet.</div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+    <div class="col-md-5">
+      <div class="card">
+        <div class="card-header">Layout</div>
+        <div class="card-body">
+          <form id="saveForm" action="{{ url_for('admin_form_pdf_save', form_key=form_key) }}" method="post">
+            <div class="row g-2">
+              <div class="col-4">
+                <label class="form-label">Baseline Pad (pt)</label>
+                <input class="form-control form-control-sm" type="number" step="0.1" name="baseline_pad" value="{{ baseline_pad }}">
+              </div>
+              <div class="col-8 d-flex align-items-end">
+                <div class="form-check mt-3">
+                  <input class="form-check-input" type="checkbox" id="attachBox" name="attach_to_email" {% if attach_to_email %}checked{% endif %}>
+                  <label class="form-check-label" for="attachBox">Attach to email</label>
+                </div>
+              </div>
+            </div>
+            <textarea name="layout_json" class="form-control mt-2" rows="14" placeholder='{"pages":[{"fields":{}}]}'></textarea>
+          </form>
+          <div class="mt-2 d-flex gap-2">
+            <button class="btn btn-primary" type="submit" form="saveForm">Save</button>
+            <a class="btn btn-outline-secondary" href="{{ url_for('admin_form_pdf_preview', form_key=form_key) }}?debug=1" target="_blank" rel="noopener">Preview</a>
+          </div>
+        </div>
+      </div>
+      <div class="card mt-2">
+        <div class="card-header">Fields</div>
+        <div class="card-body" id="fieldList"></div>
+        <div class="card-footer">
+          <div class="input-group input-group-sm">
+            <input id="newFieldName" class="form-control" placeholder="field key (e.g., name)">
+            <select id="newFieldType" class="form-select" style="max-width: 160px">
+              <option value="line">Single line</option>
+              <option value="multiline">Multiline</option>
+              <option value="checkbox">Checkbox</option>
+            </select>
+            <button class="btn btn-outline-primary" onclick="addField()">Add</button>
+            <button class="btn btn-outline-secondary" type="button" onclick="addCommonFields('{{ form_key }}')">Add Common Fields</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script id="editorLayoutJSON" type="application/json">{{ editor_layout_json|safe }}</script>
+<script src="{{ url_for('static', filename='vendor/pdfjs/pdf.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/konva/konva.min.js') }}"></script>
+<script>
+if (window['pdfjsLib']) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = '{{ url_for('static', filename='vendor/pdfjs/pdf.worker.min.js') }}';
+}
+// Safely embed the file URL for JS using JSON encoding
+const FILE_URL = {{ (file_url or none)|tojson }};
+// Basic runtime diagnostics in console to help debugging
+try { console.log('Editor file URL:', FILE_URL); } catch(e) {}
+if (!window.Konva) { console.error('Konva not loaded'); }
+if (!window['pdfjsLib']) { console.warn('PDF.js not loaded; use System viewer'); }
+const pageW = {{ page_w or 612 }};
+const pageH = {{ page_h or 792 }};
+let currentPage = 1;
+let totalPages = 1;
+let pdfDoc = null;
+let layout = (function(){ try { const el = document.getElementById('editorLayoutJSON'); return JSON.parse(el ? (el.textContent || '{}') : '{}'); } catch(e){ return {pages:[{fields:{}}]}; } })();
+if (!layout.pages) layout.pages = [{fields:{}}];
+
+const wrapper = document.createElement('div');
+wrapper.style.position = 'relative';
+wrapper.style.width = pageW + 'px';
+wrapper.style.height = pageH + 'px';
+wrapper.id = 'pdfEditorContainer';
+document.getElementById('pdfCardBody').appendChild(wrapper);
+
+const pdfCanvas = document.createElement('canvas');
+pdfCanvas.width = pageW; pdfCanvas.height = pageH;
+pdfCanvas.style.width = pageW + 'px';
+pdfCanvas.style.height = pageH + 'px';
+pdfCanvas.style.display = 'block';
+pdfCanvas.style.position = 'absolute';
+pdfCanvas.style.left = '0';
+pdfCanvas.style.top = '0';
+pdfCanvas.style.zIndex = '0';
+wrapper.appendChild(pdfCanvas);
+
+const stageHost = document.createElement('div');
+stageHost.style.position = 'absolute';
+stageHost.style.left = '0';
+stageHost.style.top = '0';
+stageHost.style.width = '100%';
+stageHost.style.height = '100%';
+stageHost.style.zIndex = '1';
+wrapper.appendChild(stageHost);
+
+const stage = new Konva.Stage({ container: stageHost, width: pageW, height: pageH });
+const gridLayer = new Konva.Layer();
+const layer = new Konva.Layer();
+stage.add(gridLayer);
+stage.add(layer);
+
+// Fallback iframe so you can still place fields if PDF.js fails
+let pdfIframe = document.createElement('iframe');
+pdfIframe.style.position = 'absolute';
+pdfIframe.style.left = '0';
+pdfIframe.style.top = '0';
+pdfIframe.style.width = '100%';
+pdfIframe.style.height = '100%';
+pdfIframe.style.border = '0';
+pdfIframe.style.pointerEvents = 'none'; // allow interacting with overlay
+pdfIframe.style.display = 'none';
+pdfIframe.style.zIndex = '0';
+wrapper.appendChild(pdfIframe);
+// Default to system viewer visible so editor always has a background
+try {
+  if (FILE_URL) {
+    // Default to system viewer visible
+    pdfCanvas.style.display = 'none';
+    pdfIframe.src = FILE_URL + '#view=FitH';
+    pdfIframe.style.display = 'block';
+    try { document.getElementById('toggleFallback').checked = true; } catch(e) {}
+  }
+} catch(e) {}
+
+function drawGrid() {
+  gridLayer.destroyChildren();
+  const show = document.getElementById('toggleGrid').checked;
+  if (!show) { gridLayer.draw(); return; }
+  const minor = 12; const major = 72;
+  for (let x=0; x<=stage.width(); x+=minor) {
+    const lw = (x % major === 0) ? 0.6 : 0.2;
+    const line = new Konva.Line({ points:[x,0,x,stage.height()], stroke:'#ccc', strokeWidth: lw });
+    gridLayer.add(line);
+  }
+  for (let y=0; y<=stage.height(); y+=minor) {
+    const lw = (y % major === 0) ? 0.6 : 0.2;
+    const line = new Konva.Line({ points:[0,y,stage.width(),y], stroke:'#ccc', strokeWidth: lw });
+    gridLayer.add(line);
+  }
+  gridLayer.draw();
+}
+
+function snap(val) {
+  if (!document.getElementById('toggleSnap').checked) return val;
+  const step = 1;
+  return Math.round(val / step) * step;
+}
+
+function normalized(x, y, w, h) { return { x:(x/stage.width()), y:(y/stage.height()), w:(w/stage.width()), h:(h/stage.height()) }; }
+function denormalized(n) { return { x:(n.x*stage.width()), y:(n.y*stage.height()), w:(n.w*stage.width()), h:(n.h*stage.height()) }; }
+
+function ensurePage(idx){ while (layout.pages.length < idx) layout.pages.push({fields:{}}); }
+
+function fieldRect(key, spec, showLabels) {
+  const t = spec.type || 'line';
+  if (t === 'checkbox') {
+    const cx = (spec.cx || 0) * stage.width();
+    const cy = (spec.cy || 0) * stage.height();
+    const size = (spec.size || 0.018) * Math.min(stage.width(), stage.height());
+    const grp = new Konva.Group({ x: cx, y: cy, draggable: true, name: 'field-'+key });
+    const line1 = new Konva.Line({ points:[-size/2,-size/2, size/2,size/2], stroke:'#000' });
+    const line2 = new Konva.Line({ points:[-size/2,size/2, size/2,-size/2], stroke:'#000' });
+    grp.add(line1); grp.add(line2);
+    if (showLabels) {
+      const lbl = new Konva.Label({ x: size/2 + 4, y: -size/2 - 14 });
+      lbl.add(new Konva.Tag({ fill: 'rgba(255,255,255,0.8)', stroke: '#087e77', strokeWidth: 0.5, cornerRadius: 3, lineJoin: 'round' }));
+      lbl.add(new Konva.Text({ text: key, fontSize: 10, fill: '#087e77', padding: 2 }));
+      grp.add(lbl);
+    }
+    grp.on('dragmove', () => { grp.x(snap(grp.x())); grp.y(snap(grp.y())); updateFieldSpec(key, { cx: grp.x()/stage.width(), cy: grp.y()/stage.height(), size: (spec.size || 0.018) }); });
+    return grp;
+  } else {
+    const d = denormalized({x: spec.x||0, y: spec.y||0, w: spec.w||0.3, h: spec.h||0.03});
+    const rect = new Konva.Rect({ x:d.x, y:d.y, width:d.w, height:d.h, stroke:'#007bff', strokeWidth:1, draggable:true, name:'field-'+key });
+    rect.on('dragmove', () => { rect.x(snap(rect.x())); rect.y(snap(rect.y())); const n=normalized(rect.x(), rect.y(), rect.width(), rect.height()); updateFieldSpec(key, { x:n.x, y:n.y, w:n.w, h:n.h }); });
+    rect.on('transformend dragend', () => { const n=normalized(rect.x(), rect.y(), rect.width(), rect.height()); updateFieldSpec(key, { x:n.x, y:n.y, w:n.w, h:n.h }); });
+    rect.on('transform', () => { const scaleX = rect.scaleX(); const scaleY = rect.scaleY(); rect.width(Math.max(4, rect.width() * scaleX)); rect.height(Math.max(4, rect.height() * scaleY)); rect.scaleX(1); rect.scaleY(1); });
+    rect.on('dblclick', () => selectField(key));
+    if (showLabels) {
+      const label = new Konva.Label({ x: rect.x(), y: Math.max(0, rect.y() - 14) });
+      label.add(new Konva.Tag({ fill: 'rgba(255,255,255,0.8)', stroke: '#087e77', strokeWidth: 0.5, cornerRadius: 3, lineJoin: 'round' }));
+      label.add(new Konva.Text({ text: key, fontSize: 10, fill: '#087e77', padding: 2 }));
+      const syncLabel = () => { label.x(rect.x()); label.y(Math.max(0, rect.y() - 14)); };
+      rect.on('dragmove', syncLabel); rect.on('dragend', syncLabel); rect.on('transform', syncLabel); rect.on('transformend', syncLabel);
+      layer.add(label);
+    }
+    // Add resize handles (Transformer) for this rectangle
+    const tr = new Konva.Transformer({ nodes: [rect], keepRatio:false, rotateEnabled:false, enabledAnchors:['top-left','top-right','bottom-left','bottom-right'] });
+    layer.add(tr);
+    return rect;
+  }
+}
+
+function updateFieldSpec(key, patch) {
+  ensurePage(currentPage);
+  const fields = layout.pages[currentPage-1].fields || (layout.pages[currentPage-1].fields = {});
+  const base = fields[key] || (fields[key] = {type:'line', x:0.1, y:0.1, w:0.3, h:0.03, font:'Helvetica', size:10});
+  Object.assign(base, patch);
+  syncTextarea();
+  refreshFieldList();
+}
+
+function selectField(key) {
+  const fields = layout.pages[currentPage-1].fields || {};
+  const spec = fields[key];
+  if (!spec) return;
+  const name = prompt('Rename field or leave to keep name:', key) || key;
+  if (name !== key) { delete fields[key]; fields[name] = spec; }
+  syncTextarea(); refreshFieldList(); drawPage();
+}
+
+function addField() {
+  ensurePage(currentPage);
+  const name = (document.getElementById('newFieldName').value || '').trim();
+  const type = document.getElementById('newFieldType').value;
+  if (!name) { alert('Enter a field key'); return; }
+  const fields = layout.pages[currentPage-1].fields || (layout.pages[currentPage-1].fields = {});
+  if (fields[name]) { alert('Field exists'); return; }
+  if (type === 'checkbox') fields[name] = {type:'checkbox', cx:0.2, cy:0.2, size:0.018};
+  else if (type === 'multiline') fields[name] = {type:'multiline', x:0.1, y:0.1, w:0.5, h:0.15, align:'left', leading:12, ellipsis:true, size:10};
+  else fields[name] = {type:'line', x:0.1, y:0.1, w:0.3, h:0.03, size:10, font:'Helvetica'};
+  drawPage(); syncTextarea(); refreshFieldList();
+}
+
+function refreshFieldList(){
+  const fields = (layout.pages[currentPage-1]||{}).fields || {};
+  const wrap = document.getElementById('fieldList');
+  const keys = Object.keys(fields);
+  keys.sort();
+  let html = '';
+  keys.forEach((k) => {
+    const spec = fields[k] || {};
+    if ((spec.type || 'line') === 'checkbox') {
+      const size = Number(spec.size || 0.018);
+      html += `<div><code>${k}</code> <small>(checkbox)</small> size <input type="number" step="0.001" value="${size}" style="width:80px" onchange="updateFieldSpec('${k}',{size:parseFloat(this.value)||0.018}); drawPage();"> <button class="btn btn-sm btn-link" onclick="removeField('${k}')">remove</button></div>`;
+    } else {
+      html += `<div><code>${k}</code> <small>(${spec.type||'line'})</small> font <input type="number" value="${spec.size||10}" style="width:60px" onchange="updateFieldSpec('${k}',{size:parseInt(this.value)||10}); drawPage();"> <button class="btn btn-sm btn-link" onclick="removeField('${k}')">remove</button></div>`;
+    }
+  });
+  wrap.innerHTML = html || '<em>No fields</em>';
+}
+function removeField(k){
+  const fields = (layout.pages[currentPage-1]||{}).fields || {};
+  delete fields[k]; drawPage(); syncTextarea(); refreshFieldList();
+}
+
+function addCommonFields(formKey){
+  ensurePage(currentPage);
+  const fields = layout.pages[currentPage-1].fields || (layout.pages[currentPage-1].fields = {});
+  const presets = {
+    grievance: {
+      id: {type:'line'},
+      todays_date: {type:'line'},
+      submitted_date: {type:'line'},
+      submitted_time: {type:'line'},
+      staff_involved: {type:'line'},
+      name: {type:'line'},
+      phone: {type:'line'},
+      email: {type:'line'},
+      involves_staff: {type:'checkbox'},
+      involves_policies: {type:'checkbox'},
+      involves_volunteer: {type:'checkbox'},
+      involves_other: {type:'checkbox'},
+      involves_other_txt: {type:'line'},
+      description: {type:'multiline'}
+    },
+    maintenance: {
+      id: {type:'line'},
+      todays_date: {type:'line'},
+      submitted_date: {type:'line'},
+      submitted_time: {type:'line'},
+      name: {type:'line'},
+      phone: {type:'line'},
+      email: {type:'line'},
+      category: {type:'line'},
+      location: {type:'line'},
+      description: {type:'multiline'}
+    },
+    suggestion: {
+      id: {type:'line'},
+      todays_date: {type:'line'},
+      submitted_date: {type:'line'},
+      submitted_time: {type:'line'},
+      name: {type:'line'},
+      email: {type:'line'},
+      description: {type:'multiline'}
+    },
+    question: {
+      id: {type:'line'},
+      todays_date: {type:'line'},
+      submitted_date: {type:'line'},
+      submitted_time: {type:'line'},
+      name: {type:'line'},
+      email: {type:'line'},
+      description: {type:'multiline'}
+    }
+  };
+  const set = presets[(formKey||'').toLowerCase()] || presets['grievance'];
+  // Stack them near top-left so they are easy to drag into place
+  let x = 36, y = 36; // ~0.5 inch margin in points
+  const gap = 18;
+  const lineW = Math.min(0.5, 300 / stage.width());
+  const lineH = Math.min(0.04, 24 / stage.height());
+  const multiW = Math.min(0.75, 420 / stage.width());
+  const multiH = Math.min(0.2, 144 / stage.height());
+  const cbsize = 0.018;
+  Object.keys(set).forEach((k)=>{
+    if (fields[k]) return; // don't overwrite existing
+    const t = set[k].type;
+    if (t === 'checkbox') {
+      fields[k] = {type:'checkbox', cx:(x/stage.width()), cy:(y/stage.height()), size:cbsize};
+      y += 24;
+    } else if (t === 'multiline') {
+      fields[k] = {type:'multiline', x:(x/stage.width()), y:(y/stage.height()), w:multiW, h:multiH, size:10, leading:12, align:'left'};
+      y += (multiH*stage.height()) + gap;
+    } else {
+      fields[k] = {type:'line', x:(x/stage.width()), y:(y/stage.height()), w:lineW, h:lineH, size:10, font:'Helvetica'};
+      y += (lineH*stage.height()) + gap;
+    }
+  });
+  drawPage();
+  syncTextarea();
+  refreshFieldList();
+}
+
+async function renderPage(pageNum){
+  const url = FILE_URL;
+  if (!url) { return; }
+  try {
+    // Preferred: direct fetch to avoid range/cors issues
+    const resp = await fetch(url, { credentials: 'include', cache: 'no-store' });
+    if (!resp.ok) throw new Error('fetch failed: ' + resp.status);
+    const buf = await resp.arrayBuffer();
+    const loadingTask = pdfjsLib.getDocument({ data: buf });
+    pdfDoc = await loadingTask.promise;
+  } catch (e1) {
+    console.warn('Direct fetch failed, falling back to url loader:', e1);
+    try {
+      const loadingTask = pdfjsLib.getDocument({ url, withCredentials: true });
+      pdfDoc = await loadingTask.promise;
+    } catch (e2) {
+      console.error('PDF load/render error:', e2);
+      // Last resort: embed the PDF behind the overlay so you can still place fields
+      pdfCanvas.style.display = 'none';
+      pdfIframe.src = url + '#view=FitH';
+      pdfIframe.style.display = 'block';
+      return;
+    }
+  }
+  totalPages = pdfDoc.numPages;
+  const page = await pdfDoc.getPage(pageNum);
+  const vp = page.getViewport({ scale: 1.0 });
+  const scale = pageW / vp.width;
+  const viewport = page.getViewport({ scale: scale });
+  const ctx = pdfCanvas.getContext('2d');
+  pdfCanvas.width = viewport.width; pdfCanvas.height = viewport.height;
+  stage.size({ width: viewport.width, height: viewport.height });
+  try {
+    await page.render({ canvasContext: ctx, viewport }).promise;
+  } catch (e3) {
+    console.error('PDF render error:', e3);
+    pdfCanvas.style.display = 'none';
+    pdfIframe.src = url + '#view=FitH';
+    pdfIframe.style.display = 'block';
+    return;
+  }
+}
+
+function drawPage(){
+  layer.destroyChildren();
+  ensurePage(currentPage);
+  const fields = layout.pages[currentPage-1].fields || {};
+  const showLabels = document.getElementById('toggleLabels').checked;
+  Object.entries(fields).forEach(([k,s]) => { const node = fieldRect(k, s || {}, showLabels); layer.add(node); });
+  layer.draw();
+  drawGrid();
+}
+
+function syncTextarea(){
+  document.querySelector('textarea[name="layout_json"]').value = JSON.stringify(layout, null, 2);
+}
+
+document.getElementById('toggleGrid').onchange = drawGrid;
+document.getElementById('toggleSnap').onchange = ()=>{};
+document.getElementById('toggleLabels').onchange = drawPage;
+document.getElementById('reloadPdfBtn').onclick = ()=>{ renderPage(currentPage).then(()=>{ drawPage(); }); };
+document.getElementById('toggleFallback').onchange = (e)=>{
+  const on = e.target.checked;
+  const url = FILE_URL;
+  if (!url) return;
+  if (on) {
+    pdfCanvas.style.display = 'none';
+    pdfIframe.src = url + '#view=FitH';
+    pdfIframe.style.display = 'block';
+  } else {
+    pdfIframe.style.display = 'none';
+    pdfCanvas.style.display = 'block';
+    renderPage(currentPage).then(()=>{ drawPage(); });
+  }
+};
+
+(async function init(){ await renderPage(currentPage); drawPage(); refreshFieldList(); syncTextarea(); })();
+</script>
+{% endblock %}

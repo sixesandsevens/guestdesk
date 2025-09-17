@@ -218,3 +218,18 @@ class PDFBinding(Base):
     __table_args__ = (
         Index('ix_pdf_bindings_active', 'form_key', 'is_active'),
     )
+
+
+# ---- Simplified per-form PDF config ----
+class FormPDFConfig(Base):
+    __tablename__ = "form_pdf_config"
+
+    id = Column(Integer, primary_key=True)
+    form_key = Column(String(64), unique=True, index=True, nullable=False)
+    # e.g. /opt/guestdesk/guestdesk/static/pdf/templates/<key>.pdf
+    template_path = Column(String(512), nullable=True)
+    # JSON string in simplified schema (bottom-left point coords)
+    layout_json = Column(Text, nullable=True)
+    baseline_pad = Column(Integer, nullable=False, default=3)
+    attach_to_email = Column(Boolean, nullable=False, default=False)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

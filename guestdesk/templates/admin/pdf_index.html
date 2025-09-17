@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block content %}
+<div class="container mt-4">
+  <div class="d-flex align-items-center justify-content-between mb-2">
+    <h2>Form PDFs</h2>
+    <a class="btn btn-link" href="{{ url_for('admin_index') }}">Admin Home</a>
+  </div>
+
+  <table class="table table-sm align-middle">
+    <thead>
+      <tr>
+        <th>Form</th>
+        <th>Template</th>
+        <th>Size</th>
+        <th>Layout</th>
+        <th>Email</th>
+        <th>Updated</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      <tr>
+        <td><code>{{ r.form_key }}</code></td>
+        <td>
+          {% if r.has_template %}
+            <span class="text-success">present</span>
+            <div><small class="text-muted">{{ r.template_path }}</small></div>
+          {% else %}
+            <span class="text-danger">missing</span>
+          {% endif %}
+        </td>
+        <td>{% if r.page_w and r.page_h %}{{ r.page_w }} × {{ r.page_h }} pt{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        <td>
+          {% if r.fields_count is not none %}
+            {{ r.fields_count }} fields{% if r.baseline_pad is not none %}; pad {{ r.baseline_pad }}pt{% endif %}
+          {% else %}
+            <span class="text-muted">—</span>
+          {% endif %}
+        </td>
+        <td>{{ 'on' if r.attach_to_email else 'off' }}</td>
+        <td>{% if r.updated_at %}{{ r.updated_at|dt }}{% else %}<span class="text-muted">—</span>{% endif %}</td>
+        <td class="text-end">
+          <a class="btn btn-sm btn-outline-primary" href="/admin/forms/{{ r.form_key }}/pdf">Editor</a>
+          {% if r.has_template %}
+          <a class="btn btn-sm btn-outline-secondary" href="/admin/forms/{{ r.form_key }}/pdf/file" target="_blank" rel="noopener">Open PDF</a>
+          <a class="btn btn-sm btn-primary" href="/admin/forms/{{ r.form_key }}/pdf/preview?debug=1" target="_blank" rel="noopener">Preview</a>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
+
