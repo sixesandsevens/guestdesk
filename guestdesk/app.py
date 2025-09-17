@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 from datetime import datetime, timedelta
+import io
 import json
 import html as htmlmod
 from urllib import request as urlreq, error as urlerr
@@ -9,10 +10,11 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting
+from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting, PDFTemplate, PDFTemplateVersion, PDFBinding
+from . import pdf_config
 from guestdesk.analytics import init_analytics
 from .services_calendar import expand_between
-from .mailer import send_category_notification, send_mail
+from .mailer import send_category_notification, send_mail, _recipient_for
 
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
@@ -200,6 +202,63 @@ def create_app():
                 conn.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_service_overrides_service_id ON service_overrides(service_id)')
             except Exception:
                 pass
+            # --- PDF tables ---
+            try:
+                conn.exec_driver_sql('CREATE TABLE IF NOT EXISTS pdf_templates (\n\
+                    id INTEGER PRIMARY KEY,\n\
+                    name TEXT NOT NULL,\n\
+                    slug TEXT NOT NULL UNIQUE,\n\
+                    file_path TEXT,\n\
+                    page_width_pt INTEGER,\n\
+                    page_height_pt INTEGER,\n\
+                    status TEXT NOT NULL DEFAULT \"draft\",\n\
+                    draft_layout_json TEXT,\n\
+                    baseline_pad_pt REAL NOT NULL DEFAULT 3.0,\n\
+                    created_by INTEGER,\n\
+                    created_at TEXT,\n\
+                    updated_at TEXT\n\
+                )')
+            except Exception:
+                pass
+            # columns safety in case table pre-existed
+            pt_cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(pdf_templates)').all()] if conn else []
+            if 'draft_layout_json' not in pt_cols:
+                conn.exec_driver_sql('ALTER TABLE pdf_templates ADD COLUMN draft_layout_json TEXT')
+            if 'baseline_pad_pt' not in pt_cols:
+                conn.exec_driver_sql('ALTER TABLE pdf_templates ADD COLUMN baseline_pad_pt REAL NOT NULL DEFAULT 3.0')
+            try:
+                conn.exec_driver_sql('CREATE TABLE IF NOT EXISTS pdf_template_versions (\n\
+                    id INTEGER PRIMARY KEY,\n\
+                    template_id INTEGER NOT NULL,\n\
+                    version INTEGER NOT NULL,\n\
+                    normalized_layout_json TEXT NOT NULL,\n\
+                    baseline_pad_pt REAL NOT NULL DEFAULT 3.0,\n\
+                    notes TEXT,\n\
+                    created_by INTEGER,\n\
+                    created_at TEXT\n\
+                )')
+            except Exception:
+                pass
+            try:
+                conn.exec_driver_sql('CREATE UNIQUE INDEX IF NOT EXISTS uix_template_version ON pdf_template_versions(template_id, version)')
+            except Exception:
+                pass
+            try:
+                conn.exec_driver_sql('CREATE TABLE IF NOT EXISTS pdf_bindings (\n\
+                    id INTEGER PRIMARY KEY,\n\
+                    form_key TEXT NOT NULL,\n\
+                    template_id INTEGER NOT NULL,\n\
+                    version INTEGER NOT NULL,\n\
+                    is_active INTEGER NOT NULL DEFAULT 1,\n\
+                    field_map TEXT,\n\
+                    created_at TEXT\n\
+                )')
+            except Exception:
+                pass
+            try:
+                conn.exec_driver_sql('CREATE INDEX IF NOT EXISTS ix_pdf_bindings_active ON pdf_bindings(form_key, is_active)')
+            except Exception:
+                pass
     except Exception:
         # Best-effort; app can still run without this if table doesn't exist yet
         pass
@@ -327,6 +386,56 @@ def create_app():
             db = dbs()
             db.add(sub)
             db.commit()
+            # Build normalized payload for renderer
+            payload = {
+                'name': (request.form.get('contact_name') or request.form.get('name') or '').strip() or None,
+                'email': (request.form.get('email') or '').strip() or None,
+                'phone': (request.form.get('phone') or request.form.get('contact_info') or '').strip() or None,
+                'subject': (request.form.get('subject') or '').strip() or None,
+                'description': (request.form.get('description') or request.form.get('body') or request.form.get('message') or '').strip() or None,
+                'category': (request.form.get('category') or '').strip() or None,
+                'building': (request.form.get('building') or '').strip() or None,
+                'location': (request.form.get('location') or '').strip() or None,
+            }
+            # Attempt PDF render per binding
+            attachments = []
+            attach_info = None
+            if pdf_config.pdf_render_enabled():
+                try:
+                    # find active binding
+                    b = db.query(PDFBinding).filter(PDFBinding.form_key == kind, PDFBinding.is_active == True).order_by(PDFBinding.created_at.desc()).first()
+                    if b:
+                        t = db.get(PDFTemplate, b.template_id)
+                        v = db.query(PDFTemplateVersion).filter(PDFTemplateVersion.template_id == b.template_id, PDFTemplateVersion.version == b.version).first()
+                        if t and v and t.file_path:
+                            import json as _json, os
+                            from .pdf_render import render_pdf
+                            # field map override
+                            data = dict(payload)
+                            if b.field_map:
+                                try:
+                                    fmap = _json.loads(b.field_map).get('field_map', {})
+                                    for src, dest in fmap.items():
+                                        if src in payload:
+                                            data[dest] = payload.get(src)
+                                except Exception:
+                                    pass
+                            try:
+                                layout = _json.loads(v.normalized_layout_json)
+                            except Exception:
+                                layout = {"pages": []}
+                            pdf_bytes = render_pdf(t.file_path, layout, float(t.page_width_pt), float(t.page_height_pt), float(v.baseline_pad_pt or t.baseline_pad_pt or 3.0), data, strict_size=True, debug=False)
+                            # write to file
+                            out_dir = os.path.join(pdf_config.output_root(), kind, str(sub.id))
+                            os.makedirs(out_dir, exist_ok=True)
+                            out_path = os.path.join(out_dir, f"{kind}-{sub.id}.pdf")
+                            with open(out_path, 'wb') as fh:
+                                fh.write(pdf_bytes)
+                            fname = f"{kind}-{sub.id}.pdf"
+                            attachments.append(("application/pdf", fname, pdf_bytes))
+                            attach_info = f"Template: {t.slug} v{v.version} • File: {out_path}"
+                except Exception as e:
+                    app.logger.exception('PDF render failed: %s', e)
             # Send category-specific notification (non-blocking on failure)
             try:
                 msg_text = (
@@ -360,37 +469,56 @@ def create_app():
                     to_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_TO', []) if e and e.strip()]
                     cc_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_CC', []) if e and e.strip()]
                     sender = current_app.config.get('GRIEVANCE_FROM')
+                    body_lines = [
+                        "A new grievance has been submitted.\n",
+                        f"ID: {grv_id}",
+                        f"Submitted: {now.strftime('%Y-%m-%d %H:%MZ')}",
+                        f"From: {(request.form.get('name') or request.form.get('contact_name') or '').strip()} (" +
+                        f"{(request.form.get('phone') or request.form.get('contact_info') or '').strip()}, " +
+                        f"{(request.form.get('email') or '').strip()})\n",
+                        f"Message:\n{msg_text}\n",
+                    ]
+                    if attach_info:
+                        body_lines.append(attach_info)
                     send_mail(
                         subject=f"[GuestDesk] Grievance {grv_id}",
-                        body=(
-                            "A new grievance has been submitted.\n\n"
-                            f"ID: {grv_id}\n"
-                            f"Submitted: {now.strftime('%Y-%m-%d %H:%MZ')}\n"
-                            f"From: {(request.form.get('name') or request.form.get('contact_name') or '').strip()} ("
-                            f"{(request.form.get('phone') or request.form.get('contact_info') or '').strip()}, "
-                            f"{(request.form.get('email') or '').strip()})\n\n"
-                            f"Message:\n{msg_text}\n"
-                        ),
+                        body="\n\n".join(body_lines),
                         to=to_list or [current_app.config.get('GRIEVANCE_EMAIL') or current_app.config.get('ADMIN_EMAIL')],
                         cc=cc_list,
                         sender=sender,
-                        attachments=[],
+                        attachments=attachments,
                         reply_to=(request.form.get('email') or '').strip() or None,
                     )
                 else:
                     # Default behavior for other categories
-                    send_category_notification(
-                        kind,
-                        {
-                            'name': (request.form.get('contact_name') or '').strip() or None,
-                            'email': (request.form.get('email') or '').strip() or None,
-                            'phone': (request.form.get('phone') or '').strip() or None,
-                            'subject': subject,
-                            'message': msg_text,
-                            'url': request.url,
-                            'extra': extra,
-                        },
+                    # Augment body with attach_info if present
+                    lines = {
+                        'name': (request.form.get('contact_name') or '').strip() or None,
+                        'email': (request.form.get('email') or '').strip() or None,
+                        'phone': (request.form.get('phone') or '').strip() or None,
+                        'subject': subject,
+                        'message': msg_text,
+                        'url': request.url,
+                        'extra': (extra + (('\n' + attach_info) if attach_info else '')) if extra else attach_info,
+                    }
+                    # Use direct send_mail to include attachment
+                    to_list = _recipient_for(kind)
+                    send_mail(
+                        subject=subject,
+                        body="\n\n".join([
+                            f"Category: {kind}",
+                            (f"Name: {lines['name']}" if lines['name'] else None),
+                            (f"Email: {lines['email']}" if lines['email'] else None),
+                            (f"Phone: {lines['phone']}" if lines['phone'] else None),
+                            (f"Page URL: {lines['url']}" if lines['url'] else None),
+                            (f"Extra: {lines['extra']}" if lines['extra'] else None),
+                            "",
+                            "Message:",
+                            str(lines['message'] or ''),
+                        ]),
+                        to=to_list,
                         reply_to=(request.form.get('email') or '').strip() or None,
+                        attachments=attachments or None,
                     )
             except Exception as e:
                 app.logger.exception('Failed to send %s email: %s', kind, e)
@@ -1256,7 +1384,454 @@ def create_app():
     def fmt_dt(v):
         if not v:
             return ''
-        return v.strftime('%Y-%m-%d %H:%M')
+        try:
+            return v.strftime('%Y-%m-%d %H:%M')
+        except Exception:
+            # accept ISO strings
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.fromisoformat(str(v).replace('Z','+00:00'))
+                return dt.strftime('%Y-%m-%d %H:%M')
+            except Exception:
+                return str(v)
+
+    # ---- Admin PDF Template Management ----
+    @app.get('/admin/pdf/templates')
+    @roles_required('admin')
+    def admin_pdf_templates():
+        db = dbs()
+        rows = db.query(PDFTemplate).order_by(PDFTemplate.created_at.desc()).all()
+        # precompute counts
+        counts = {}
+        for t in rows:
+            counts[t.id] = {
+                'versions': len(t.versions),
+                'bindings': db.query(PDFBinding).filter(PDFBinding.template_id == t.id).count(),
+            }
+        return render_template('admin/pdf_templates.html', rows=rows, counts=counts)
+
+    @app.post('/admin/pdf/templates')
+    @roles_required('admin')
+    def admin_pdf_templates_create():
+        db = dbs()
+        name = (request.form.get('name') or '').strip()
+        if not name:
+            flash('Name required', 'danger')
+            return redirect(url_for('admin_pdf_templates'))
+        # slug
+        import re
+        base = re.sub(r'[^a-z0-9]+', '-', name.lower()).strip('-') or 'template'
+        slug = base
+        i = 1
+        while db.query(PDFTemplate).filter(PDFTemplate.slug == slug).first():
+            i += 1
+            slug = f"{base}-{i}"
+        t = PDFTemplate(name=name, slug=slug, status='draft', created_by=session.get('user_id'))
+        db.add(t)
+        db.commit()
+
+        # if a file was uploaded, store it
+        f = request.files.get('file')
+        if f and f.filename:
+            import os
+            os.makedirs(pdf_config.template_storage_root(), exist_ok=True)
+            t_dir = os.path.join(pdf_config.template_storage_root(), str(t.id))
+            os.makedirs(t_dir, exist_ok=True)
+            pdf_path = os.path.join(t_dir, 'template.pdf')
+            f.save(pdf_path)
+            # read page size
+            try:
+                from PyPDF2 import PdfReader
+                reader = PdfReader(pdf_path)
+                if not reader.pages:
+                    raise ValueError('Empty PDF')
+                mb = reader.pages[0].mediabox
+                w = float(mb.right - mb.left)
+                h = float(mb.top - mb.bottom)
+                t.file_path = pdf_path
+                t.page_width_pt = int(round(w))
+                t.page_height_pt = int(round(h))
+            except Exception as e:
+                flash(f'Uploaded PDF could not be read: {e}', 'warning')
+            db.commit()
+        flash('Template created.', 'success')
+        return redirect(url_for('admin_pdf_template_detail', tid=t.id))
+
+    @app.get('/admin/pdf/templates/<int:tid>')
+    @roles_required('admin')
+    def admin_pdf_template_detail(tid: int):
+        db = dbs()
+        t = db.get(PDFTemplate, tid)
+        if not t:
+            abort(404)
+        import os, time
+        exists = bool(t.file_path and os.path.exists(t.file_path))
+        size = os.path.getsize(t.file_path) if exists else None
+        mtime = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(os.path.getmtime(t.file_path))) if exists else None
+        # counts
+        db = dbs()
+        bindings_count = db.query(PDFBinding).filter(PDFBinding.template_id == tid).count()
+        can_delete = (bindings_count == 0)
+        return render_template('admin/pdf_template_detail.html', tpl=t, file_exists=exists, file_size=size, file_mtime=mtime, can_delete=can_delete)
+
+    @app.get('/admin/pdf/templates/<int:tid>/file')
+    @roles_required('admin')
+    def admin_pdf_template_file(tid: int):
+        db = dbs()
+        t = db.get(PDFTemplate, tid)
+        if not t or not t.file_path:
+            abort(404)
+        from flask import send_file
+        import os
+        if not os.path.exists(t.file_path):
+            abort(404)
+        return send_file(t.file_path, mimetype='application/pdf')
+
+    @app.post('/admin/pdf/templates/<int:tid>/upload')
+    @roles_required('admin')
+    def admin_pdf_template_upload(tid: int):
+        db = dbs()
+        t = db.get(PDFTemplate, tid)
+        if not t:
+            abort(404)
+        if t.status != 'draft':
+            flash('Only draft templates can be replaced.', 'warning')
+            return redirect(url_for('admin_pdf_template_detail', tid=tid))
+        f = request.files.get('file')
+        if not (f and f.filename):
+            flash('Select a PDF to upload.', 'danger')
+            return redirect(url_for('admin_pdf_template_detail', tid=tid))
+        import os
+        os.makedirs(pdf_config.template_storage_root(), exist_ok=True)
+        t_dir = os.path.join(pdf_config.template_storage_root(), str(t.id))
+        os.makedirs(t_dir, exist_ok=True)
+        pdf_path = os.path.join(t_dir, 'template.pdf')
+        f.save(pdf_path)
+        # update meta
+        try:
+            from PyPDF2 import PdfReader
+            reader = PdfReader(pdf_path)
+            mb = reader.pages[0].mediabox
+            w = float(mb.right - mb.left)
+            h = float(mb.top - mb.bottom)
+            t.file_path = pdf_path
+            t.page_width_pt = int(round(w))
+            t.page_height_pt = int(round(h))
+        except Exception as e:
+            flash(f'Uploaded PDF could not be read: {e}', 'warning')
+        db.commit()
+        flash('PDF uploaded.', 'success')
+        return redirect(url_for('admin_pdf_template_detail', tid=tid))
+
+    @app.post('/admin/pdf/templates/<int:tid>/version')
+    @roles_required('admin')
+    def admin_pdf_template_save_draft(tid: int):
+        db = dbs()
+        t = db.get(PDFTemplate, tid)
+        if not t:
+            abort(404)
+        try:
+            draft_json = request.form.get('layout_json') or (request.get_json(silent=True) or {}).get('layout_json')
+            t.draft_layout_json = (draft_json or '').strip() or None
+            # optional baseline pad override
+            bp = request.form.get('baseline_pad_pt') or (request.get_json(silent=True) or {}).get('baseline_pad_pt')
+            if bp is not None and str(bp).strip() != '':
+                t.baseline_pad_pt = float(bp)
+            db.commit()
+            flash('Draft saved.', 'success')
+        except Exception as e:
+            db.rollback()
+            flash(f'Failed to save draft: {e}', 'danger')
+        return redirect(url_for('admin_pdf_template_detail', tid=tid))
+
+    @app.post('/admin/pdf/templates/<int:tid>/publish')
+    @roles_required('admin')
+    def admin_pdf_template_publish(tid: int):
+        db = dbs()
+        t = db.get(PDFTemplate, tid)
+        if not t:
+            abort(404)
+        if not t.file_path:
+            flash('Upload a PDF before publishing.', 'warning')
+            return redirect(url_for('admin_pdf_template_detail', tid=tid))
+        if not t.draft_layout_json:
+            flash('Save a draft layout before publishing.', 'warning')
+            return redirect(url_for('admin_pdf_template_detail', tid=tid))
+        # next version number
+        latest = db.query(PDFTemplateVersion).filter(PDFTemplateVersion.template_id == tid).order_by(PDFTemplateVersion.version.desc()).first()
+        next_ver = 1 if not latest else int(latest.version) + 1
+        v = PDFTemplateVersion(
+            template_id=t.id,
+            version=next_ver,
+            normalized_layout_json=t.draft_layout_json,
+            baseline_pad_pt=t.baseline_pad_pt or 3.0,
+            created_by=session.get('user_id'),
+        )
+        db.add(v)
+        # publish status toggle
+        t.status = 'published'
+        db.commit()
+        flash(f'Published version v{next_ver}.', 'success')
+        return redirect(url_for('admin_pdf_template_detail', tid=tid))
+
+    @app.post('/admin/pdf/templates/<int:tid>/preview-draft')
+    @roles_required('admin')
+    def admin_pdf_template_preview_draft(tid: int):
+        db = dbs()
+        t = db.get(PDFTemplate, tid)
+        if not t or not t.file_path:
+            return jsonify({"ok": False, "error": "template or file missing"}), 400
+        payload = request.get_json(silent=True) or {}
+        layout_json = payload.get('layout_json') or t.draft_layout_json
+        sample_payload = payload.get('sample_payload') or {}
+        debug = (request.args.get('debug') or str(payload.get('debug') or '0')) in ('1','true','True','yes','on')
+        import json as _json
+        try:
+            layout = _json.loads(layout_json or '{}')
+        except Exception as e:
+            return jsonify({"ok": False, "error": f"invalid layout: {e}"}), 400
+        try:
+            from .pdf_render import render_pdf
+            pdf_bytes = render_pdf(t.file_path, layout, float(t.page_width_pt), float(t.page_height_pt), float(t.baseline_pad_pt or 3.0), sample_payload, strict_size=True, debug=debug)
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        from flask import send_file
+        return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=False, download_name=f'preview-draft-{t.slug}.pdf')
+
+    @app.post('/admin/pdf/templates/<int:tid>/delete')
+    @roles_required('admin')
+    def admin_pdf_template_delete(tid: int):
+        db = dbs()
+        t = db.get(PDFTemplate, tid)
+        if not t:
+            abort(404)
+        # deny delete if any versions or bindings exist
+        bcount = db.query(PDFBinding).filter(PDFBinding.template_id == tid).count()
+        if bcount > 0:
+            flash('Cannot delete: remove bindings first.', 'warning')
+            return redirect(url_for('admin_pdf_template_detail', tid=tid))
+        # remove versions explicitly to avoid orphan rows
+        db.query(PDFTemplateVersion).filter(PDFTemplateVersion.template_id == tid).delete(synchronize_session=False)
+        # remove files
+        import os, shutil
+        try:
+            t_dir = os.path.join(pdf_config.template_storage_root(), str(t.id))
+            if os.path.isdir(t_dir):
+                shutil.rmtree(t_dir)
+        except Exception:
+            pass
+        db.delete(t)
+        db.commit()
+        flash('Template deleted.', 'success')
+        return redirect(url_for('admin_pdf_templates'))
+
+    @app.get('/admin/pdf/templates/<int:tid>/test')
+    @roles_required('admin')
+    def admin_pdf_template_test(tid: int):
+        db = dbs()
+        t = db.get(PDFTemplate, tid)
+        if not (t and t.file_path):
+            return jsonify({"ok": False, "error": "template or file missing"}), 400
+        # choose version
+        try:
+            version = int(request.args.get('version') or 0)
+        except Exception:
+            version = 0
+        v = None
+        if version > 0:
+            v = db.query(PDFTemplateVersion).filter(PDFTemplateVersion.template_id == tid, PDFTemplateVersion.version == version).first()
+        else:
+            v = db.query(PDFTemplateVersion).filter(PDFTemplateVersion.template_id == tid).order_by(PDFTemplateVersion.version.desc()).first()
+        if not v:
+            return jsonify({"ok": False, "error": "no published versions"}), 400
+        form_key = (request.args.get('form_key') or 'grievance').strip().lower()
+        def sample_payload_for(kind: str):
+            if kind == 'grievance':
+                return {
+                    'name': 'Jane Doe',
+                    'phone': '555-123-4567',
+                    'email': 'jane@example.org',
+                    'description': 'This is a sample grievance description that spans multiple lines to test wrapping and clipping.\nSecond line of details here.',
+                    'involves_staff': True,
+                    'involves_policies': False,
+                    'involves_volunteer': True,
+                    'involves_other_chk': False,
+                    'involves_other_txt': 'Other details',
+                }
+            if kind == 'maintenance':
+                return {
+                    'name': 'John Smith',
+                    'phone': '555-987-6543',
+                    'email': 'john@example.org',
+                    'description': 'Broken light in hallway near room 2B.',
+                    'category': 'Electrical',
+                    'location': 'Building A, 2nd floor',
+                }
+            return {
+                'name': 'Alex', 'phone': '555-000-0000', 'email': 'alex@example.org', 'description': 'Sample text block for preview.'
+            }
+        import json as _json
+        try:
+            layout = _json.loads(v.normalized_layout_json)
+        except Exception:
+            layout = {"pages": []}
+        data = sample_payload_for(form_key)
+        try:
+            from .pdf_render import render_pdf
+            pdf_bytes = render_pdf(
+                t.file_path,
+                layout,
+                float(t.page_width_pt),
+                float(t.page_height_pt),
+                float(v.baseline_pad_pt or t.baseline_pad_pt or 3.0),
+                data,
+                strict_size=True,
+                debug=(request.args.get('debug') in ('1','true','True')),
+            )
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        from flask import send_file
+        return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=False, download_name=f'test-{form_key}-{t.slug}-v{v.version}.pdf')
+
+    @app.get('/admin/pdf/bindings')
+    @roles_required('admin')
+    def admin_pdf_bindings():
+        db = dbs()
+        rows = db.query(PDFBinding).order_by(PDFBinding.created_at.desc()).all()
+        templates = db.query(PDFTemplate).order_by(PDFTemplate.name).all()
+        return render_template('admin/pdf_bindings.html', rows=rows, templates=templates)
+
+    @app.post('/admin/pdf/bindings')
+    @roles_required('admin')
+    def admin_pdf_bindings_create():
+        db = dbs()
+        form_key = (request.form.get('form_key') or '').strip()
+        template_id = int(request.form.get('template_id') or 0)
+        version = int(request.form.get('version') or 0)
+        is_active = (request.form.get('is_active') or 'on') in ('1', 'true', 'True', 'yes', 'on')
+        field_map = (request.form.get('field_map') or '').strip() or None
+        if not (form_key and template_id and version):
+            flash('form_key, template, and version are required', 'danger')
+            return redirect(url_for('admin_pdf_bindings'))
+        # ensure version exists
+        ver = db.query(PDFTemplateVersion).filter(PDFTemplateVersion.template_id == template_id, PDFTemplateVersion.version == version).first()
+        if not ver:
+            flash('Selected version does not exist.', 'danger')
+            return redirect(url_for('admin_pdf_bindings'))
+        b = PDFBinding(form_key=form_key, template_id=template_id, version=version, is_active=is_active, field_map=field_map)
+        db.add(b)
+        db.commit()
+        flash('Binding created.', 'success')
+        return redirect(url_for('admin_pdf_bindings'))
+
+    @app.post('/admin/pdf/bindings/<int:bid>/toggle')
+    @roles_required('admin')
+    def admin_pdf_bindings_toggle(bid: int):
+        db = dbs()
+        b = db.get(PDFBinding, bid)
+        if not b:
+            abort(404)
+        b.is_active = not b.is_active
+        db.commit()
+        return redirect(url_for('admin_pdf_bindings'))
+
+    @app.get('/admin/pdf/bindings/<int:bid>/test')
+    @roles_required('admin')
+    def admin_pdf_bindings_test(bid: int):
+        db = dbs()
+        b = db.get(PDFBinding, bid)
+        if not b:
+            return jsonify({"ok": False, "error": "binding not found"}), 404
+        t = db.get(PDFTemplate, b.template_id)
+        v = db.query(PDFTemplateVersion).filter(PDFTemplateVersion.template_id == b.template_id, PDFTemplateVersion.version == b.version).first()
+        if not (t and v and t.file_path):
+            return jsonify({"ok": False, "error": "template/version missing"}), 400
+        # sample payloads per form
+        def sample_payload_for(kind: str):
+            if kind == 'grievance':
+                return {
+                    'name': 'Jane Doe',
+                    'phone': '555-123-4567',
+                    'email': 'jane@example.org',
+                    'description': 'This is a sample grievance description that spans multiple lines to test wrapping and clipping.\nSecond line of details here.',
+                    'involves_staff': True,
+                    'involves_policies': False,
+                    'involves_volunteer': True,
+                    'involves_other_chk': False,
+                    'involves_other_txt': 'Other details',
+                }
+            if kind == 'maintenance':
+                return {
+                    'name': 'John Smith',
+                    'phone': '555-987-6543',
+                    'email': 'john@example.org',
+                    'description': 'Broken light in hallway near room 2B.',
+                    'category': 'Electrical',
+                    'location': 'Building A, 2nd floor',
+                }
+            # default for suggestion/question
+            return {
+                'name': 'Alex', 'phone': '555-000-0000', 'email': 'alex@example.org', 'description': 'Sample text block for preview.'
+            }
+        import json as _json
+        try:
+            layout = _json.loads(v.normalized_layout_json)
+        except Exception:
+            layout = {"pages": []}
+        data = sample_payload_for((b.form_key or '').strip().lower())
+        # apply optional field_map overrides
+        if b.field_map:
+            try:
+                fmap = _json.loads(b.field_map).get('field_map', {})
+                for src, dest in fmap.items():
+                    if src in data:
+                        data[dest] = data[src]
+            except Exception:
+                pass
+        try:
+            from .pdf_render import render_pdf
+            pdf_bytes = render_pdf(
+                t.file_path,
+                layout,
+                float(t.page_width_pt),
+                float(t.page_height_pt),
+                float(v.baseline_pad_pt or t.baseline_pad_pt or 3.0),
+                data,
+                strict_size=True,
+                debug=(request.args.get('debug') in ('1','true','True')),
+            )
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        from flask import send_file
+        return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=False, download_name=f'test-{b.form_key}-{t.slug}-v{v.version}.pdf')
+
+    @app.post('/admin/pdf/render/preview')
+    @roles_required('admin')
+    def admin_pdf_render_preview():
+        data = request.get_json(silent=True) or {}
+        template_id = int(data.get('template_id') or 0)
+        version = int(data.get('version') or 0)
+        sample_payload = data.get('sample_payload') or {}
+        debug = (request.args.get('debug') or str(data.get('debug') or '0')) in ('1', 'true', 'True', 'yes', 'on')
+        db = dbs()
+        t = db.get(PDFTemplate, template_id)
+        if not t:
+            return jsonify({"ok": False, "error": "template not found"}), 404
+        v = db.query(PDFTemplateVersion).filter(PDFTemplateVersion.template_id == template_id, PDFTemplateVersion.version == version).first()
+        if not v:
+            return jsonify({"ok": False, "error": "version not found"}), 404
+        import json as _json
+        try:
+            layout = _json.loads(v.normalized_layout_json)
+        except Exception:
+            layout = {"pages": []}
+        try:
+            from .pdf_render import render_pdf
+            pdf_bytes = render_pdf(t.file_path, layout, float(t.page_width_pt), float(t.page_height_pt), float(v.baseline_pad_pt or t.baseline_pad_pt or 3.0), sample_payload, strict_size=True, debug=debug)
+        except Exception as e:
+            return jsonify({"ok": False, "error": str(e)}), 400
+        from flask import send_file
+        return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=False, download_name=f'preview-{t.slug}-v{v.version}.pdf')
 
     return app
 

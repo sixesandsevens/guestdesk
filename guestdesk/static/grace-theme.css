@@ -38,6 +38,18 @@ a:hover{color:#05564f;text-decoration:underline}
 .form-control,.form-select{border-radius:10px;border-color:#dbe6e4}
 .form-control:focus,.form-select:focus{border-color:var(--gr-teal);box-shadow:0 0 0 .18rem rgba(8,126,119,.15)}
 
+/* Ensure checkboxes render with visible boxes across browsers */
+.form-check-input[type="checkbox"]{
+  -webkit-appearance:auto;
+  -moz-appearance:auto;
+  appearance:auto;
+  width:1.15em;
+  height:1.15em;
+  margin-top:.25em;
+}
+/* Match checkbox highlight to brand color when supported */
+.form-check-input{accent-color:var(--gr-teal)}
+
 .btn{border-radius:12px}
 .btn-primary{
   --bs-btn-bg:var(--gr-teal);--bs-btn-border-color:var(--gr-teal);

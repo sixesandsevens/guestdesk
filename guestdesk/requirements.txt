@@ -1,1 +1,4 @@
-# (PDF generation purged)
+Flask
+SQLAlchemy
+reportlab
+PyPDF2

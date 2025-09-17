@@ -1,7 +1,7 @@
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy.orm import declarative_base, relationship
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, func
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float, func, UniqueConstraint, Index
 
 
 
@@ -160,3 +160,61 @@ class Setting(Base):
     __tablename__ = 'settings'
     key = Column(String(64), primary_key=True)
     value = Column(Text, nullable=True)
+
+
+# ---- PDF Template system ----
+class PDFTemplate(Base):
+    __tablename__ = 'pdf_templates'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(200), nullable=False)
+    slug = Column(String(200), nullable=False, unique=True, index=True)
+    file_path = Column(Text, nullable=True)  # where the uploaded PDF lives
+    page_width_pt = Column(Integer, nullable=True)
+    page_height_pt = Column(Integer, nullable=True)
+    status = Column(String(16), nullable=False, default='draft')  # draft|published|archived
+    # Draft working layout (normalized JSON string)
+    draft_layout_json = Column(Text, nullable=True)
+    # Template-level baseline padding (points)
+    baseline_pad_pt = Column(Float, nullable=False, default=3.0)
+    # Audit
+    created_by = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    versions = relationship("PDFTemplateVersion", back_populates="template", cascade="all, delete-orphan", order_by="PDFTemplateVersion.version.desc()")
+
+
+class PDFTemplateVersion(Base):
+    __tablename__ = 'pdf_template_versions'
+
+    id = Column(Integer, primary_key=True)
+    template_id = Column(Integer, ForeignKey('pdf_templates.id', ondelete="CASCADE"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)  # increments per template
+    normalized_layout_json = Column(Text, nullable=False)
+    baseline_pad_pt = Column(Float, nullable=False, default=3.0)
+    notes = Column(Text, nullable=True)
+    created_by = Column(Integer, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    template = relationship("PDFTemplate", back_populates="versions")
+    __table_args__ = (
+        UniqueConstraint('template_id', 'version', name='uix_template_version'),
+    )
+
+
+class PDFBinding(Base):
+    __tablename__ = 'pdf_bindings'
+
+    id = Column(Integer, primary_key=True)
+    form_key = Column(String(64), nullable=False, index=True)  # e.g., grievance, maintenance, question
+    template_id = Column(Integer, ForeignKey('pdf_templates.id', ondelete="CASCADE"), nullable=False, index=True)
+    version = Column(Integer, nullable=False)  # immutable binding to a published version
+    is_active = Column(Boolean, nullable=False, default=True)
+    field_map = Column(Text, nullable=True)  # optional JSON mapping overrides
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    template = relationship("PDFTemplate")
+    __table_args__ = (
+        Index('ix_pdf_bindings_active', 'form_key', 'is_active'),
+    )
