@@ -1,6 +1,6 @@
 from __future__ import annotations
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import io
 import json
 import html as htmlmod
@@ -24,6 +24,16 @@ DATA_DIR = (
     or os.environ.get("GUESTD_DATA_DIR")
     or "/var/lib/guestdesk"
 )
+
+def build_grievance_case_id(submission_id: int, created_at: datetime | None) -> str:
+    """Generate a stable grievance case identifier."""
+    created = created_at or datetime.utcnow()
+    created_utc = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
+    return f"GRV-{submission_id}-{created_utc.strftime('%Y')}-{int(created_utc.timestamp())}"
+
+def format_time_12(dt_obj: datetime) -> str:
+    """Return 12-hour time with AM/PM from a datetime."""
+    return dt_obj.strftime('%I:%M %p').lstrip('0')
 
 # Basic i18n for UI strings (English/Spanish); content remains as entered.
 STRINGS = {
@@ -343,6 +353,7 @@ def create_app():
             db = dbs()
             db.add(sub)
             db.commit()
+            grievance_case_id = build_grievance_case_id(sub.id, sub.created_at) if kind == 'grievance' else None
             # Build normalized payload for renderer
             payload = {
                 'name': (request.form.get('contact_name') or request.form.get('name') or '').strip() or None,
@@ -380,11 +391,14 @@ def create_app():
                             other_txt = (request.form.get('involves_other') or request.form.get('involves_other_txt') or '').strip()
                             involves_other = bool_to_checkbox(request.form.get('involves_other_chk') or other_txt)
                             desc_val = (request.form.get('description') or submission.body or '')
+                            case_id_val = grievance_case_id or build_grievance_case_id(submission.id, submission.created_at)
                             data_map = {
-                                'id': submission.id,
+                                'id': case_id_val,
+                                'case_id': case_id_val,
+                                'submission_id': submission.id,
                                 'todays_date': _dt.datetime.utcnow().strftime('%Y-%m-%d'),
                                 'submitted_date': submission.created_at.strftime('%Y-%m-%d'),
-                                'submitted_time': submission.created_at.strftime('%H:%M'),
+                                'submitted_time': format_time_12(submission.created_at),
                                 'staff_involved': staff_name,
                                 'name': name_val or (submission.contact_name or ''),
                                 'phone': phone_val or (submission.contact_info or ''),
@@ -406,7 +420,7 @@ def create_app():
                                 'id': submission.id,
                                 'todays_date': _dt.datetime.utcnow().strftime('%Y-%m-%d'),
                                 'submitted_date': submission.created_at.strftime('%Y-%m-%d'),
-                                'submitted_time': submission.created_at.strftime('%H:%M'),
+                                'submitted_time': format_time_12(submission.created_at),
                                 'name': (request.form.get('contact_name') or '').strip() or (submission.contact_name or ''),
                                 'phone': (request.form.get('phone') or request.form.get('contact_info') or '').strip() or (submission.contact_info or ''),
                                 'email': (request.form.get('email') or '').strip(),
@@ -420,7 +434,7 @@ def create_app():
                             'id': submission.id,
                             'todays_date': _dt.datetime.utcnow().strftime('%Y-%m-%d'),
                             'submitted_date': submission.created_at.strftime('%Y-%m-%d'),
-                            'submitted_time': submission.created_at.strftime('%H:%M'),
+                            'submitted_time': format_time_12(submission.created_at),
                             'name': (request.form.get('contact_name') or '').strip() or (submission.contact_name or ''),
                             'phone': (request.form.get('phone') or request.form.get('contact_info') or '').strip() or (submission.contact_info or ''),
                             'email': (request.form.get('email') or '').strip(),
@@ -469,7 +483,7 @@ def create_app():
                 if kind == 'grievance':
                     import datetime as _dt
                     now = _dt.datetime.utcnow()
-                    grv_id = f"GRV-{now.strftime('%Y')}-{int(now.timestamp())}"
+                    grv_id = grievance_case_id or build_grievance_case_id(sub.id, sub.created_at)
                     to_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_TO', []) if e and e.strip()]
                     cc_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_CC', []) if e and e.strip()]
                     sender = current_app.config.get('GRIEVANCE_FROM')
@@ -1581,15 +1595,17 @@ def create_app():
         except Exception:
             sub_id = 0
         sub = db.get(Submission, sub_id) if sub_id else None
+        case_id = build_grievance_case_id(sub.id, sub.created_at) if (sub and key == 'grievance') else None
         # Build payload for preview PDF rendering
         def _payload():
+            import datetime as _dt
             if sub:
-                import datetime as _dt
                 data = {
-                    'id': sub.id,
+                    'id': case_id if key == 'grievance' else sub.id,
+                    'submission_id': sub.id,
                     'todays_date': _dt.datetime.utcnow().strftime('%Y-%m-%d'),
                     'submitted_date': sub.created_at.strftime('%Y-%m-%d'),
-                    'submitted_time': sub.created_at.strftime('%H:%M'),
+                    'submitted_time': format_time_12(sub.created_at),
                     'staff_involved': '',
                     'name': sub.contact_name or '',
                     'phone': sub.contact_info or '',
@@ -1608,14 +1624,18 @@ def create_app():
                     'involves_other': True,
                     'involves_other_txt': 'Other details',
                 })
+                if key == 'grievance':
+                    data['case_id'] = case_id
                 return data
-            # Sample payload
-            import datetime as _dt
-            return {
-                'id': 0,
-                'todays_date': _dt.datetime.utcnow().strftime('%Y-%m-%d'),
-                'submitted_date': _dt.datetime.utcnow().strftime('%Y-%m-%d'),
-                'submitted_time': _dt.datetime.utcnow().strftime('%H:%M'),
+
+            sample_now = _dt.datetime.utcnow()
+            sample_case_id = build_grievance_case_id(0, sample_now) if key == 'grievance' else None
+            sample = {
+                'id': sample_case_id if key == 'grievance' else 0,
+                'submission_id': 0,
+                'todays_date': sample_now.strftime('%Y-%m-%d'),
+                'submitted_date': sample_now.strftime('%Y-%m-%d'),
+                'submitted_time': format_time_12(sample_now),
                 'staff_involved': 'Jane Smith',
                 'name': 'Jane Doe',
                 'phone': '555-123-4567',
@@ -1628,6 +1648,9 @@ def create_app():
                 'involves_other_txt': 'Other details',
                 'description': 'Sample description to verify layout.\nSecond line.',
             }
+            if key == 'grievance':
+                sample['case_id'] = sample_case_id
+            return sample
         debug = request.args.get('debug') in ('1','true','True','yes','on')
         from .pdf_render import render_pdf
         try:
