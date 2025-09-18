@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 import io
 import json
 import html as htmlmod
@@ -10,6 +11,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
+from werkzeug.utils import secure_filename
+from werkzeug.exceptions import RequestEntityTooLarge
 from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting, FormPDFConfig
 from . import pdf_config
 from guestdesk.analytics import init_analytics
@@ -81,12 +84,71 @@ STRINGS = {
     }
 }
 
+MAX_GRIEVANCE_DESCRIPTION_LENGTH = 2143
+MAINTENANCE_PHOTO_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif'}
+DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+
 def t(key):
     lang = session.get('lang', 'en')
     return STRINGS.get(lang, STRINGS['en']).get(key, key)
 
+
+def human_filesize(num_bytes: int) -> str:
+    """Return a short human-readable filesize label."""
+    step = 1024.0
+    size = float(num_bytes)
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size < step or unit == 'TB':
+            if unit == 'B':
+                return f"{int(size)} {unit}"
+            return f"{size:.1f} {unit}"
+        size /= step
+    return f"{size:.1f} TB"
+
 def create_app():
     app = Flask(__name__)
+    app.jinja_env.globals['MAX_GRIEVANCE_DESCRIPTION_LENGTH'] = MAX_GRIEVANCE_DESCRIPTION_LENGTH
+    def _parse_upload_limit(raw):
+        if raw is None:
+            return None
+        text = str(raw).strip().lower()
+        multiplier = 1
+        if text.endswith('mb'):
+            multiplier = 1024 * 1024
+            text = text[:-2].strip()
+        elif text.endswith('kb'):
+            multiplier = 1024
+            text = text[:-2].strip()
+        try:
+            return int(float(text) * multiplier)
+        except Exception:
+            return None
+
+    max_upload_bytes = _parse_upload_limit(os.environ.get('GUESTDESK_MAX_UPLOAD_BYTES'))
+    if max_upload_bytes is None:
+        env_mb = os.environ.get('GUESTDESK_MAX_UPLOAD_MB')
+        if env_mb is not None:
+            try:
+                max_upload_bytes = int(float(str(env_mb).strip())) * 1024 * 1024
+            except Exception:
+                max_upload_bytes = None
+    if max_upload_bytes is None or max_upload_bytes <= 0:
+        max_upload_bytes = DEFAULT_MAX_UPLOAD_BYTES
+    app.config.setdefault('MAX_CONTENT_LENGTH', max_upload_bytes)
+    app.config.setdefault('MAX_UPLOAD_BYTES', max_upload_bytes)
+    app.jinja_env.globals['MAX_UPLOAD_BYTES'] = max_upload_bytes
+    upload_mb_label = (f"{(max_upload_bytes / (1024 * 1024)):.1f}").rstrip('0').rstrip('.')
+    app.jinja_env.globals['MAX_UPLOAD_MB_LABEL'] = upload_mb_label
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def handle_large_upload(_err):
+        limit_bytes = app.config.get('MAX_CONTENT_LENGTH', DEFAULT_MAX_UPLOAD_BYTES)
+        limit_mb = limit_bytes / (1024 * 1024)
+        # Trim trailing zeros while keeping at most one decimal place
+        limit_label = (f"{limit_mb:.1f}").rstrip('0').rstrip('.')
+        flash(f'Uploaded file is too large. Limit is {limit_label} MB.', 'danger')
+        target = request.referrer or request.path or url_for('report')
+        return redirect(target), 303
     # Load env-driven configuration (e.g., mail settings)
     try:
         app.config.from_object("guestdesk.config.Config")
@@ -335,8 +397,39 @@ def create_app():
         if kind not in ['maintenance','grievance','suggestion','question']:
             abort(404)
         if request.method == 'POST':
+            photo_plan = None
+            photo_file = request.files.get('photo') if kind == 'maintenance' else None
+            if photo_file and photo_file.filename:
+                filename = secure_filename(photo_file.filename)
+                ext = Path(filename or '').suffix.lower()
+                if ext not in MAINTENANCE_PHOTO_EXTENSIONS:
+                    flash('Please upload a JPG, PNG, or GIF image.', 'danger')
+                    return render_template('submit_kind.html', kind=kind, form=request.form)
+                safe_name = filename or f'maintenance-photo{ext}'
+                timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
+                planned_name = f"{timestamp}_{safe_name}"
+                try:
+                    photo_bytes = photo_file.read()
+                except Exception:
+                    flash('Could not read the uploaded photo. Please try again.', 'danger')
+                    return render_template('submit_kind.html', kind=kind, form=request.form)
+                if not photo_bytes:
+                    flash('The uploaded photo appears to be empty. Please choose a different file.', 'danger')
+                    return render_template('submit_kind.html', kind=kind, form=request.form)
+                photo_file.stream.seek(0)
+                photo_plan = {
+                    'file': photo_file,
+                    'name': planned_name,
+                    'bytes': photo_bytes,
+                    'mimetype': photo_file.mimetype or 'application/octet-stream',
+                    'path': None,
+                    'display_path': None,
+                }
             # Accept 'description' as the required field for grievances
             body = ((request.form.get('description') or '') if kind == 'grievance' else (request.form.get('body') or '')).strip()
+            if kind == 'grievance' and len(body) > MAX_GRIEVANCE_DESCRIPTION_LENGTH:
+                flash(f'Description is limited to {MAX_GRIEVANCE_DESCRIPTION_LENGTH:,} characters.', 'danger')
+                return render_template('submit_kind.html', kind=kind, form=request.form)
             if not body:
                 flash('Please add some details.', 'danger')
                 return render_template('submit_kind.html', kind=kind, form=request.form)
@@ -352,6 +445,27 @@ def create_app():
             )
             db = dbs()
             db.add(sub)
+            try:
+                db.flush()
+            except Exception:
+                db.rollback()
+                raise
+            if photo_plan:
+                upload_root = Path(DATA_DIR) / 'uploads' / kind / str(sub.id)
+                try:
+                    upload_root.mkdir(parents=True, exist_ok=True)
+                    photo_path = upload_root / photo_plan['name']
+                    photo_plan['file'].save(photo_path)
+                    photo_plan['path'] = str(photo_path)
+                    try:
+                        photo_plan['display_path'] = str(photo_path.relative_to(DATA_DIR))
+                    except ValueError:
+                        photo_plan['display_path'] = photo_plan['path']
+                except Exception as exc:
+                    db.rollback()
+                    app.logger.exception('Failed to save maintenance photo: %s', exc)
+                    flash('Could not save the uploaded photo. Please try again.', 'danger')
+                    return render_template('submit_kind.html', kind=kind, form=request.form)
             db.commit()
             grievance_case_id = build_grievance_case_id(sub.id, sub.created_at) if kind == 'grievance' else None
             # Build normalized payload for renderer
@@ -368,6 +482,9 @@ def create_app():
             # Attempt per-form PDF render (FormPDFConfig)
             attachments = []
             attach_info = None
+            if photo_plan:
+                attachments.append((photo_plan['mimetype'], photo_plan['name'], photo_plan['bytes']))
+                attach_info = f"Photo: {photo_plan['display_path'] or photo_plan['path']}"
             try:
                 cfg = db.query(FormPDFConfig).filter(FormPDFConfig.form_key == kind).first()
                 if cfg and cfg.attach_to_email and cfg.template_path and cfg.layout_json:
@@ -451,7 +568,8 @@ def create_app():
                         fh.write(pdf_bytes)
                     fname = f"{kind}-{sub.id}.pdf"
                     attachments.append(("application/pdf", fname, pdf_bytes))
-                    attach_info = f"Form: {kind} • File: {out_path}"
+                    note = f"Form: {kind} • File: {out_path}"
+                    attach_info = f"{attach_info} • {note}" if attach_info else note
             except Exception as e:
                 app.logger.exception('PDF render failed: %s', e)
             # Send category-specific notification (non-blocking on failure)
@@ -519,21 +637,23 @@ def create_app():
                         'url': request.url,
                         'extra': (extra + (('\n' + attach_info) if attach_info else '')) if extra else attach_info,
                     }
-                    # Use direct send_mail to include attachment
+                    body_parts = [
+                        f"Category: {kind}",
+                        f"Subject: {lines['subject']}" if lines['subject'] else None,
+                        f"Name: {lines['name']}" if lines['name'] else None,
+                        f"Email: {lines['email']}" if lines['email'] else None,
+                        f"Phone: {lines['phone']}" if lines['phone'] else None,
+                        f"Page URL: {lines['url']}" if lines['url'] else None,
+                        f"Extra: {lines['extra']}" if lines['extra'] else None,
+                        "",
+                        "Message:",
+                        str(lines['message'] or ''),
+                    ]
+                    body_text = "\n\n".join([part for part in body_parts if part is not None])
                     to_list = _recipient_for(kind)
                     send_mail(
                         subject=subject,
-                        body="\n\n".join([
-                            f"Category: {kind}",
-                            (f"Name: {lines['name']}" if lines['name'] else None),
-                            (f"Email: {lines['email']}" if lines['email'] else None),
-                            (f"Phone: {lines['phone']}" if lines['phone'] else None),
-                            (f"Page URL: {lines['url']}" if lines['url'] else None),
-                            (f"Extra: {lines['extra']}" if lines['extra'] else None),
-                            "",
-                            "Message:",
-                            str(lines['message'] or ''),
-                        ]),
+                        body=body_text,
                         to=to_list,
                         reply_to=(request.form.get('email') or '').strip() or None,
                         attachments=attachments or None,
@@ -1321,7 +1441,39 @@ def create_app():
         s = db.get(Submission, sid)
         if not s:
             abort(404)
-        return render_template('admin/submission_detail.html', s=s)
+        upload_root = Path(DATA_DIR) / 'uploads' / s.kind / str(s.id)
+        attachments = []
+        if upload_root.exists() and upload_root.is_dir():
+            for child in sorted(upload_root.iterdir()):
+                if child.is_file():
+                    try:
+                        stat = child.stat()
+                        attachments.append({
+                            'name': child.name,
+                            'size': stat.st_size,
+                            'size_label': human_filesize(stat.st_size),
+                        })
+                    except Exception:
+                        continue
+        return render_template('admin/submission_detail.html', s=s, attachments=attachments)
+
+    @app.route('/admin/submissions/<int:sid>/attachments/<path:filename>')
+    @roles_required('admin', 'editor')
+    def admin_submission_attachment(sid: int, filename: str):
+        db = dbs()
+        s = db.get(Submission, sid)
+        if not s:
+            abort(404)
+        upload_root = Path(DATA_DIR) / 'uploads' / s.kind / str(s.id)
+        target = (upload_root / filename).resolve()
+        try:
+            upload_root_resolved = upload_root.resolve()
+        except FileNotFoundError:
+            abort(404)
+        if not str(target).startswith(str(upload_root_resolved)) or not target.is_file():
+            abort(404)
+        from flask import send_file
+        return send_file(target, download_name=target.name)
 
     # user management
     @app.route('/admin/users')

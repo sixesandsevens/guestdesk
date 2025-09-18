@@ -3,7 +3,7 @@
 
 {% block content %}
 <h4 class="mb-3 text-capitalize">{{ kind }}</h4>
-<form method="post">
+<form method="post" {% if kind == 'maintenance' %}enctype="multipart/form-data"{% endif %}>
   <div class="mb-2">
     <label class="form-label">Subject</label>
     <input name="subject" class="form-control" value="{{ form.subject or '' }}">
@@ -80,13 +80,21 @@
   </div>
   <div class="mb-2 mt-2">
     <label class="form-label">Description *</label>
-    <textarea name="description" class="form-control" rows="6" required>{{ form.description or '' }}</textarea>
+    <textarea name="description" class="form-control" rows="6" maxlength="{{ MAX_GRIEVANCE_DESCRIPTION_LENGTH }}" required>{{ form.description or '' }}</textarea>
+    <div class="form-text text-end">Remaining: <span id="description-remaining" data-max="{{ MAX_GRIEVANCE_DESCRIPTION_LENGTH }}">{{ '{:,}'.format(MAX_GRIEVANCE_DESCRIPTION_LENGTH) }}</span> characters.</div>
   </div>
   {% else %}
   <div class="mb-2">
     <label class="form-label">Details *</label>
     <textarea name="body" class="form-control" rows="6" required>{{ form.body or '' }}</textarea>
   </div>
+  {% if kind == 'maintenance' %}
+  <div class="mb-2">
+    <label class="form-label">Photo (optional)</label>
+    <input name="photo" type="file" class="form-control" accept=".jpg,.jpeg,.png,.gif">
+    <div class="form-text">Upload a JPG, PNG, or GIF image (max {{ MAX_UPLOAD_MB_LABEL }} MB).</div>
+  </div>
+  {% endif %}
   {% endif %}
 
   {% if kind != 'grievance' %}
@@ -113,6 +121,22 @@
     const txt = document.querySelector('input[name="involves_other"]');
     function sync(){ txt.disabled = !chk.checked; if(!chk.checked){ txt.value=''; } }
     if(chk && txt){ chk.addEventListener('change', sync); sync(); }
+
+    const desc = document.querySelector('textarea[name="description"]');
+    const remaining = document.getElementById('description-remaining');
+    function updateRemaining(){
+      if(!desc || !remaining){ return; }
+      const maxAttr = remaining.dataset.max || desc.getAttribute('maxlength') || '';
+      const max = parseInt(maxAttr, 10);
+      if(!max){ return; }
+      const charsLeft = Math.max(0, max - desc.value.length);
+      remaining.textContent = charsLeft.toLocaleString();
+    }
+    if(desc && remaining){
+      desc.addEventListener('input', updateRemaining);
+      desc.addEventListener('change', updateRemaining);
+      updateRemaining();
+    }
   })();
 </script>
 {% endif %}

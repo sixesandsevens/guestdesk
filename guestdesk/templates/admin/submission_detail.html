@@ -7,6 +7,19 @@
   <div class="card-body">
     <div class="mb-2"><strong>Subject:</strong> {{ s.subject or '—' }}</div>
     <div class="mb-2"><strong>Details:</strong><br>{{ s.body }}</div>
+    {% if attachments %}
+    <div class="mb-2">
+      <strong>Attachments:</strong>
+      <ul class="mb-0">
+        {% for att in attachments %}
+        <li>
+          <a href="{{ url_for('admin_submission_attachment', sid=s.id, filename=att.name) }}" target="_blank">{{ att.name }}</a>
+          <span class="text-muted">({{ att.size_label }})</span>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
     {% if s.kind == 'maintenance' %}
     <div class="mb-2"><strong>Category/Location:</strong> {{ s.category or '—' }} · {{ s.building or '—' }} {{ s.location or '' }}</div>
     {% endif %}
