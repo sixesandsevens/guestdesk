@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="230" height="28" role="img" aria-label="License: GuestDesk Community License v1.1">
+  <title>License: GuestDesk Community License v1.1</title>
+  <defs>
+    <linearGradient id="gdcl-gradient" x1="0%" x2="100%" y1="0%" y2="0%">
+      <stop offset="0%" stop-color="#1d3557" />
+      <stop offset="100%" stop-color="#457b9d" />
+    </linearGradient>
+  </defs>
+  <rect width="230" height="28" rx="4" fill="url(#gdcl-gradient)" />
+  <text x="12" y="18" fill="#ffffff" font-family="Arial, Helvetica, sans-serif" font-size="12" font-weight="600">
+    License: GuestDesk Community License v1.1
+  </text>
+</svg>

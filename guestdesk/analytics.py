@@ -1,3 +1,6 @@
+# GuestDesk
+# Copyright (c) 2025 Chris Tant
+# SPDX-License-Identifier: LicenseRef-GDCL-1.1
 from __future__ import annotations
 import hmac, hashlib
 from datetime import datetime
@@ -133,4 +136,3 @@ def init_analytics(app, engine):
     # Ensure table exists; restrict to AnalyticsEvent
     Base.metadata.create_all(bind=engine, tables=[AnalyticsEvent.__table__])
     app.register_blueprint(analytics_bp)
-

@@ -1,3 +1,6 @@
+# GuestDesk
+# Copyright (c) 2025 Chris Tant
+# SPDX-License-Identifier: LicenseRef-GDCL-1.1
 from __future__ import annotations
 import os
 from datetime import datetime, timedelta, timezone

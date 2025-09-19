@@ -1,3 +1,5 @@
+[![License: GuestDesk Community License](assets/badges/guestdesk-community-license.svg)](LICENSE)
+
 GuestDesk
 ========
 
@@ -160,6 +162,12 @@ Audit Log
 * Ensure the systemd service allows write access to the log file path (see
   `ReadWritePaths` in the service unit below).
 
+Commercial Use
+--------------
+For-profit or commercial deployments require a separate license agreement.
+Email `chris@gracemarketplace.org` with a short description of the intended
+use; the project owner will review requests that align with the mission.
+
 Deployment (systemd example)
 -----------------------------
 ```
@@ -249,7 +257,19 @@ Contributing
 Please keep the security posture intact when making changes (CSRF, rate limits,
 headers) and update the README when introducing new operational requirements.
 
+By submitting contributions you agree they are provided under the GuestDesk
+Community License v1.1 (LicenseRef-GDCL-1.1). If you include third-party code,
+ensure it is compatible and provide proper attribution in `NOTICE` or the
+relevant source file.
+
 License
 -------
-No explicit license is currently provided. Confirm with the project owners
-before reusing in other contexts.
+GuestDesk is distributed under the **GuestDesk Community License v1.1**
+(`LicenseRef-GDCL-1.1`).
+
+- ✅ Free for individuals, grassroots groups, mutual aid networks, nonprofits
+- 🚫 No commercial use without written permission
+- ❤️ Built to serve vulnerable communities
+- ⚠️ Absolutely no exploitative or harmful deployments
+
+See the full text in [LICENSE](LICENSE).

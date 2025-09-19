@@ -1,3 +1,6 @@
+# GuestDesk
+# Copyright (c) 2025 Chris Tant
+# SPDX-License-Identifier: LicenseRef-GDCL-1.1
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, Response, current_app
 from icalendar import Calendar, Event

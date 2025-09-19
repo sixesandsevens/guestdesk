@@ -1,3 +1,6 @@
+# GuestDesk
+# Copyright (c) 2025 Chris Tant
+# SPDX-License-Identifier: LicenseRef-GDCL-1.1
 import os
 from redis import Redis
 from rq import Queue
