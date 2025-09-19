@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import io
 import json
+import shutil
 import html as htmlmod
 from urllib import request as urlreq, error as urlerr
 from uuid import uuid4
@@ -22,7 +23,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
-from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting, FormPDFConfig
+from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting, FormPDFConfig, GameScore
 from . import pdf_config
 from guestdesk.analytics import init_analytics
 from .services_calendar import expand_between
@@ -1768,6 +1769,109 @@ def create_app():
             abort(404)
         from flask import send_file
         return send_file(target, download_name=target.name)
+
+    @app.route('/admin/data-tools')
+    @roles_required('admin')
+    def admin_data_tools():
+        db = dbs()
+        submission_total = db.query(func.count(Submission.id)).scalar() or 0
+        score_rows = (
+            db.query(GameScore.game, func.count(GameScore.id))
+            .group_by(GameScore.game)
+            .order_by(GameScore.game)
+            .all()
+        )
+        leaderboard = [
+            {"game": (row[0] or ""), "count": int(row[1] or 0)}
+            for row in score_rows
+        ]
+        uploads_root = Path(DATA_DIR) / 'uploads'
+        upload_summary: list[dict[str, object]] = []
+        if uploads_root.exists():
+            try:
+                for kind_dir in sorted([p for p in uploads_root.iterdir() if p.is_dir()], key=lambda p: p.name):
+                    try:
+                        entry_count = sum(1 for _ in kind_dir.iterdir() if _.is_dir())
+                    except Exception:
+                        entry_count = None
+                    upload_summary.append({
+                        "kind": kind_dir.name,
+                        "folders": entry_count,
+                    })
+            except Exception as exc:
+                current_app.logger.warning('Failed to summarize uploads: %s', exc)
+        return render_template(
+            'admin/data_tools.html',
+            submission_total=int(submission_total),
+            upload_summary=upload_summary,
+            leaderboard=leaderboard,
+        )
+
+    @app.route('/admin/submissions/clear', methods=['POST'])
+    @roles_required('admin')
+    def admin_submissions_clear():
+        db = dbs()
+        total = db.query(func.count(Submission.id)).scalar() or 0
+        if total == 0:
+            flash('No submissions to delete.', 'info')
+            return redirect(url_for('admin_data_tools'))
+        try:
+            db.query(Submission).delete(synchronize_session=False)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            current_app.logger.exception('Failed to clear submissions: %s', exc)
+            flash('Could not clear submissions. Check logs for details.', 'danger')
+            return redirect(url_for('admin_data_tools'))
+        uploads_root = Path(DATA_DIR) / 'uploads'
+        cleared_dirs = 0
+        if uploads_root.exists():
+            for child in uploads_root.iterdir():
+                if child.is_dir():
+                    try:
+                        shutil.rmtree(child)
+                        cleared_dirs += 1
+                    except Exception as exc:
+                        current_app.logger.warning('Failed to remove upload folder %s: %s', child, exc)
+        audit_log(
+            'submissions.clear',
+            actor=audit_actor(),
+            extra={'count': int(total), 'upload_dirs_removed': cleared_dirs},
+        )
+        flash(
+            f'Removed {int(total)} submissions and cleared {cleared_dirs} attachment folders.',
+            'success',
+        )
+        return redirect(url_for('admin_data_tools'))
+
+    @app.route('/admin/arcade/scores/<string:game>/clear', methods=['POST'])
+    @roles_required('admin')
+    def admin_arcade_clear(game: str):
+        game_key = (game or '').strip().lower()
+        if not game_key:
+            abort(400)
+        db = dbs()
+        existing = db.query(GameScore).filter(GameScore.game == game_key)
+        total = existing.count()
+        if total == 0:
+            flash(f'No scores to clear for {game_key}.', 'info')
+            return redirect(url_for('admin_data_tools'))
+        try:
+            existing.delete(synchronize_session=False)
+            db.commit()
+        except Exception as exc:
+            db.rollback()
+            current_app.logger.exception('Failed to clear scores for %s: %s', game_key, exc)
+            flash('Could not clear leaderboard. Check logs for details.', 'danger')
+            return redirect(url_for('admin_data_tools'))
+        audit_log(
+            'arcade.clear',
+            actor=audit_actor(),
+            obj=game_key,
+            extra={'count': int(total)},
+        )
+        flash(f'Cleared {int(total)} scores for {game_key}.', 'success')
+        return redirect(url_for('admin_data_tools'))
 
     # user management
     @app.route('/admin/users')

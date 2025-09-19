@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+
+{% block content %}
+<h4 class="mb-3">Data Tools</h4>
+
+<div class="row g-3 mb-4">
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Form Submissions</h5>
+        <p class="card-text mb-2">Currently storing <strong>{{ submission_total }}</strong> submissions.</p>
+        {% if upload_summary %}
+        <ul class="small text-muted mb-3">
+          {% for item in upload_summary %}
+          <li>{{ item.kind|title }} attachments: {% if item.folders is not none %}{{ item.folders }} folder{% if item.folders != 1 %}s{% endif %}{% else %}unknown{% endif %}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+        <form method="post" action="{{ url_for('admin_submissions_clear') }}" onsubmit="return confirm('Delete all submissions and attachments? This cannot be undone.');">
+          {{ csrf() }}
+          <button class="btn btn-danger">Delete All Submissions</button>
+        </form>
+        <p class="small text-muted mt-2 mb-0">Deletes every submission record and clears saved upload folders.</p>
+      </div>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="card h-100">
+      <div class="card-body">
+        <h5 class="card-title">Arcade Leaderboards</h5>
+        {% if leaderboard %}
+        <div class="list-group mb-3">
+          {% for entry in leaderboard %}
+          <div class="list-group-item d-flex flex-wrap justify-content-between align-items-center gap-2">
+            <div>
+              <strong>{{ entry.game|title }}</strong>
+              <span class="small text-muted">({{ entry.count }} score{% if entry.count != 1 %}s{% endif %})</span>
+            </div>
+            <form method="post" action="{{ url_for('admin_arcade_clear', game=entry.game) }}" onsubmit="return confirm('Clear the {{ entry.game|title }} leaderboard?');">
+              {{ csrf() }}
+              <button class="btn btn-sm btn-outline-danger">Clear</button>
+            </form>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <div class="text-muted">No leaderboard entries yet.</div>
+        {% endif %}
+        <p class="small text-muted mb-0">Clearing removes every saved score for the selected game.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<p><a href="{{ url_for('admin_index') }}" class="text-decoration-none">&larr; Back to Admin Dashboard</a></p>
+{% endblock %}
