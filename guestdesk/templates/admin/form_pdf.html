@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
 {% block content %}
 <div class="container mt-4">
   <div class="d-flex align-items-center justify-content-between">
@@ -25,6 +26,7 @@
         <div class="card-body" id="pdfCardBody">
           <div>Page: {{ page_w }} x {{ page_h }} pt</div>
           <form class="mt-2" action="{{ url_for('admin_form_pdf_upload', form_key=form_key) }}" method="post" enctype="multipart/form-data">
+            {{ csrf() }}
             <div class="input-group">
               <input class="form-control" type="file" name="file" accept="application/pdf">
               <button class="btn btn-outline-primary" type="submit">Upload/Replace</button>
@@ -41,6 +43,7 @@
         <div class="card-header">Layout</div>
         <div class="card-body">
           <form id="saveForm" action="{{ url_for('admin_form_pdf_save', form_key=form_key) }}" method="post">
+            {{ csrf() }}
             <div class="row g-2">
               <div class="col-4">
                 <label class="form-label">Baseline Pad (pt)</label>

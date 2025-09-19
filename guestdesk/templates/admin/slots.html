@@ -1,9 +1,11 @@
 {% extends 'base.html' %}
 {% import '_macros.html' as m %}
+{% from '_csrf.html' import csrf %}
 
 {% block content %}
 <h4 class="mb-3">Slots — {{ s.name }}</h4>
 <form method="post" class="card card-body mb-3">
+  {{ csrf() }}
   <div class="row g-2">
     <div class="col-md-2">
       <label class="form-label">Day</label>
@@ -31,6 +33,7 @@
         <td>{{ sl.note }}</td>
         <td>
           <form method="post" action="{{ url_for('admin_slot_delete', slot_id=sl.id) }}" onsubmit="return confirm('Delete this slot?')">
+            {{ csrf() }}
             <button class="btn btn-sm btn-outline-danger">Delete</button>
           </form>
         </td>

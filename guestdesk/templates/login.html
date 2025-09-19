@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% import '_macros.html' as m %}
+{% from '_csrf.html' import csrf %}
 
 {% block content %}
 <div class="row justify-content-center">
@@ -8,6 +9,7 @@
       <div class="card-body">
         <h5 class="card-title">{{ t('staff_login') }}</h5>
         <form method="post">
+          {{ csrf() }}
           {% if request.args.get('next') %}
           <input type="hidden" name="next" value="{{ request.args.get('next') }}">
           {% endif %}

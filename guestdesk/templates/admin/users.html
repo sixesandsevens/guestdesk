@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
 {% block content %}
 <h4 class="mb-3">Users</h4>
 <p>
@@ -25,6 +26,7 @@
       <td class="text-end">
         <div class="d-flex justify-content-end gap-2">
           <form class="d-flex gap-2" method="post" action="{{ url_for('admin_users_update', uid=u.id) }}">
+            {{ csrf() }}
             <select class="form-select form-select-sm w-auto" name="role">
               <option value="viewer" {% if u.role=='viewer' %}selected{% endif %}>viewer</option>
               <option value="editor" {% if u.role=='editor' %}selected{% endif %}>editor</option>
@@ -37,6 +39,7 @@
             <button class="btn btn-sm btn-outline-primary">Update</button>
           </form>
           <form method="post" action="{{ url_for('admin_users_delete', uid=u.id) }}" onsubmit="return confirm('Delete user {{u.username}}?');">
+            {{ csrf() }}
             <button class="btn btn-sm btn-outline-danger">Delete</button>
           </form>
         </div>

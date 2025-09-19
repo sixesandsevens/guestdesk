@@ -1,9 +1,11 @@
 {% extends 'base.html' %}
 {% import '_macros.html' as m %}
+{% from '_csrf.html' import csrf %}
 
 {% block content %}
 <h4 class="mb-3">Edit Service</h4>
 <form method="post">
+  {{ csrf() }}
   <div class="row g-2">
     <div class="col-md-6">
       <label class="form-label">Name</label>
@@ -63,7 +65,6 @@
   <a class="btn btn-outline-secondary" href="{{ url_for('admin_services') }}">Cancel</a>
   <a class="btn btn-outline-secondary" href="{{ url_for('admin_slots', sid=service.id) }}">Manage Slots</a>
   <a class="btn btn-outline-danger" href="#" onclick="if(confirm('Delete this service?')){ document.getElementById('del').submit(); } return false;">Delete</a>
-  <form id="del" method="post" action="{{ url_for('admin_services_delete', sid=service.id) }}"></form>
+  <form id="del" method="post" action="{{ url_for('admin_services_delete', sid=service.id) }}">{{ csrf() }}</form>
 </form>
 {% endblock %}
-

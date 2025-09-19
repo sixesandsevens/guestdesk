@@ -1,9 +1,12 @@
 {% extends 'base.html' %}
 {% import '_macros.html' as m %}
+{% from '_csrf.html' import csrf %}
 
 {% block content %}
 <h4 class="mb-3 text-capitalize">{{ kind }}</h4>
-<form method="post" {% if kind == 'maintenance' %}enctype="multipart/form-data"{% endif %}>
+<form method="post" {% if kind == 'maintenance' %}enctype="multipart/form-data"{% endif %} data-disable-on-submit>
+  {{ csrf() }}
+  <input type="hidden" name="idempotency_key" value="{{ uuid4() }}">
   <div class="mb-2">
     <label class="form-label">Subject</label>
     <input name="subject" class="form-control" value="{{ form.subject or '' }}">
@@ -111,7 +114,7 @@
   {% endif %}
 
   <div class="mt-3">
-    <button class="btn btn-primary">{{ t('submit') }}</button>
+    <button class="btn btn-primary" type="submit" data-loading-text="Submitting...">{{ t('submit') }}</button>
   </div>
 </form>
 {% if kind == 'grievance' %}
@@ -140,4 +143,26 @@
   })();
 </script>
 {% endif %}
+<script>
+  (function(){
+    const form = document.querySelector('form[data-disable-on-submit]');
+    if(!form){ return; }
+    const submitBtn = form.querySelector('button[type="submit"]');
+    if(!submitBtn){ return; }
+    let locked = false;
+    form.addEventListener('submit', function(evt){
+      if(locked){
+        evt.preventDefault();
+        return;
+      }
+      locked = true;
+      const spinnerHtml = '<span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>';
+      submitBtn.dataset.originalLabel = submitBtn.dataset.originalLabel || submitBtn.innerHTML;
+      const loadingText = submitBtn.dataset.loadingText || 'Submitting...';
+      submitBtn.innerHTML = spinnerHtml + loadingText;
+      submitBtn.setAttribute('aria-disabled', 'true');
+      submitBtn.disabled = true;
+    });
+  })();
+</script>
 {% endblock %}

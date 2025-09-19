@@ -5,6 +5,11 @@ from email.message import EmailMessage
 from typing import Iterable, Union, Optional, Dict, Any
 from flask import current_app
 
+try:
+    from .task_queue import q
+except Exception:  # pragma: no cover
+    q = None  # type: ignore
+
 def _env_bool(name: str, default: str = "0") -> bool:
     return (os.getenv(name, default) or "").strip() in ("1", "true", "True", "yes", "on")
 
@@ -130,6 +135,72 @@ def send_mail(subject: str,
             s.send_message(msg)
 
 
+def _deliver_mail_job(subject: str,
+                      body: str,
+                      to: list[str],
+                      reply_to: Optional[str],
+                      sender: Optional[str],
+                      cc: Optional[list[str]],
+                      attachments: Optional[Iterable[tuple]]) -> None:
+    send_mail(
+        subject=subject,
+        body=body,
+        to=to,
+        reply_to=reply_to,
+        sender=sender,
+        cc=cc,
+        attachments=attachments,
+    )
+
+
+def queue_mail(subject: str,
+               body: str,
+               to: Union[str, Iterable[str]],
+               reply_to: Optional[str] = None,
+               sender: Optional[str] = None,
+               cc: Optional[Iterable[str]] = None,
+               attachments: Optional[Iterable[tuple]] = None,
+               job_timeout: int = 120) -> None:
+    if isinstance(to, str):
+        to_list = [to]
+    else:
+        to_list = [addr for addr in to if addr]
+    cc_list = [c for c in (cc or []) if c]
+    if q is None:
+        send_mail(
+            subject=subject,
+            body=body,
+            to=to_list,
+            reply_to=reply_to,
+            sender=sender,
+            cc=cc_list,
+            attachments=attachments,
+        )
+        return
+    try:
+        q.enqueue(
+            _deliver_mail_job,
+            subject,
+            body,
+            to_list,
+            reply_to,
+            sender,
+            cc_list,
+            attachments,
+            job_timeout=job_timeout,
+        )
+    except Exception:
+        send_mail(
+            subject=subject,
+            body=body,
+            to=to_list,
+            reply_to=reply_to,
+            sender=sender,
+            cc=cc_list,
+            attachments=attachments,
+        )
+
+
 def send_category_notification(category: str,
                                payload_or_subject: Union[Dict[str, Any], str],
                                body: Optional[str] = None,
@@ -157,9 +228,9 @@ def send_category_notification(category: str,
             lines.append("Message:")
             lines.append(str(msg_text))
         body_text = "\n\n".join([line for line in lines if line is not None])
-        send_mail(subject=subj, body=body_text, to=to_list, reply_to=reply_to or payload.get("email"))
+        queue_mail(subject=subj, body=body_text, to=to_list, reply_to=reply_to or payload.get("email"))
         return
 
     # subject/body mode
     subject = str(payload_or_subject)
-    send_mail(subject=subject, body=body or "", to=to_list, reply_to=reply_to)
+    queue_mail(subject=subject, body=body or "", to=to_list, reply_to=reply_to)

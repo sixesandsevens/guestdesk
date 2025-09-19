@@ -2,3 +2,11 @@ Flask
 SQLAlchemy
 reportlab
 PyPDF2
+flask-wtf>=1.2
+flask-limiter>=3.8
+flask-talisman>=1.1.0
+redis>=5.0
+rq>=1.16
+python-dateutil>=2.9
+icalendar>=5.0
+user-agents==2.2.0

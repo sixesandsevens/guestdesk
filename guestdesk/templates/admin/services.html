@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% import '_macros.html' as m %}
+{% from '_csrf.html' import csrf %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
@@ -31,6 +32,7 @@
       </td>
       <td>
         <form method="post" action="{{ url_for('admin_services_delete', sid=s.id) }}" onsubmit="return confirm('Delete this service?')">
+          {{ csrf() }}
           <button class="btn btn-sm btn-outline-danger">Delete</button>
         </form>
       </td>

@@ -6,18 +6,26 @@ import io
 import json
 import html as htmlmod
 from urllib import request as urlreq, error as urlerr
+from uuid import uuid4
 from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g, jsonify, current_app
-from sqlalchemy import create_engine, text
+from flask_wtf.csrf import CSRFProtect, generate_csrf
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
+from flask_talisman import Talisman
+from sqlalchemy import create_engine, text, func
 from sqlalchemy.orm import sessionmaker, scoped_session
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
 from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting, FormPDFConfig
 from . import pdf_config
 from guestdesk.analytics import init_analytics
 from .services_calendar import expand_between
-from .mailer import send_category_notification, send_mail, _recipient_for
+from .mailer import send_category_notification, queue_mail, _recipient_for
+from .antispam import seen as idemp_seen, remember as remember_idemp, fetch as fetch_idemp_result
+from .audit import log as audit_log
 
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
@@ -27,6 +35,9 @@ DATA_DIR = (
     or os.environ.get("GUESTD_DATA_DIR")
     or "/var/lib/guestdesk"
 )
+
+csrf = CSRFProtect()
+limiter = Limiter(key_func=get_remote_address, default_limits=[])
 
 def build_grievance_case_id(submission_id: int, created_at: datetime | None) -> str:
     """Generate a stable grievance case identifier."""
@@ -107,7 +118,56 @@ def human_filesize(num_bytes: int) -> str:
 
 def create_app():
     app = Flask(__name__)
-    app.jinja_env.globals['MAX_GRIEVANCE_DESCRIPTION_LENGTH'] = MAX_GRIEVANCE_DESCRIPTION_LENGTH
+    env_name = (os.getenv("FLASK_ENV") or os.getenv("ENV") or "").lower()
+    is_production = env_name == "production"
+    raw_secure_flag = os.getenv(
+        "GUESTDESK_FORCE_SECURE_COOKIES",
+        "1" if is_production else "0",
+    )
+    normalized_flag = str(raw_secure_flag).strip().lower()
+    use_secure_cookies = normalized_flag in ("1", "true", "yes", "on")
+    app.logger.warning(
+        "force_secure_cookies=%s (raw=%r, env=%s)",
+        use_secure_cookies,
+        raw_secure_flag,
+        env_name,
+    )
+    if is_production:
+        if not os.getenv("SECRET_KEY") or os.getenv("SECRET_KEY") == "dev-secret":
+            raise RuntimeError("SECRET_KEY must be set in the environment for production")
+        if not os.getenv("ADMIN_PASSWORD") or os.getenv("ADMIN_PASSWORD") == "changeme":
+            raise RuntimeError("ADMIN_PASSWORD must be set in the environment for production")
+
+    app.config.update(
+        SESSION_COOKIE_SECURE=use_secure_cookies,
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        REMEMBER_COOKIE_SECURE=use_secure_cookies,
+        REMEMBER_COOKIE_HTTPONLY=True,
+        WTF_CSRF_SSL_STRICT=use_secure_cookies,
+    )
+
+    app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
+
+    Talisman(
+        app,
+        content_security_policy=None,
+        force_https=use_secure_cookies,
+        session_cookie_secure=use_secure_cookies,
+    )
+
+    csrf.init_app(app)
+    limiter.init_app(app)
+
+    app.jinja_env.globals.update(
+        MAX_GRIEVANCE_DESCRIPTION_LENGTH=MAX_GRIEVANCE_DESCRIPTION_LENGTH,
+        uuid4=uuid4,
+    )
+
+    @app.before_request
+    def _attach_request_id():
+        g.request_id = request.headers.get("X-Request-ID", str(uuid4()))
+
     def _parse_upload_limit(raw):
         if raw is None:
             return None
@@ -193,6 +253,13 @@ def create_app():
         pass
 
     def dbs(): return Session()
+    app.dbs = dbs
+
+    try:
+        from .ics import bp as ics_bp
+        app.register_blueprint(ics_bp)
+    except Exception as exc:
+        app.logger.warning('Failed to register ICS blueprint: %s', exc)
 
     # Load settings from DB into app.config (override defaults)
     try:
@@ -320,6 +387,10 @@ def create_app():
         )
 
     @app.context_processor
+    def inject_csrf_token():
+        return dict(csrf_token=lambda: generate_csrf())
+
+    @app.context_processor
     def inject_flags():
         # makes SHOW_HOME_SERVICES available in all templates
         return dict(SHOW_HOME_SERVICES=app.config["SHOW_HOME_SERVICES"])
@@ -328,6 +399,10 @@ def create_app():
     def inject_asset_version():
         # expose ASSET_VERSION for cache-busting static assets
         return dict(ASSET_VERSION=app.config.get("ASSET_VERSION", "1"))
+
+    @app.get('/_healthz')
+    def _healthz():
+        return {"ok": True, "version": os.getenv("GUESTDESK_VERSION", "dev")}, 200
 
     @app.route('/lang/<code>')
     def set_lang(code):
@@ -393,6 +468,7 @@ def create_app():
         return render_template('report.html')
 
     @app.route('/submit/<kind>', methods=['GET','POST'])
+    @limiter.limit("10/minute")
     def submit(kind):
         if kind not in ['maintenance','grievance','suggestion','question']:
             abort(404)
@@ -433,17 +509,77 @@ def create_app():
             if not body:
                 flash('Please add some details.', 'danger')
                 return render_template('submit_kind.html', kind=kind, form=request.form)
+            subject_val = (request.form.get('subject') or '').strip() or None
+            category_val = (request.form.get('category') or '').strip() or None
+            building_val = (request.form.get('building') or '').strip() or None
+            location_val = (request.form.get('location') or '').strip() or None
+            contact_name_val = (request.form.get('contact_name') or '').strip() or None
+            contact_info_val = (request.form.get('contact_info') or '').strip() or None
+            token = (request.form.get('idempotency_key') or '').strip() or None
+            body_lower = body.lower()
+
+            db = dbs()
+
+            already_seen = False
+            try:
+                already_seen = idemp_seen(token)
+            except Exception:
+                already_seen = False
+            if already_seen:
+                existing = None
+                existing_id = fetch_idemp_result(token)
+                if existing_id:
+                    existing = db.get(Submission, existing_id)
+                if existing is None:
+                    existing = (
+                        db.query(Submission)
+                        .filter(Submission.kind == kind)
+                        .filter(func.lower(Submission.body) == body_lower)
+                        .order_by(Submission.created_at.desc())
+                        .first()
+                    )
+                if existing:
+                    flash('Looks like this submission was already received. We kept the earlier one.', 'info')
+                    return render_template('thanks.html', sub=existing)
+                flash('Looks like this submission was already received. Thanks for your patience!', 'info')
+                return render_template('submit_kind.html', kind=kind, form=request.form)
+
+            if kind == 'maintenance':
+                dedupe_window = datetime.utcnow() - timedelta(minutes=1)
+                duplicate_q = (
+                    db.query(Submission)
+                    .filter(Submission.kind == 'maintenance')
+                    .filter(Submission.created_at >= dedupe_window)
+                    .filter(func.lower(Submission.body) == body_lower)
+                )
+                for column, value in [
+                    (Submission.subject, subject_val),
+                    (Submission.category, category_val),
+                    (Submission.building, building_val),
+                    (Submission.location, location_val),
+                    (Submission.contact_name, contact_name_val),
+                    (Submission.contact_info, contact_info_val),
+                ]:
+                    if value is None:
+                        duplicate_q = duplicate_q.filter(column.is_(None))
+                    else:
+                        duplicate_q = duplicate_q.filter(column == value)
+                existing = duplicate_q.order_by(Submission.created_at.desc()).first()
+                if existing:
+                    app.logger.info('Deduplicated maintenance submission, returning existing submission #%s', existing.id)
+                    flash('Looks like this maintenance request was already received a moment ago. We will use the earlier one.', 'info')
+                    return render_template('thanks.html', sub=existing)
+
             sub = Submission(
                 kind=kind,
-                subject=(request.form.get('subject') or '').strip() or None,
+                subject=subject_val,
                 body=body,
-                category=(request.form.get('category') or '').strip() or None,
-                building=(request.form.get('building') or '').strip() or None,
-                location=(request.form.get('location') or '').strip() or None,
-                contact_name=(request.form.get('contact_name') or '').strip() or None,
-                contact_info=(request.form.get('contact_info') or '').strip() or None,
+                category=category_val,
+                building=building_val,
+                location=location_val,
+                contact_name=contact_name_val,
+                contact_info=contact_info_val,
             )
-            db = dbs()
             db.add(sub)
             try:
                 db.flush()
@@ -467,6 +603,11 @@ def create_app():
                     flash('Could not save the uploaded photo. Please try again.', 'danger')
                     return render_template('submit_kind.html', kind=kind, form=request.form)
             db.commit()
+            if token:
+                try:
+                    remember_idemp(token, sub.id)
+                except Exception:
+                    pass
             grievance_case_id = build_grievance_case_id(sub.id, sub.created_at) if kind == 'grievance' else None
             # Build normalized payload for renderer
             payload = {
@@ -616,7 +757,7 @@ def create_app():
                     ]
                     if attach_info:
                         body_lines.append(attach_info)
-                    send_mail(
+                    queue_mail(
                         subject=f"[GuestDesk] Grievance {grv_id}",
                         body="\n\n".join(body_lines),
                         to=to_list or [current_app.config.get('GRIEVANCE_EMAIL') or current_app.config.get('ADMIN_EMAIL')],
@@ -651,7 +792,7 @@ def create_app():
                     ]
                     body_text = "\n\n".join([part for part in body_parts if part is not None])
                     to_list = _recipient_for(kind)
-                    send_mail(
+                    queue_mail(
                         subject=subject,
                         body=body_text,
                         to=to_list,
@@ -896,6 +1037,16 @@ def create_app():
                 return abort(403)
             return _wrap
         return deco
+
+    def audit_actor() -> str:
+        user = getattr(g, 'user', None)
+        if user and getattr(user, 'username', None):
+            return str(user.username)
+        if session.get('is_admin') or session.get('admin'):
+            return 'admin-session'
+        if session.get('username'):
+            return str(session['username'])
+        return 'anonymous'
     # Ensure there is at least one admin user
     db = dbs()
     if not db.query(User).filter(User.role == 'admin').first():
@@ -934,6 +1085,7 @@ def create_app():
         return render_template('signup.html', form={})
 
     @app.route('/login', methods=['GET', 'POST'])
+    @limiter.limit("5/minute")
     def login():
         # Carry next from query or form so POST preserves it; default to home
         next_url = request.args.get('next') or request.form.get('next') or url_for('home')
@@ -1002,6 +1154,7 @@ def create_app():
             'SUGGESTION_EMAIL_TO', 'QUESTION_EMAIL_TO',
         ]
         if request.method == 'POST':
+            before_data = {k: app.config.get(k) for k in keys}
             for k in keys:
                 raw = (request.form.get(k) or '').strip()
                 # Persist as plain string; lists are CSV
@@ -1017,6 +1170,13 @@ def create_app():
                 else:
                     app.config[k] = raw
             db.commit()
+            after_data = {k: app.config.get(k) for k in keys}
+            audit_log(
+                "settings.email.update",
+                actor=audit_actor(),
+                before=before_data,
+                after=after_data,
+            )
             flash('Email settings updated.', 'success')
             return redirect(url_for('admin_email_settings'))
         # Compose current values (lists joined by commas)
@@ -1304,6 +1464,16 @@ def create_app():
             )
             db.add(s)
             db.commit()
+            audit_log(
+                "service.create",
+                actor=audit_actor(),
+                obj=s.id,
+                after={
+                    "name": s.name,
+                    "category": s.category,
+                    "availability": s.availability,
+                },
+            )
             flash('Service created.', 'success')
             return redirect(url_for('admin_services'))
         return render_template('admin/services_new.html')
@@ -1316,6 +1486,12 @@ def create_app():
         if not s:
             abort(404)
         if request.method == 'POST':
+            before_data = {
+                "name": s.name,
+                "category": s.category,
+                "availability": s.availability,
+                "is_offsite": s.is_offsite,
+            }
             s.name = request.form.get('name') or s.name
             s.category = request.form.get('category') or s.category
             s.availability = request.form.get('availability') or s.availability
@@ -1326,6 +1502,18 @@ def create_app():
             s.schedule_note = request.form.get('schedule_note') or ''
             s.external_link = request.form.get('external_link') or ''
             db.commit()
+            audit_log(
+                "service.update",
+                actor=audit_actor(),
+                obj=s.id,
+                before=before_data,
+                after={
+                    "name": s.name,
+                    "category": s.category,
+                    "availability": s.availability,
+                    "is_offsite": s.is_offsite,
+                },
+            )
             flash('Service updated.', 'success')
             return redirect(url_for('admin_services'))
         return render_template('admin/service_edit.html', service=s)
@@ -1336,8 +1524,18 @@ def create_app():
         db = dbs()
         s = db.get(Service, sid)
         if s:
+            before_data = {
+                "name": s.name,
+                "category": s.category,
+            }
             db.delete(s)
             db.commit()
+            audit_log(
+                "service.delete",
+                actor=audit_actor(),
+                obj=sid,
+                before=before_data,
+            )
             flash('Service deleted.', 'info')
         return redirect(url_for('admin_services'))
 
@@ -1363,6 +1561,12 @@ def create_app():
             )
             db.add(slot)
             db.commit()
+            audit_log(
+                "slot.create",
+                actor=audit_actor(),
+                obj=slot.id,
+                extra={"service_id": s.id, "dow": slot.dow},
+            )
             flash('Time slot added.', 'success')
             return redirect(url_for('admin_slots', sid=s.id))
         return render_template('admin/slots.html', s=s)
@@ -1374,8 +1578,20 @@ def create_app():
         slot = db.get(ProgramSlot, slot_id)
         if slot:
             sid = slot.service_id
+            before_data = {
+                "service_id": slot.service_id,
+                "dow": slot.dow,
+                "start": slot.start,
+                "end": slot.end,
+            }
             db.delete(slot)
             db.commit()
+            audit_log(
+                "slot.delete",
+                actor=audit_actor(),
+                obj=slot_id,
+                before=before_data,
+            )
             flash('Slot deleted.', 'info')
             return redirect(url_for('admin_slots', sid=sid))
         return redirect(url_for('admin_index'))
@@ -1508,6 +1724,12 @@ def create_app():
             )
             db.add(u)
             db.commit()
+            audit_log(
+                "user.create",
+                actor=audit_actor(),
+                obj=u.id,
+                after={"username": u.username, "role": u.role},
+            )
             flash('User created.', 'success')
             return redirect(url_for('admin_users'))
         return render_template('admin/user_new.html', form={})
@@ -1522,8 +1744,15 @@ def create_app():
         if u.id == session.get('user_id'):
             flash("You can't delete yourself.", 'warning')
             return redirect(url_for('admin_users'))
+        before_data = {"username": u.username, "role": u.role}
         db.delete(u)
         db.commit()
+        audit_log(
+            "user.delete",
+            actor=audit_actor(),
+            obj=uid,
+            before=before_data,
+        )
         flash('User deleted.', 'success')
         return redirect(url_for('admin_users'))
 
@@ -1534,6 +1763,10 @@ def create_app():
         u = db.get(User, uid)
         if not u:
             abort(404)
+        before_data = {
+            "role": u.role,
+            "approved": getattr(u, 'approved', None),
+        }
         role = (request.form.get('role') or u.role).strip()
         if role not in ['viewer', 'editor', 'admin']:
             flash('Invalid role.', 'danger')
@@ -1547,6 +1780,16 @@ def create_app():
             # In case column doesn't exist for any reason, ignore quietly
             pass
         db.commit()
+        audit_log(
+            "user.update",
+            actor=audit_actor(),
+            obj=uid,
+            before=before_data,
+            after={
+                "role": u.role,
+                "approved": getattr(u, 'approved', None),
+            },
+        )
         flash('User updated.', 'success')
         return redirect(url_for('admin_users'))
 
