@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">Audit Log</h4>
+<p class="text-muted small">Reading from <code>{{ log_path }}</code>. Showing latest {{ entries|length }} events.</p>
+<form class="row gy-2 gx-2 align-items-center mb-3" method="get">
+  <div class="col-auto">
+    <label class="form-label mb-0" for="limit">Events</label>
+  </div>
+  <div class="col-auto">
+    <input id="limit" name="n" type="number" min="1" max="2000" value="{{ limit }}" class="form-control form-control-sm" />
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-primary">Refresh</button>
+  </div>
+</form>
+{% if error %}
+  <div class="alert alert-warning">{{ error }}</div>
+{% endif %}
+{% if entries %}
+<div class="table-responsive">
+  <table class="table table-sm table-striped align-middle">
+    <thead class="table-light">
+      <tr>
+        <th scope="col">When</th>
+        <th scope="col">Actor</th>
+        <th scope="col">Action</th>
+        <th scope="col">Object</th>
+        <th scope="col">Details</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for entry in entries %}
+      {% set ts = entry.ts or entry.get('ts') or entry.get('timestamp') %}
+      {% set actor = entry.actor or entry.get('actor_email') or entry.get('actor_id') or entry.get('user') %}
+      {% set action = entry.action or entry.get('action') %}
+      {% set obj = entry.obj or entry.get('entity') or entry.get('entity_type') %}
+      <tr>
+        <td><code>{{ ts or '—' }}</code></td>
+        <td>{{ actor or '—' }}</td>
+        <td><strong>{{ action or '—' }}</strong></td>
+        <td>{{ (entry.get('entity_type') ~ ' ' ~ entry.get('entity_id')) if entry.get('entity_type') else (obj or '—') }}</td>
+        <td>
+          {% set before = entry.get('before') or entry.get('before_json') %}
+          {% set after = entry.get('after') or entry.get('after_json') %}
+          <details>
+            <summary>View</summary>
+            <pre class="mb-0 small" style="white-space:pre-wrap;">{{ entry|tojson(indent=2) }}</pre>
+          </details>
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+  <div class="alert alert-info">No audit entries found.</div>
+{% endif %}
+{% endblock %}

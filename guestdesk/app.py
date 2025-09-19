@@ -261,6 +261,13 @@ def create_app():
     except Exception as exc:
         app.logger.warning('Failed to register ICS blueprint: %s', exc)
 
+    @app.teardown_appcontext
+    def shutdown_session(_exc=None):
+        try:
+            Session.remove()
+        except Exception:
+            pass
+
     # Load settings from DB into app.config (override defaults)
     try:
         db = dbs()
@@ -377,6 +384,42 @@ def create_app():
     def _attach_user():
         load_user()
 
+    def _tail_audit_entries(log_path: str, limit: int = 200) -> list[dict[str, object]]:
+        try:
+            limit_val = int(limit)
+        except Exception:
+            limit_val = 200
+        limit_val = max(1, min(limit_val, 2000))
+        path_obj = Path(log_path)
+        if not path_obj.exists():
+            raise FileNotFoundError(f"Audit log not found at {log_path}")
+        data = b""
+        chunk = 8192
+        with path_obj.open('rb') as fh:
+            fh.seek(0, os.SEEK_END)
+            file_size = fh.tell()
+            pos = file_size
+            while pos > 0 and data.count(b"\n") <= limit:
+                read_size = min(chunk, pos)
+                pos -= read_size
+                fh.seek(pos)
+                data = fh.read(read_size) + data
+        lines = [ln for ln in data.splitlines() if ln.strip()]
+        selected = lines[-limit_val:]
+        entries: list[dict[str, object]] = []
+        for raw_line in selected:
+            text = raw_line.decode('utf-8', errors='replace')
+            try:
+                parsed = json.loads(text)
+                if isinstance(parsed, dict):
+                    parsed.setdefault('raw', text)
+                    entries.append(parsed)
+                    continue
+            except Exception:
+                pass
+            entries.append({'raw': text})
+        return entries
+
     @app.context_processor
     def inject_globals():
         return dict(
@@ -385,6 +428,15 @@ def create_app():
             user_name=session.get('username'),
             user_role=session.get('role'),
         )
+
+    @app.context_processor
+    def inject_audit_flag():
+        available = False
+        try:
+            available = 'admin_audit' in current_app.view_functions
+        except Exception:
+            pass
+        return dict(audit_log_available=available)
 
     @app.context_processor
     def inject_csrf_token():
@@ -1339,6 +1391,29 @@ def create_app():
         db = dbs()
         rows = db.query(Service).order_by(Service.category, Service.name).all()
         return render_template('admin/services.html', rows=rows)
+
+    @app.route('/admin/audit')
+    @roles_required('admin')
+    def admin_audit():
+        log_path = os.getenv('GUESTDESK_AUDIT_LOG', '/var/log/guestdesk/audit.log')
+        limit_param = request.args.get('n', '200')
+        try:
+            limit_val = int(limit_param)
+        except Exception:
+            limit_val = 200
+        error = None
+        entries: list[dict[str, object]] = []
+        try:
+            entries = _tail_audit_entries(log_path, limit_val)
+        except Exception as exc:
+            error = str(exc)
+        return render_template(
+            'admin/audit.html',
+            entries=list(reversed(entries)),
+            log_path=log_path,
+            limit=limit_val,
+            error=error,
+        )
 
     # ---- Services Calendar ----
     @app.route('/admin/services/calendar')

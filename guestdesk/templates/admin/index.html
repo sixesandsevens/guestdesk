@@ -13,7 +13,10 @@
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_analytics') }}">Analytics</a></div>
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_email_settings') }}">Email Settings</a></div>
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="/admin/forms/pdf">Form PDFs</a></div>
-  
+  {% if audit_log_available %}
+  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_audit') }}">Audit Log</a></div>
+  {% endif %}
+
   {% endif %}
 </div>
 <h6>Recent Submissions</h6>
