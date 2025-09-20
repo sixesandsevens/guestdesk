@@ -7,6 +7,7 @@ import ssl
 from email.message import EmailMessage
 from typing import Iterable, Union, Optional, Dict, Any
 from flask import current_app
+from flask_babel import gettext as _
 
 try:
     from .task_queue import q
@@ -218,17 +219,25 @@ def send_category_notification(category: str,
 
     if isinstance(payload_or_subject, dict):
         payload = payload_or_subject
-        subj = (payload.get("subject") or f"New {category.title()} submission").strip()
-        lines = [f"Category: {category}"]
-        if payload.get("name"):   lines.append(f"Name: {payload['name']}")
-        if payload.get("email"):  lines.append(f"Email: {payload['email']}")
-        if payload.get("phone"):  lines.append(f"Phone: {payload['phone']}")
-        if payload.get("url"):    lines.append(f"Page URL: {payload['url']}")
-        if payload.get("extra"):  lines.append(f"Extra: {payload['extra']}")
+        cat_key = (category or '').lower()
+        cat_labels = {
+            'maintenance': _('Maintenance Issue'),
+            'grievance': _('Grievance'),
+            'suggestion': _('Suggestion / Idea'),
+            'question': _('Question'),
+        }
+        category_label = cat_labels.get(cat_key, category.title())
+        subj = (payload.get("subject") or _('New %(category)s submission', category=category_label)).strip()
+        lines = [ _('Category: %(category)s', category=category_label) ]
+        if payload.get("name"):   lines.append(_('Name: %(value)s', value=payload['name']))
+        if payload.get("email"):  lines.append(_('Email: %(value)s', value=payload['email']))
+        if payload.get("phone"):  lines.append(_('Phone: %(value)s', value=payload['phone']))
+        if payload.get("url"):    lines.append(_('Page URL: %(value)s', value=payload['url']))
+        if payload.get("extra"):  lines.append(_('Extra: %(value)s', value=payload['extra']))
         msg_text = payload.get("message")
         if msg_text:
             lines.append("")
-            lines.append("Message:")
+            lines.append(_('Message:'))
             lines.append(str(msg_text))
         body_text = "\n\n".join([line for line in lines if line is not None])
         queue_mail(subject=subj, body=body_text, to=to_list, reply_to=reply_to or payload.get("email"))

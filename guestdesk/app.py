@@ -3,7 +3,10 @@
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
 from __future__ import annotations
 import os
+import csv
+import math
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 import io
 import json
@@ -23,6 +26,17 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
 from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.exceptions import RequestEntityTooLarge
+from flask_babel import (
+    Babel,
+    gettext as _,
+    lazy_gettext as _l,
+    get_locale,
+    format_datetime,
+    format_date,
+    format_time,
+    format_currency,
+    format_number,
+)
 from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting, FormPDFConfig, GameScore
 from . import pdf_config
 from guestdesk.analytics import init_analytics
@@ -41,6 +55,7 @@ DATA_DIR = (
 )
 
 csrf = CSRFProtect()
+babel = Babel()
 limiter = Limiter(
     key_func=get_remote_address,
     default_limits=[],
@@ -57,59 +72,13 @@ def format_time_12(dt_obj: datetime) -> str:
     """Return 12-hour time with AM/PM from a datetime."""
     return dt_obj.strftime('%I:%M %p').lstrip('0')
 
-# Basic i18n for UI strings (English/Spanish); content remains as entered.
-STRINGS = {
-    'en': {
-        'title': 'GuestDesk',
-        'services': 'Services',
-        'schedule': 'Schedule',
-        'announcements': 'Announcements',
-        'report_issue': 'Report an Issue',
-        'report_maintenance': 'Maintenance Issue',
-        'report_grievance': 'File a Grievance',
-        'report_suggestion': 'Suggestion / Idea',
-        'report_question': 'Ask a Question',
-        'fun_zone': 'Fun Zone',
-        'staff_login': 'Staff Login',
-        'logout': 'Logout',
-        'welcome': 'Welcome',
-        'today': 'Today',
-        'submit': 'Submit',
-        'thanks': 'Thanks! Your submission was received. Your reference number is',
-        'anonymous_ok': 'You can leave your name/contact blank to stay anonymous.',
-        'admin': 'Admin',
-        'no_items': 'Nothing here yet. Check back soon.'
-    },
-    'es': {
-        'title': 'GuestDesk',
-        'services': 'Servicios',
-        'schedule': 'Horario',
-        'announcements': 'Anuncios',
-        'report_issue': 'Reportar un problema',
-        'report_maintenance': 'Problema de mantenimiento',
-        'report_grievance': 'Presentar una queja',
-        'report_suggestion': 'Sugerencia / Idea',
-        'report_question': 'Hacer una pregunta',
-        'fun_zone': 'Zona Divertida',
-        'staff_login': 'Acceso del personal',
-        'logout': 'Cerrar sesión',
-        'welcome': 'Bienvenido',
-        'today': 'Hoy',
-        'submit': 'Enviar',
-        'thanks': '¡Gracias! Hemos recibido su envío. Su número de referencia es',
-        'anonymous_ok': 'Puede dejar su nombre/contacto en blanco para permanecer anónimo.',
-        'admin': 'Admin',
-        'no_items': 'Nada aquí todavía. Vuelva pronto.'
-    }
-}
-
 MAX_GRIEVANCE_DESCRIPTION_LENGTH = 2143
 MAINTENANCE_PHOTO_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif'}
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
-def t(key):
-    lang = session.get('lang', 'en')
-    return STRINGS.get(lang, STRINGS['en']).get(key, key)
+
+def t(message: str, **kwargs):
+    return _(message, **kwargs)
 
 
 def human_filesize(num_bytes: int) -> str:
@@ -155,6 +124,10 @@ def create_app():
         WTF_CSRF_SSL_STRICT=use_secure_cookies,
     )
 
+    app.config.setdefault("BABEL_DEFAULT_LOCALE", "en")
+    app.config.setdefault("BABEL_DEFAULT_TIMEZONE", "America/New_York")
+    app.config.setdefault("BABEL_TRANSLATION_DIRECTORIES", "translations")
+
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
     Talisman(
@@ -164,12 +137,31 @@ def create_app():
         session_cookie_secure=use_secure_cookies,
     )
 
+    def _select_locale() -> str:
+        supported = ("en", "es")
+        query_lang = request.args.get("lang")
+        if query_lang and query_lang in supported:
+            session["lang"] = query_lang
+            return query_lang
+        sess_lang = session.get("lang")
+        if sess_lang in supported:
+            return sess_lang
+        fallback = request.accept_languages.best_match(supported)
+        return fallback or "en"
+
     csrf.init_app(app)
     limiter.init_app(app)
+    babel.init_app(app, locale_selector=_select_locale)
 
     app.jinja_env.globals.update(
         MAX_GRIEVANCE_DESCRIPTION_LENGTH=MAX_GRIEVANCE_DESCRIPTION_LENGTH,
         uuid4=uuid4,
+        _=_ ,
+        format_datetime=format_datetime,
+        format_date=format_date,
+        format_time=format_time,
+        format_currency=format_currency,
+        format_number=format_number,
     )
 
     @app.before_request
@@ -467,7 +459,7 @@ def create_app():
     def inject_globals():
         return dict(
             t=t,
-            lang=session.get('lang', 'en'),
+            lang=str(get_locale() or 'en'),
             user_name=session.get('username'),
             user_role=session.get('role'),
         )
@@ -506,8 +498,9 @@ def create_app():
 
     @app.route('/lang/<code>')
     def set_lang(code):
-        session['lang'] = 'es' if code == 'es' else 'en'
-        return redirect(request.referrer or url_for('home'))
+        session['lang'] = code if code in ('en', 'es') else 'en'
+        next_url = request.args.get('next')
+        return redirect(next_url or request.referrer or url_for('home'))
 
     @app.route('/')
     def home():
@@ -538,13 +531,13 @@ def create_app():
         s = db.get(Service, sid)
         if not s:
             abort(404)
-        days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+        days = [_("Mon"), _("Tue"), _("Wed"), _("Thu"), _("Fri"), _("Sat"), _("Sun")]
         return render_template('service_detail.html', s=s, days=days)
 
     @app.route('/schedule')
     def schedule():
         db = dbs()
-        days = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun']
+        days = [_("Mon"), _("Tue"), _("Wed"), _("Thu"), _("Fri"), _("Sat"), _("Sun")]
         services = db.query(Service).order_by(Service.category, Service.name).all()
         # Build weekly matrix
         matrix = {i: [] for i in range(7)}
@@ -579,7 +572,7 @@ def create_app():
                 filename = secure_filename(photo_file.filename)
                 ext = Path(filename or '').suffix.lower()
                 if ext not in MAINTENANCE_PHOTO_EXTENSIONS:
-                    flash('Please upload a JPG, PNG, or GIF image.', 'danger')
+                    flash(_('Please upload a JPG, PNG, or GIF image.'), 'danger')
                     return render_template('submit_kind.html', kind=kind, form=request.form)
                 safe_name = filename or f'maintenance-photo{ext}'
                 timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
@@ -587,10 +580,10 @@ def create_app():
                 try:
                     photo_bytes = photo_file.read()
                 except Exception:
-                    flash('Could not read the uploaded photo. Please try again.', 'danger')
+                    flash(_('Could not read the uploaded photo. Please try again.'), 'danger')
                     return render_template('submit_kind.html', kind=kind, form=request.form)
                 if not photo_bytes:
-                    flash('The uploaded photo appears to be empty. Please choose a different file.', 'danger')
+                    flash(_('The uploaded photo appears to be empty. Please choose a different file.'), 'danger')
                     return render_template('submit_kind.html', kind=kind, form=request.form)
                 photo_file.stream.seek(0)
                 photo_plan = {
@@ -607,7 +600,7 @@ def create_app():
                 flash(f'Description is limited to {MAX_GRIEVANCE_DESCRIPTION_LENGTH:,} characters.', 'danger')
                 return render_template('submit_kind.html', kind=kind, form=request.form)
             if not body:
-                flash('Please add some details.', 'danger')
+                flash(_('Please add some details.'), 'danger')
                 return render_template('submit_kind.html', kind=kind, form=request.form)
             subject_val = (request.form.get('subject') or '').strip() or None
             category_val = (request.form.get('category') or '').strip() or None
@@ -639,9 +632,9 @@ def create_app():
                         .first()
                     )
                 if existing:
-                    flash('Looks like this submission was already received. We kept the earlier one.', 'info')
+                    flash(_('Looks like this submission was already received. We kept the earlier one.'), 'info')
                     return render_template('thanks.html', sub=existing)
-                flash('Looks like this submission was already received. Thanks for your patience!', 'info')
+                flash(_('Looks like this submission was already received. Thanks for your patience!'), 'info')
                 return render_template('submit_kind.html', kind=kind, form=request.form)
 
             if kind == 'maintenance':
@@ -667,7 +660,7 @@ def create_app():
                 existing = duplicate_q.order_by(Submission.created_at.desc()).first()
                 if existing:
                     app.logger.info('Deduplicated maintenance submission, returning existing submission #%s', existing.id)
-                    flash('Looks like this maintenance request was already received a moment ago. We will use the earlier one.', 'info')
+                    flash(_('Looks like this maintenance request was already received a moment ago. We will use the earlier one.'), 'info')
                     return render_template('thanks.html', sub=existing)
 
             sub = Submission(
@@ -700,7 +693,7 @@ def create_app():
                 except Exception as exc:
                     db.rollback()
                     app.logger.exception('Failed to save maintenance photo: %s', exc)
-                    flash('Could not save the uploaded photo. Please try again.', 'danger')
+                    flash(_('Could not save the uploaded photo. Please try again.'), 'danger')
                     return render_template('submit_kind.html', kind=kind, form=request.form)
             db.commit()
             if token:
@@ -831,13 +824,20 @@ def create_app():
                     extra_bits.append(f"Contact: {request.form.get('contact_info')}")
                 extra = "; ".join(extra_bits) if extra_bits else None
 
-                default_subjects = {
-                    'maintenance': 'GuestDesk: Maintenance Issue',
-                    'grievance': 'GuestDesk: Grievance',
-                    'suggestion': 'GuestDesk: Suggestion / Idea',
-                    'question': 'GuestDesk: Question',
+                kind_labels = {
+                    'maintenance': _('Maintenance Issue'),
+                    'grievance': _('Grievance'),
+                    'suggestion': _('Suggestion / Idea'),
+                    'question': _('Question'),
                 }
-                subject = (request.form.get('subject') or '').strip() or default_subjects.get(kind, 'GuestDesk: Submission')
+                default_subjects = {
+                    'maintenance': _('[GuestDesk] Maintenance Issue'),
+                    'grievance': _('[GuestDesk] Grievance'),
+                    'suggestion': _('[GuestDesk] Suggestion / Idea'),
+                    'question': _('[GuestDesk] Question'),
+                }
+                subject = (request.form.get('subject') or '').strip() or default_subjects.get(kind, _('[GuestDesk] Submission'))
+                category_label = kind_labels.get(kind, kind.title())
 
                 if kind == 'grievance':
                     import datetime as _dt
@@ -846,20 +846,27 @@ def create_app():
                     to_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_TO', []) if e and e.strip()]
                     cc_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_CC', []) if e and e.strip()]
                     sender = current_app.config.get('GRIEVANCE_FROM')
+                    contact_bits = [
+                        (request.form.get('phone') or request.form.get('contact_info') or '').strip(),
+                        (request.form.get('email') or '').strip(),
+                    ]
+                    contact_value = ", ".join([c for c in contact_bits if c])
                     body_lines = [
-                        "A new grievance has been submitted.\n",
-                        f"ID: {grv_id}",
-                        f"Submitted: {now.strftime('%Y-%m-%d %H:%MZ')}",
-                        f"From: {(request.form.get('name') or request.form.get('contact_name') or '').strip()} (" +
-                        f"{(request.form.get('phone') or request.form.get('contact_info') or '').strip()}, " +
-                        f"{(request.form.get('email') or '').strip()})\n",
-                        f"Message:\n{msg_text}\n",
+                        _("A new grievance has been submitted."),
+                        _("ID: %(case)s", case=grv_id),
+                        _("Submitted: %(timestamp)s", timestamp=now.strftime('%Y-%m-%d %H:%MZ')),
+                        _("From: %(name)s (%(contact)s)",
+                          name=(request.form.get('name') or request.form.get('contact_name') or '').strip(),
+                          contact=contact_value or _('not provided')),
+                        "",
+                        _("Message:"),
+                        msg_text or "",
                     ]
                     if attach_info:
-                        body_lines.append(attach_info)
+                        body_lines.append(_("Attachments: %(info)s", info=attach_info))
                     queue_mail(
-                        subject=f"[GuestDesk] Grievance {grv_id}",
-                        body="\n\n".join(body_lines),
+                        subject=_('[GuestDesk] Grievance %(case)s', case=grv_id),
+                        body="\n\n".join([line for line in body_lines if line is not None]),
                         to=to_list or [current_app.config.get('GRIEVANCE_EMAIL') or current_app.config.get('ADMIN_EMAIL')],
                         cc=cc_list,
                         sender=sender,
@@ -879,15 +886,15 @@ def create_app():
                         'extra': (extra + (('\n' + attach_info) if attach_info else '')) if extra else attach_info,
                     }
                     body_parts = [
-                        f"Category: {kind}",
-                        f"Subject: {lines['subject']}" if lines['subject'] else None,
-                        f"Name: {lines['name']}" if lines['name'] else None,
-                        f"Email: {lines['email']}" if lines['email'] else None,
-                        f"Phone: {lines['phone']}" if lines['phone'] else None,
-                        f"Page URL: {lines['url']}" if lines['url'] else None,
-                        f"Extra: {lines['extra']}" if lines['extra'] else None,
+                        _("Category: %(category)s", category=category_label),
+                        _("Subject: %(value)s", value=lines['subject']) if lines['subject'] else None,
+                        _("Name: %(value)s", value=lines['name']) if lines['name'] else None,
+                        _("Email: %(value)s", value=lines['email']) if lines['email'] else None,
+                        _("Phone: %(value)s", value=lines['phone']) if lines['phone'] else None,
+                        _("Page URL: %(value)s", value=lines['url']) if lines['url'] else None,
+                        _("Extra: %(value)s", value=lines['extra']) if lines['extra'] else None,
                         "",
-                        "Message:",
+                        _("Message:"),
                         str(lines['message'] or ''),
                     ]
                     body_text = "\n\n".join([part for part in body_parts if part is not None])
@@ -1167,10 +1174,10 @@ def create_app():
             username = (request.form.get('username') or '').strip()
             password = request.form.get('password') or ''
             if not username or not password:
-                flash('Username and password required.', 'danger')
+                flash(_('Username and password required.'), 'danger')
                 return render_template('signup.html', form=request.form)
             if db.query(User).filter(User.username == username).first():
-                flash('Username already exists.', 'danger')
+                flash(_('Username already exists.'), 'danger')
                 return render_template('signup.html', form=request.form)
             u = User(
                 username=username,
@@ -1180,7 +1187,7 @@ def create_app():
             )
             db.add(u)
             db.commit()
-            flash('Account created. Awaiting staff approval before login.', 'success')
+            flash(_('Account created. Awaiting staff approval before login.'), 'success')
             return redirect(url_for('home'))
         return render_template('signup.html', form={})
 
@@ -1195,15 +1202,15 @@ def create_app():
             db = dbs()
             u = db.query(User).filter(User.username == username).first()
             if u and not getattr(u, 'approved', True):
-                flash('Account pending approval. Please contact an administrator.', 'warning')
+                flash(_('Account pending approval. Please contact an administrator.'), 'warning')
                 return render_template('login.html')
             if u and check_password_hash(u.password_hash, password):
                 session['user_id'] = u.id
                 session['username'] = u.username
                 session['role'] = u.role
-                flash('Welcome back.', 'success')
+                flash(_('Welcome back.'), 'success')
                 return redirect(next_url)
-            flash('Wrong username or password.', 'danger')
+            flash(_('Wrong username or password.'), 'danger')
         return render_template('login.html')
 
     @app.route('/logout')
@@ -1277,7 +1284,7 @@ def create_app():
                 before=before_data,
                 after=after_data,
             )
-            flash('Email settings updated.', 'success')
+            flash(_('Email settings updated.'), 'success')
             return redirect(url_for('admin_email_settings'))
         # Compose current values (lists joined by commas)
         vals = {}
@@ -1290,146 +1297,293 @@ def create_app():
         return render_template('admin/email_settings.html', vals=vals)
 
     # ---- Analytics JSON APIs ----
-    def _date_range():
-        from datetime import date, timedelta
-        s = request.args.get('from')
-        e = request.args.get('to')
-        if not s or not e:
-            end = date.today()
-            start = end - timedelta(days=29)
+    def _analytics_range():
+        tzname = app.config.get("ANALYTICS_TZ", "America/New_York")
+        try:
+            tz = ZoneInfo(tzname)
+        except Exception:
+            tz = ZoneInfo("UTC")
+        q_from = request.args.get('from')
+        q_to = request.args.get('to')
+        today_local = datetime.now(tz).date()
+        if q_from and q_to:
+            try:
+                start_date = datetime.fromisoformat(q_from).date()
+                end_date = datetime.fromisoformat(q_to).date()
+            except ValueError:
+                start_date = today_local - timedelta(days=29)
+                end_date = today_local
         else:
-            from datetime import datetime as _dt
-            start = _dt.fromisoformat(s).date()
-            end = _dt.fromisoformat(e).date()
-        return start, end
+            end_date = today_local
+            start_date = end_date - timedelta(days=29)
+        if end_date < start_date:
+            start_date, end_date = end_date, start_date
+        start_local = datetime.combine(start_date, datetime.min.time(), tzinfo=tz)
+        end_local = datetime.combine(end_date, datetime.min.time(), tzinfo=tz) + timedelta(days=1)
+        start_utc = start_local.astimezone(timezone.utc).replace(tzinfo=None)
+        end_utc = end_local.astimezone(timezone.utc).replace(tzinfo=None)
+        return start_date, end_date, start_utc, end_utc
 
-    def _between_clause(col: str) -> str:
-        return f"{col} >= :start AND {col} < :endp1"
+    def _staff_filter_sql() -> str:
+        staff = (request.args.get('staff') or '').strip()
+        if staff == '1':
+            return " AND COALESCE(is_staff,0)=1"
+        if staff == '0':
+            return " AND COALESCE(is_staff,0)=0"
+        return ""
+
+    def _bind_list(prefix: str, values: list[str]) -> tuple[str, dict[str, str]]:
+        bits = []
+        params: dict[str, str] = {}
+        for idx, val in enumerate(values):
+            key = f"{prefix}_{idx}"
+            bits.append(f":{key}")
+            params[key] = val
+        return ", ".join(bits), params
+
+    def _compute_p95(samples: list[int]) -> int | None:
+        if not samples:
+            return None
+        samples.sort()
+        idx = max(0, math.ceil(0.95 * len(samples)) - 1)
+        return samples[idx]
+
+    def _load_samples(conn, base_params: dict[str, object], staff_clause: str, paths: list[str]) -> dict[str, list[int]]:
+        placeholders, extra = _bind_list('path', paths)
+        if not placeholders:
+            return {}
+        sql = f"""
+            SELECT path,
+                   {load_expr} AS load
+            FROM analytics_events
+            WHERE started_at >= :start AND started_at < :end
+              {staff_clause}
+              AND path IN ({placeholders})
+        """
+        rows = conn.execute(text(sql), {**base_params, **extra}).all()
+        out: dict[str, list[int]] = {}
+        for path, load in rows:
+            try:
+                value = int(load)
+            except Exception:
+                continue
+            if value <= 0:
+                continue
+            out.setdefault(path, []).append(value)
+        return out
+
+    def _maybe_csv(filename: str, headers: list[str], rows: list[tuple]):
+        if (request.args.get('format') or '').lower() != 'csv':
+            return None
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(headers)
+        for row in rows:
+            writer.writerow(row)
+        resp = current_app.response_class(buf.getvalue(), mimetype='text/csv')
+        resp.headers['Content-Disposition'] = f'attachment; filename={filename}'
+        return resp
+
+    unique_expr = "COALESCE(NULLIF(ip_hash,''), NULLIF(anon_id,''), NULLIF(client_id,''), NULLIF(session_id,''))"
+    load_expr = "CASE WHEN page_load_ms IS NULL OR page_load_ms <= 0 THEN duration_ms ELSE page_load_ms END"
 
     @app.get('/admin/analytics/api/summary')
     @roles_required('admin')
     def analytics_api_summary():
-        start, end = _date_range()
+        _, _, start_dt, end_dt = _analytics_range()
+        params = dict(start=start_dt, end=end_dt)
+        staff_clause = _staff_filter_sql()
+        sql = f"""
+            SELECT
+                COUNT(*) AS total,
+                COUNT(DISTINCT {unique_expr}) AS uniques,
+                SUM(CASE WHEN category = 'form' THEN 1 ELSE 0 END) AS forms,
+                SUM(CASE WHEN COALESCE(is_staff,0)=1 THEN 1 ELSE 0 END) AS staff
+            FROM analytics_events
+            WHERE started_at >= :start AND started_at < :end
+            {staff_clause}
+        """
         with engine.connect() as conn:
-            res = conn.execute(text(
-                f"""
-                SELECT COUNT(*) AS total,
-                       COUNT(DISTINCT COALESCE(NULLIF(ip_hash,''), client_id)) AS uniques,
-                       SUM(CASE WHEN (path LIKE '/submit/%' OR path='/report') THEN 1 ELSE 0 END) AS form_submissions,
-                       SUM(CASE WHEN COALESCE(is_staff,0)=1 THEN 1 ELSE 0 END) AS staff
-                FROM analytics_events
-                WHERE {_between_clause('started_at')}
-                """
-            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().first()
-        guests = (res['total'] or 0) - int(res['staff'] or 0)
-        return jsonify(dict(total=int(res['total'] or 0), uniques=int(res['uniques'] or 0), form_submissions=int(res['form_submissions'] or 0), staff=int(res['staff'] or 0), guests=guests))
+            res = conn.execute(text(sql), params).mappings().first()
+        total = int((res or {}).get('total') or 0)
+        staff_hits = int((res or {}).get('staff') or 0)
+        guests = max(0, total - staff_hits)
+        return jsonify(dict(
+            total=total,
+            uniques=int((res or {}).get('uniques') or 0),
+            form_submissions=int((res or {}).get('forms') or 0),
+            staff=staff_hits,
+            guests=guests,
+        ))
 
     @app.get('/admin/analytics/api/timeseries')
     @roles_required('admin')
     def analytics_api_timeseries():
-        start, end = _date_range()
+        start_date, end_date, start_dt, end_dt = _analytics_range()
+        params = dict(start=start_dt, end=end_dt)
+        staff_clause = _staff_filter_sql()
+        sql = f"""
+            SELECT DATE(started_at) AS day,
+                   COUNT(*) AS hits,
+                   COUNT(DISTINCT {unique_expr}) AS uniques
+            FROM analytics_events
+            WHERE started_at >= :start AND started_at < :end
+            {staff_clause}
+            GROUP BY day
+            ORDER BY day
+        """
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                f"""
-                SELECT DATE(started_at) AS d,
-                       COUNT(*) AS hits,
-                       COUNT(DISTINCT COALESCE(NULLIF(ip_hash,''), client_id)) AS uniques
-                FROM analytics_events
-                WHERE {_between_clause('started_at')}
-                GROUP BY d ORDER BY d
-                """
-            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
-        return jsonify([{"date": str(r['d']), "hits": int(r['hits']), "uniques": int(r['uniques'])} for r in rows])
+            rows = conn.execute(text(sql), params).mappings().all()
+        data = [{"date": str(r['day']), "hits": int(r['hits']), "uniques": int(r['uniques'])} for r in rows]
+        csv_rows = [(d["date"], d["hits"], d["uniques"]) for d in data]
+        csv_resp = _maybe_csv('analytics-timeseries.csv', ['date', 'hits', 'uniques'], csv_rows)
+        if csv_resp:
+            return csv_resp
+        return jsonify(data)
 
     @app.get('/admin/analytics/api/top-pages')
     @roles_required('admin')
     def analytics_api_top_pages():
-        start, end = _date_range()
+        _, _, start_dt, end_dt = _analytics_range()
+        params = dict(start=start_dt, end=end_dt)
+        staff_clause = _staff_filter_sql()
+        sql = f"""
+            SELECT path,
+                   COUNT(*) AS views,
+                   AVG({load_expr}) AS avg_ms
+            FROM analytics_events
+            WHERE started_at >= :start AND started_at < :end
+            {staff_clause}
+            GROUP BY path
+            ORDER BY views DESC
+            LIMIT 25
+        """
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                f"""
-                SELECT path, COUNT(*) AS views, ROUND(AVG(duration_ms)) AS avg_ms
-                FROM analytics_events
-                WHERE {_between_clause('started_at')}
-                GROUP BY path ORDER BY views DESC LIMIT 25
-                """
-            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
-        return jsonify([{"path": r['path'], "views": int(r['views']), "avg_ms": int(r['avg_ms'] or 0)} for r in rows])
+            rows = conn.execute(text(sql), params).mappings().all()
+            paths = [r['path'] for r in rows]
+            samples = _load_samples(conn, params, staff_clause, paths)
+        data = []
+        for r in rows:
+            avg_val = r['avg_ms']
+            p95_val = _compute_p95(samples.get(r['path'], []))
+            data.append({
+                "path": r['path'],
+                "views": int(r['views']),
+                "avg_ms": int(avg_val or 0),
+                "p95_ms": int(p95_val or 0),
+            })
+        csv_rows = [(d['path'], d['views'], d['avg_ms'], d['p95_ms']) for d in data]
+        csv_resp = _maybe_csv('analytics-top-pages.csv', ['path', 'views', 'avg_ms', 'p95_ms'], csv_rows)
+        if csv_resp:
+            return csv_resp
+        return jsonify(data)
 
     @app.get('/admin/analytics/api/flows')
     @roles_required('admin')
     def analytics_api_flows():
-        start, end = _date_range()
-        with engine.connect() as conn:
-            rows = conn.execute(text(
-                f"""
-                SELECT COALESCE(NULLIF(referrer_path,''), referrer) AS src,
-                       path AS dst,
-                       COUNT(*) AS c
+        _, _, start_dt, end_dt = _analytics_range()
+        params = dict(start=start_dt, end=end_dt)
+        staff_clause = _staff_filter_sql()
+        sql = f"""
+            SELECT prev_path, path, COUNT(*) AS transitions
+            FROM (
+                SELECT path,
+                       LAG(path) OVER (PARTITION BY session_id ORDER BY started_at) AS prev_path
                 FROM analytics_events
-                WHERE {_between_clause('started_at')} AND COALESCE(referrer_path, referrer) IS NOT NULL
-                GROUP BY src, dst ORDER BY c DESC LIMIT 50
-                """
-            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
-        return jsonify([{"from": r['src'] or "(direct)", "to": r['dst'], "count": int(r['c'])} for r in rows])
+                WHERE started_at >= :start AND started_at < :end
+                {staff_clause}
+            ) AS seq
+            WHERE prev_path IS NOT NULL
+            GROUP BY prev_path, path
+            ORDER BY transitions DESC
+            LIMIT 50
+        """
+        with engine.connect() as conn:
+            rows = conn.execute(text(sql), params).mappings().all()
+        data = [{"from": r['prev_path'] or '(direct)', "to": r['path'], "count": int(r['transitions'])} for r in rows]
+        return jsonify(data)
 
     @app.get('/admin/analytics/api/categories')
     @roles_required('admin')
     def analytics_api_categories():
-        start, end = _date_range()
+        _, _, start_dt, end_dt = _analytics_range()
+        params = dict(start=start_dt, end=end_dt)
+        staff_clause = _staff_filter_sql()
+        sql = f"""
+            SELECT COALESCE(NULLIF(category,''), 'uncategorized') AS cat,
+                   COUNT(*) AS c
+            FROM analytics_events
+            WHERE started_at >= :start AND started_at < :end
+            {staff_clause}
+            GROUP BY cat
+            ORDER BY c DESC
+        """
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                f"""
-                SELECT CASE
-                         WHEN path LIKE '/admin%%' THEN 'admin'
-                         WHEN path LIKE '/fun%%' THEN 'funzone'
-                         WHEN path = '/report' OR path LIKE '/submit/%%' THEN 'form'
-                         ELSE 'page'
-                       END AS cat,
-                       COUNT(*) AS c
-                FROM analytics_events
-                WHERE {_between_clause('started_at')}
-                GROUP BY cat
-                """
-            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
-        return jsonify([{"category": r['cat'], "count": int(r['c'])} for r in rows])
+            rows = conn.execute(text(sql), params).mappings().all()
+        data = [{"category": r['cat'], "count": int(r['c'])} for r in rows]
+        return jsonify(data)
 
     @app.get('/admin/analytics/api/forms')
     @roles_required('admin')
     def analytics_api_forms():
-        start, end = _date_range()
+        _, _, start_dt, end_dt = _analytics_range()
+        params = dict(start=start_dt, end=end_dt)
+        staff_clause = _staff_filter_sql()
+        sql = f"""
+            SELECT COALESCE(NULLIF(label,''), 'unknown') AS form,
+                   COUNT(*) AS c
+            FROM analytics_events
+            WHERE started_at >= :start AND started_at < :end
+              {staff_clause}
+              AND category = 'form'
+            GROUP BY form
+            ORDER BY c DESC
+            LIMIT 50
+        """
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                f"""
-                SELECT CASE
-                         WHEN path LIKE '/submit/%%' THEN substr(path, length('/submit/')+1)
-                         ELSE 'unknown'
-                       END AS form,
-                       COUNT(*) AS c
-                FROM analytics_events
-                WHERE {_between_clause('started_at')}
-                  AND (path LIKE '/submit/%%' OR path = '/report')
-                GROUP BY form ORDER BY c DESC
-                """
-            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
-        return jsonify([{"form": r['form'], "count": int(r['c'])} for r in rows])
+            rows = conn.execute(text(sql), params).mappings().all()
+        data = [{"form": r['form'], "count": int(r['c'])} for r in rows]
+        return jsonify(data)
 
     @app.get('/admin/analytics/api/perf')
     @roles_required('admin')
     def analytics_api_perf():
-        start, end = _date_range()
+        _, _, start_dt, end_dt = _analytics_range()
+        params = dict(start=start_dt, end=end_dt)
+        staff_clause = _staff_filter_sql()
+        sql = f"""
+            SELECT path,
+                   COUNT(*) AS samples,
+                   AVG({load_expr}) AS avg_ms
+            FROM analytics_events
+            WHERE started_at >= :start AND started_at < :end
+              {staff_clause}
+            GROUP BY path
+        """
         with engine.connect() as conn:
-            rows = conn.execute(text(
-                f"""
-                SELECT path, ROUND(AVG(COALESCE(page_load_ms, duration_ms))) AS avg
-                FROM analytics_events
-                WHERE {_between_clause('started_at')}
-                GROUP BY path
-                ORDER BY avg DESC
-                LIMIT 25
-                """
-            ), dict(start=f"{start} 00:00:00", endp1=f"{end} 23:59:59")).mappings().all()
-        return jsonify([{"path": r['path'], "avg_ms": int(r['avg'] or 0)} for r in rows])
+            rows = conn.execute(text(sql), params).mappings().all()
+            paths = [r['path'] for r in rows]
+            samples = _load_samples(conn, params, staff_clause, paths)
+        stats = []
+        for r in rows:
+            path = r['path']
+            if not samples.get(path):
+                continue
+            avg_val = r['avg_ms']
+            p95_val = _compute_p95(samples[path])
+            stats.append({
+                "path": path,
+                "avg_ms": int(avg_val or 0),
+                "p95_ms": int(p95_val or 0),
+                "samples": int(r['samples']),
+            })
+        stats.sort(key=lambda x: x['p95_ms'], reverse=True)
+        stats = stats[:25]
+        csv_rows = [(d['path'], d['samples'], d['avg_ms'], d['p95_ms']) for d in stats]
+        csv_resp = _maybe_csv('analytics-performance.csv', ['path', 'samples', 'avg_ms', 'p95_ms'], csv_rows)
+        if csv_resp:
+            return csv_resp
+        return jsonify(stats)
 
     # PDF calibrator removed
 
@@ -1597,7 +1751,7 @@ def create_app():
                     "availability": s.availability,
                 },
             )
-            flash('Service created.', 'success')
+            flash(_('Service created.'), 'success')
             return redirect(url_for('admin_services'))
         return render_template('admin/services_new.html')
 
@@ -1637,7 +1791,7 @@ def create_app():
                     "is_offsite": s.is_offsite,
                 },
             )
-            flash('Service updated.', 'success')
+            flash(_('Service updated.'), 'success')
             return redirect(url_for('admin_services'))
         return render_template('admin/service_edit.html', service=s)
 
@@ -1659,7 +1813,7 @@ def create_app():
                 obj=sid,
                 before=before_data,
             )
-            flash('Service deleted.', 'info')
+            flash(_('Service deleted.'), 'info')
         return redirect(url_for('admin_services'))
 
     # slots
@@ -1690,7 +1844,7 @@ def create_app():
                 obj=slot.id,
                 extra={"service_id": s.id, "dow": slot.dow},
             )
-            flash('Time slot added.', 'success')
+            flash(_('Time slot added.'), 'success')
             return redirect(url_for('admin_slots', sid=s.id))
         return render_template('admin/slots.html', s=s)
 
@@ -1715,7 +1869,7 @@ def create_app():
                 obj=slot_id,
                 before=before_data,
             )
-            flash('Slot deleted.', 'info')
+            flash(_('Slot deleted.'), 'info')
             return redirect(url_for('admin_slots', sid=sid))
         return redirect(url_for('admin_index'))
 
@@ -1746,7 +1900,7 @@ def create_app():
             )
             db.add(a)
             db.commit()
-            flash('Announcement posted.', 'success')
+            flash(_('Announcement posted.'), 'success')
             return redirect(url_for('admin_announcements'))
         return render_template('admin/announcements_new.html')
 
@@ -1758,7 +1912,7 @@ def create_app():
         if a:
             db.delete(a)
             db.commit()
-            flash('Announcement deleted.', 'info')
+            flash(_('Announcement deleted.'), 'info')
         return redirect(url_for('admin_announcements'))
 
     # submissions
@@ -1857,7 +2011,7 @@ def create_app():
         db = dbs()
         total = db.query(func.count(Submission.id)).scalar() or 0
         if total == 0:
-            flash('No submissions to delete.', 'info')
+            flash(_('No submissions to delete.'), 'info')
             return redirect(url_for('admin_data_tools'))
         try:
             db.query(Submission).delete(synchronize_session=False)
@@ -1865,7 +2019,7 @@ def create_app():
         except Exception as exc:
             db.rollback()
             current_app.logger.exception('Failed to clear submissions: %s', exc)
-            flash('Could not clear submissions. Check logs for details.', 'danger')
+            flash(_('Could not clear submissions. Check logs for details.'), 'danger')
             return redirect(url_for('admin_data_tools'))
         uploads_root = Path(DATA_DIR) / 'uploads'
         cleared_dirs = 0
@@ -1906,7 +2060,7 @@ def create_app():
         except Exception as exc:
             db.rollback()
             current_app.logger.exception('Failed to clear scores for %s: %s', game_key, exc)
-            flash('Could not clear leaderboard. Check logs for details.', 'danger')
+            flash(_('Could not clear leaderboard. Check logs for details.'), 'danger')
             return redirect(url_for('admin_data_tools'))
         audit_log(
             'arcade.clear',
@@ -1933,14 +2087,14 @@ def create_app():
             password = request.form.get('password') or ''
             role = (request.form.get('role') or 'viewer').strip()
             if not username or not password:
-                flash('Username and password are required.', 'danger')
+                flash(_('Username and password are required.'), 'danger')
                 return render_template('admin/user_new.html', form=request.form)
             if role not in ['viewer', 'editor', 'admin']:
-                flash('Invalid role.', 'danger')
+                flash(_('Invalid role.'), 'danger')
                 return render_template('admin/user_new.html', form=request.form)
             db = dbs()
             if db.query(User).filter(User.username == username).first():
-                flash('Username already exists.', 'danger')
+                flash(_('Username already exists.'), 'danger')
                 return render_template('admin/user_new.html', form=request.form)
             u = User(
                 username=username,
@@ -1956,7 +2110,7 @@ def create_app():
                 obj=u.id,
                 after={"username": u.username, "role": u.role},
             )
-            flash('User created.', 'success')
+            flash(_('User created.'), 'success')
             return redirect(url_for('admin_users'))
         return render_template('admin/user_new.html', form={})
 
@@ -1968,7 +2122,7 @@ def create_app():
         if not u:
             abort(404)
         if u.id == session.get('user_id'):
-            flash("You can't delete yourself.", 'warning')
+            flash(_("You can't delete yourself."), 'warning')
             return redirect(url_for('admin_users'))
         before_data = {"username": u.username, "role": u.role}
         db.delete(u)
@@ -1979,7 +2133,7 @@ def create_app():
             obj=uid,
             before=before_data,
         )
-        flash('User deleted.', 'success')
+        flash(_('User deleted.'), 'success')
         return redirect(url_for('admin_users'))
 
     @app.route('/admin/users/<int:uid>/update', methods=['POST'])
@@ -1995,7 +2149,7 @@ def create_app():
         }
         role = (request.form.get('role') or u.role).strip()
         if role not in ['viewer', 'editor', 'admin']:
-            flash('Invalid role.', 'danger')
+            flash(_('Invalid role.'), 'danger')
             return redirect(url_for('admin_users'))
         approved_val = (request.form.get('approved') or '').lower()
         approved = approved_val in ['1', 'true', 'on', 'yes']
@@ -2016,7 +2170,7 @@ def create_app():
                 "approved": getattr(u, 'approved', None),
             },
         )
-        flash('User updated.', 'success')
+        flash(_('User updated.'), 'success')
         return redirect(url_for('admin_users'))
 
     @app.template_filter('dt')
@@ -2117,7 +2271,7 @@ def create_app():
         key = (form_key or '').strip().lower()
         f = request.files.get('file')
         if not (f and f.filename):
-            flash('Select a PDF to upload.', 'danger')
+            flash(_('Select a PDF to upload.'), 'danger')
             return redirect(url_for('admin_form_pdf', form_key=key))
         # Save under static/pdf/templates/<form_key>.pdf
         static_dir = os.path.join(os.path.dirname(__file__), 'static', 'pdf', 'templates')
@@ -2143,7 +2297,7 @@ def create_app():
             db.add(cfg)
         cfg.template_path = file_path
         db.commit()
-        flash('Template uploaded.', 'success')
+        flash(_('Template uploaded.'), 'success')
         return redirect(url_for('admin_form_pdf', form_key=key))
 
     @app.post('/admin/forms/<form_key>/pdf/save')
@@ -2200,7 +2354,7 @@ def create_app():
         cfg.attach_to_email = True if str(att).lower() in ('1','true','yes','on') else False
         cfg.layout_json = json.dumps({**stored, **({"pad": cfg.baseline_pad} if cfg.baseline_pad else {})})
         db.commit()
-        flash('Layout saved.', 'success')
+        flash(_('Layout saved.'), 'success')
         return redirect(url_for('admin_form_pdf', form_key=key))
 
     @app.get('/admin/forms/<form_key>/pdf/preview')
@@ -2337,6 +2491,15 @@ def create_app():
                 updated_at=(cfg.updated_at if cfg else None),
             ))
         return render_template('admin/pdf_index.html', rows=rows)
+
+    # Exempt non-admin views from CSRF protection
+    admin_endpoints = {
+        rule.endpoint for rule in app.url_map.iter_rules() if rule.rule.startswith('/admin')
+    }
+    for endpoint, view in app.view_functions.items():
+        if endpoint in admin_endpoints:
+            continue
+        csrf.exempt(view)
 
     return app
 

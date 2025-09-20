@@ -10,3 +10,5 @@ rq>=1.16
 python-dateutil>=2.9
 icalendar>=5.0
 user-agents==2.2.0
+Flask-Babel>=4.0
+Babel>=2.15

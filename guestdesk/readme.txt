@@ -121,6 +121,8 @@ Common environment variables (see `config.py` and `app.py` for full list):
 * **RATELIMIT_STORAGE_URI** – optional rate-limit storage backend for
   Flask-Limiter (default `memory://`; set to your Redis instance in production
   such as `redis://127.0.0.1:6379/0`).
+* **ANALYTICS_TZ** – timezone used for analytics date bucketing and reports
+  (default `America/New_York`).
 * **GUESTDESK_MAX_UPLOAD_MB** / `GUESTDESK_MAX_UPLOAD_BYTES` – optional file size
   limits for photo uploads.
 
@@ -150,7 +152,8 @@ Analytics & ICS
 ---------------
 * `analytics.py` provides basic anonymous analytics storage (page/view duration,
   anonymized IDs). Enable/disable via `ANALYTICS_ENABLED` and related config
-  options.
+  options. The admin dashboard now supports staff/guest filtering, CSV exports
+  for common widgets, and p95 latency stats to highlight slow pages.
 * The ICS feed (`/calendar.ics`) uses `services_calendar.py` to expand recurring
   series and slots. Include a tokenized URL if you want to restrict access at
   the proxy layer.

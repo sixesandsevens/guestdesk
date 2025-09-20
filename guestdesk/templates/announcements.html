@@ -1,6 +1,6 @@
 {% extends 'base.html' %}
 {% block content %}
-<h4 class="mb-3">{{ t('announcements') }}</h4>
+<h4 class="mb-3">{{ _('Announcements') }}</h4>
 <div class="list-group">
   {% for a in anns %}
   <div class="list-group-item">
@@ -11,7 +11,7 @@
     <div>{{ a.body }}</div>
   </div>
   {% else %}
-  <div class="text-muted">{{ t('no_items') }}</div>
+  <div class="text-muted">{{ _('Nothing here yet. Check back soon.') }}</div>
   {% endfor %}
 </div>
 {% endblock %}

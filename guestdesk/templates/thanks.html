@@ -3,7 +3,7 @@
 
 {% block content %}
 <div class="alert alert-success">
-  {{ t('thanks') }} <strong>#{{ sub.id }}</strong>.
+  {{ _('Thanks! Your submission was received. Your reference number is') }} <strong>#{{ sub.id }}</strong>.
 </div>
-<a class="btn btn-primary" href="{{ url_for('home') }}">Home</a>
+<a class="btn btn-primary" href="{{ url_for('home') }}">{{ _('Home') }}</a>
 {% endblock %}

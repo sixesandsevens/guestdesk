@@ -1,9 +1,18 @@
 // Admin analytics dashboard
 (async function() {
   const $ = (sel) => document.querySelector(sel);
-  const qs = () => {
+  const qs = (extra = {}) => {
+    const params = new URLSearchParams();
     const f = $("#from").value, t = $("#to").value;
-    return (f && t) ? `?from=${f}&to=${t}` : "";
+    if (f && t) { params.set("from", f); params.set("to", t); }
+    const staff = $("#staff-filter").value;
+    if (staff !== "") params.set("staff", staff);
+    Object.entries(extra || {}).forEach(([k, v]) => {
+      if (v === undefined || v === null || v === "") params.delete(k);
+      else params.set(k, v);
+    });
+    const out = params.toString();
+    return out ? `?${out}` : "";
   };
   function setPreset(days) {
     const to = new Date(); const from = new Date(); from.setDate(to.getDate() - (days - 1));
@@ -15,6 +24,7 @@
   setPreset(30);
   document.querySelectorAll("[data-preset]").forEach(b => b.addEventListener("click", e => setPreset(parseInt(b.dataset.preset))));
   $("#apply").addEventListener("click", refresh);
+  $("#staff-filter").addEventListener("change", refresh);
 
   let tsChart, catChart;
 
@@ -56,7 +66,7 @@
     const tbodyPages = $("#tbl-pages tbody"); tbodyPages.innerHTML = "";
     pages.forEach(r => {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${r.path}</td><td>${r.views}</td><td>${r.avg_ms}</td>`;
+      tr.innerHTML = `<td>${r.path}</td><td>${r.views}</td><td>${r.avg_ms}</td><td>${r.p95_ms}</td>`;
       tbodyPages.appendChild(tr);
     });
 
@@ -90,9 +100,13 @@
     const tbodyPerf = $("#tbl-perf tbody"); tbodyPerf.innerHTML = "";
     perf.forEach(r => {
       const tr = document.createElement("tr");
-      tr.innerHTML = `<td>${r.path}</td><td>${r.avg_ms}</td>`;
+      tr.innerHTML = `<td>${r.path}</td><td>${r.samples}</td><td>${r.avg_ms}</td><td>${r.p95_ms}</td>`;
       tbodyPerf.appendChild(tr);
     });
+
+    $("#dl-timeseries").href = `/admin/analytics/api/timeseries${qs({ format: 'csv' })}`;
+    $("#dl-pages").href = `/admin/analytics/api/top-pages${qs({ format: 'csv' })}`;
+    $("#dl-perf").href = `/admin/analytics/api/perf${qs({ format: 'csv' })}`;
   }
 
   refresh();

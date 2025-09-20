@@ -13,6 +13,14 @@
       <input type="date" class="form-control" id="to">
     </div>
     <div class="col-auto">
+      <label class="form-label">Traffic</label>
+      <select id="staff-filter" class="form-select">
+        <option value="">Guests + Staff</option>
+        <option value="0">Guests only</option>
+        <option value="1">Staff only</option>
+      </select>
+    </div>
+    <div class="col-auto">
       <label class="form-label">&nbsp;</label>
       <div>
         <button type="button" class="btn btn-primary" id="apply">Apply</button>
@@ -31,7 +39,10 @@
   </div>
 
   <div class="card p-3 my-3">
-    <h5>Visits Over Time</h5>
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">Visits Over Time</h5>
+      <a id="dl-timeseries" class="btn btn-sm btn-outline-secondary" href="#">Download CSV</a>
+    </div>
     <div style="position:relative; height:320px;">
       <canvas id="ts"></canvas>
     </div>
@@ -40,8 +51,11 @@
   <div class="row g-3 my-1">
     <div class="col-lg-6">
       <div class="card p-3">
-        <h5>Top Pages</h5>
-        <table class="table table-sm" id="tbl-pages"><thead><tr><th>Path</th><th>Views</th><th>Avg ms</th></tr></thead><tbody></tbody></table>
+        <div class="d-flex justify-content-between align-items-center mb-2">
+          <h5 class="mb-0">Top Pages</h5>
+          <a id="dl-pages" class="btn btn-sm btn-outline-secondary" href="#">Download CSV</a>
+        </div>
+        <table class="table table-sm" id="tbl-pages"><thead><tr><th>Path</th><th>Views</th><th>Avg ms</th><th>p95 ms</th></tr></thead><tbody></tbody></table>
       </div>
     </div>
     <div class="col-lg-6">
@@ -70,8 +84,11 @@
   </div>
 
   <div class="card p-3 my-3">
-    <h5>Slowest Pages (avg load)</h5>
-    <table class="table table-sm" id="tbl-perf"><thead><tr><th>Path</th><th>Avg ms</th></tr></thead><tbody></tbody></table>
+    <div class="d-flex justify-content-between align-items-center mb-2">
+      <h5 class="mb-0">Slowest Pages</h5>
+      <a id="dl-perf" class="btn btn-sm btn-outline-secondary" href="#">Download CSV</a>
+    </div>
+    <table class="table table-sm" id="tbl-perf"><thead><tr><th>Path</th><th>Samples</th><th>Avg ms</th><th>p95 ms</th></tr></thead><tbody></tbody></table>
   </div>
 </div>
 

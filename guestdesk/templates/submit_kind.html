@@ -3,19 +3,25 @@
 {% from '_csrf.html' import csrf %}
 
 {% block content %}
-<h4 class="mb-3 text-capitalize">{{ kind }}</h4>
+{% set kind_labels = {
+  'maintenance': _('Maintenance Issue'),
+  'grievance': _('File a Grievance'),
+  'suggestion': _('Suggestion / Idea'),
+  'question': _('Ask a Question')
+} %}
+<h4 class="mb-3 text-capitalize">{{ kind_labels.get(kind, kind|capitalize) }}</h4>
 <form method="post" {% if kind == 'maintenance' %}enctype="multipart/form-data"{% endif %} data-disable-on-submit>
   {{ csrf() }}
   <input type="hidden" name="idempotency_key" value="{{ uuid4() }}">
   <div class="mb-2">
-    <label class="form-label">Subject</label>
+    <label class="form-label">{{ _('Subject') }}</label>
     <input name="subject" class="form-control" value="{{ form.subject or '' }}">
   </div>
 
   {% if kind == 'maintenance' %}
   <div class="row g-2">
     <div class="col-md-4">
-      <label class="form-label">Category</label>
+      <label class="form-label">{{ _('Category') }}</label>
       <select name="category" class="form-select">
         {% for c in ['Electrical','Plumbing','HVAC','IT','General','Other'] %}
           <option value="{{ c }}">{{ c }}</option>
@@ -23,11 +29,11 @@
       </select>
     </div>
     <div class="col-md-4">
-      <label class="form-label">Building</label>
+      <label class="form-label">{{ _('Building') }}</label>
       <input name="building" class="form-control">
     </div>
     <div class="col-md-4">
-      <label class="form-label">Location / Room</label>
+      <label class="form-label">{{ _('Location / Room') }}</label>
       <input name="location" class="form-control">
     </div>
   </div>
@@ -36,66 +42,66 @@
   {% if kind == 'grievance' %}
   <div class="row g-2">
     <div class="col-md-6">
-      <label class="form-label">Your Name *</label>
+      <label class="form-label">{{ _('Your Name') }} *</label>
       <input name="name" type="text" class="form-control" required value="{{ form.name or '' }}">
     </div>
     <div class="col-md-3">
-      <label class="form-label">Phone</label>
+      <label class="form-label">{{ _('Phone') }}</label>
       <input name="phone" type="tel" class="form-control" value="{{ form.phone or '' }}">
     </div>
     <div class="col-md-3">
-      <label class="form-label">Email</label>
+      <label class="form-label">{{ _('Email') }}</label>
       <input name="email" type="email" class="form-control" value="{{ form.email or '' }}">
     </div>
   </div>
   <div class="mb-2">
-    <label class="form-label">Staff Involved</label>
+    <label class="form-label">{{ _('Staff Involved') }}</label>
     <input name="staff_involved" type="text" class="form-control" value="{{ form.staff_involved or '' }}">
   </div>
   <div class="mb-2">
     <div class="form-check form-check-inline">
       <input class="form-check-input" type="checkbox" name="involves_grace_staff" id="involves_grace_staff" {% if form.involves_grace_staff %}checked{% endif %}>
-      <label class="form-check-label" for="involves_grace_staff">GRACE Staff</label>
+      <label class="form-check-label" for="involves_grace_staff">{{ _('GRACE Staff') }}</label>
     </div>
     <div class="form-check form-check-inline">
       <input class="form-check-input" type="checkbox" name="involves_policies" id="involves_policies" {% if form.involves_policies %}checked{% endif %}>
-      <label class="form-check-label" for="involves_policies">Policies &amp; Procedures</label>
+      <label class="form-check-label" for="involves_policies">{{ _('Policies & Procedures') }}</label>
     </div>
     <div class="form-check form-check-inline">
       <input class="form-check-input" type="checkbox" name="involves_volunteer" id="involves_volunteer" {% if form.involves_volunteer %}checked{% endif %}>
-      <label class="form-check-label" for="involves_volunteer">Volunteer</label>
+      <label class="form-check-label" for="involves_volunteer">{{ _('Volunteer') }}</label>
     </div>
     <div class="form-check form-check-inline">
       <input class="form-check-input" type="checkbox" name="involves_other_chk" id="involves_other_chk" {% if form.involves_other %}checked{% endif %}>
-      <label class="form-check-label" for="involves_other_chk">Other</label>
+      <label class="form-check-label" for="involves_other_chk">{{ _('Other') }}</label>
     </div>
-    <input class="form-control d-inline-block ms-2" style="max-width: 300px;" name="involves_other" type="text" placeholder="If Other, describe…" value="{{ form.involves_other or '' }}" {% if not form.involves_other %}disabled{% endif %}>
+    <input class="form-control d-inline-block ms-2" style="max-width: 300px;" name="involves_other" type="text" placeholder="{{ _('If Other, describe…') }}" value="{{ form.involves_other or '' }}" {% if not form.involves_other %}disabled{% endif %}>
   </div>
   <div class="row g-2">
     <div class="col-md-4">
-      <label class="form-label">Incident Date</label>
+      <label class="form-label">{{ _('Incident Date') }}</label>
       <input name="incident_date" type="date" class="form-control" value="{{ form.incident_date or '' }}">
     </div>
     <div class="col-md-4">
-      <label class="form-label">Incident Time</label>
+      <label class="form-label">{{ _('Incident Time') }}</label>
       <input name="incident_time" type="time" class="form-control" value="{{ form.incident_time or '' }}">
     </div>
   </div>
   <div class="mb-2 mt-2">
-    <label class="form-label">Description *</label>
+    <label class="form-label">{{ _('Description') }} *</label>
     <textarea name="description" class="form-control" rows="6" maxlength="{{ MAX_GRIEVANCE_DESCRIPTION_LENGTH }}" required>{{ form.description or '' }}</textarea>
-    <div class="form-text text-end">Remaining: <span id="description-remaining" data-max="{{ MAX_GRIEVANCE_DESCRIPTION_LENGTH }}">{{ '{:,}'.format(MAX_GRIEVANCE_DESCRIPTION_LENGTH) }}</span> characters.</div>
+    <div class="form-text text-end">{{ _('Remaining: %(count)s characters.', count='<span id="description-remaining" data-max="%s">%s</span>' % (MAX_GRIEVANCE_DESCRIPTION_LENGTH, '{:,}'.format(MAX_GRIEVANCE_DESCRIPTION_LENGTH)))|safe }}</div>
   </div>
   {% else %}
   <div class="mb-2">
-    <label class="form-label">Details *</label>
+    <label class="form-label">{{ _('Details') }} *</label>
     <textarea name="body" class="form-control" rows="6" required>{{ form.body or '' }}</textarea>
   </div>
   {% if kind == 'maintenance' %}
   <div class="mb-2">
-    <label class="form-label">Photo (optional)</label>
+    <label class="form-label">{{ _('Photo (optional)') }}</label>
     <input name="photo" type="file" class="form-control" accept=".jpg,.jpeg,.png,.gif">
-    <div class="form-text">Upload a JPG, PNG, or GIF image (max {{ MAX_UPLOAD_MB_LABEL }} MB).</div>
+    <div class="form-text">{{ _('Upload a JPG, PNG, or GIF image (max %(size)s MB).', size=MAX_UPLOAD_MB_LABEL) }}</div>
   </div>
   {% endif %}
   {% endif %}
@@ -103,18 +109,18 @@
   {% if kind != 'grievance' %}
   <div class="row g-2">
     <div class="col-md-6">
-      <label class="form-label">Your Name (optional)</label>
+      <label class="form-label">{{ _('Your Name (optional)') }}</label>
       <input name="contact_name" class="form-control" value="{{ form.contact_name or '' }}">
     </div>
     <div class="col-md-6">
-      <label class="form-label">Contact (optional)</label>
-      <input name="contact_info" class="form-control" placeholder="phone or email" value="{{ form.contact_info or '' }}">
+      <label class="form-label">{{ _('Contact (optional)') }}</label>
+      <input name="contact_info" class="form-control" placeholder="{{ _('phone or email') }}" value="{{ form.contact_info or '' }}">
     </div>
   </div>
   {% endif %}
 
   <div class="mt-3">
-    <button class="btn btn-primary" type="submit" data-loading-text="Submitting...">{{ t('submit') }}</button>
+    <button class="btn btn-primary" type="submit" data-loading-text="{{ _('Submitting...') }}">{{ _('Submit') }}</button>
   </div>
 </form>
 {% if kind == 'grievance' %}

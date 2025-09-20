@@ -4,26 +4,26 @@
 {% block content %}
 <div class="row g-3 mb-4">
   <div class="col-12">
-    <h4 class="mb-2">{{ t('welcome') }}</h4>
+    <h4 class="mb-2">{{ _('Welcome') }}</h4>
   </div>
   <div class="col-6 col-md-4 col-lg-3">
-    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('services') }}">{{ t('services') }}</a>
+    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('services') }}">{{ _('Services') }}</a>
   </div>
   <div class="col-6 col-md-4 col-lg-3">
-    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('schedule') }}">{{ t('schedule') }}</a>
+    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('schedule') }}">{{ _('Schedule') }}</a>
   </div>
   <div class="col-6 col-md-4 col-lg-3">
-    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('announcements') }}">{{ t('announcements') }}</a>
+    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('announcements') }}">{{ _('Announcements') }}</a>
   </div>
   <div class="col-6 col-md-4 col-lg-3">
-    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('report') }}">{{ t('report_issue') }}</a>
+    <a class="btn btn-primary w-100 bigbtn" href="{{ url_for('report') }}">{{ _('Report an Issue') }}</a>
   </div>
   <div class="col-6 col-md-4 col-lg-3">
-    <a class="btn btn-success w-100 bigbtn" href="{{ url_for('fun') }}">{{ t('fun_zone') }}</a>
+    <a class="btn btn-success w-100 bigbtn" href="{{ url_for('fun') }}">{{ _('Fun Zone') }}</a>
   </div>
 </div>
 
-<h5 class="mb-2">{{ t('announcements') }}</h5>
+<h5 class="mb-2">{{ _('Announcements') }}</h5>
 <div class="list-group">
   {% for a in anns %}
     <div class="list-group-item">
@@ -34,12 +34,12 @@
       <div>{{ a.body }}</div>
     </div>
   {% else %}
-    <div class="text-muted">{{ t('no_items') }}</div>
+    <div class="text-muted">{{ _('Nothing here yet. Check back soon.') }}</div>
   {% endfor %}
 </div>
 
 {% if SHOW_HOME_SERVICES %}
-  <h5 class="mt-4">{{ t('services') }}</h5>
+  <h5 class="mt-4">{{ _('Services') }}</h5>
   <div class="row g-2">
     {% for c in cats %}
       <div class="col-6 col-md-3 col-lg-2">

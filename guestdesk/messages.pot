@@ -1,0 +1,591 @@
+# Translations template for PROJECT.
+# Copyright (C) 2025 ORGANIZATION
+# This file is distributed under the same license as the PROJECT project.
+# FIRST AUTHOR <EMAIL@ADDRESS>, 2025.
+#
+#, fuzzy
+msgid ""
+msgstr ""
+"Project-Id-Version: PROJECT VERSION\n"
+"Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
+"POT-Creation-Date: 2025-09-19 22:50-0400\n"
+"PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
+"Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
+"Language-Team: LANGUAGE <LL@li.org>\n"
+"MIME-Version: 1.0\n"
+"Content-Type: text/plain; charset=utf-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Generated-By: Babel 2.17.0\n"
+
+#: app.py:534 app.py:540
+msgid "Mon"
+msgstr ""
+
+#: app.py:534 app.py:540
+msgid "Tue"
+msgstr ""
+
+#: app.py:534 app.py:540
+msgid "Wed"
+msgstr ""
+
+#: app.py:534 app.py:540
+msgid "Thu"
+msgstr ""
+
+#: app.py:534 app.py:540
+msgid "Fri"
+msgstr ""
+
+#: app.py:534 app.py:540
+msgid "Sat"
+msgstr ""
+
+#: app.py:534 app.py:540
+msgid "Sun"
+msgstr ""
+
+#: app.py:575
+msgid "Please upload a JPG, PNG, or GIF image."
+msgstr ""
+
+#: app.py:583
+msgid "Could not read the uploaded photo. Please try again."
+msgstr ""
+
+#: app.py:586
+msgid "The uploaded photo appears to be empty. Please choose a different file."
+msgstr ""
+
+#: app.py:603
+msgid "Please add some details."
+msgstr ""
+
+#: app.py:635
+msgid "Looks like this submission was already received. We kept the earlier one."
+msgstr ""
+
+#: app.py:637
+msgid "Looks like this submission was already received. Thanks for your patience!"
+msgstr ""
+
+#: app.py:663
+msgid ""
+"Looks like this maintenance request was already received a moment ago. We"
+" will use the earlier one."
+msgstr ""
+
+#: app.py:696
+msgid "Could not save the uploaded photo. Please try again."
+msgstr ""
+
+#: app.py:828 mailer.py:224 templates/report.html:8
+#: templates/submit_kind.html:7
+msgid "Maintenance Issue"
+msgstr ""
+
+#: app.py:829 mailer.py:225
+msgid "Grievance"
+msgstr ""
+
+#: app.py:830 mailer.py:226 templates/report.html:10
+#: templates/submit_kind.html:9
+msgid "Suggestion / Idea"
+msgstr ""
+
+#: app.py:831 mailer.py:227
+msgid "Question"
+msgstr ""
+
+#: app.py:834
+msgid "[GuestDesk] Maintenance Issue"
+msgstr ""
+
+#: app.py:835
+msgid "[GuestDesk] Grievance"
+msgstr ""
+
+#: app.py:836
+msgid "[GuestDesk] Suggestion / Idea"
+msgstr ""
+
+#: app.py:837
+msgid "[GuestDesk] Question"
+msgstr ""
+
+#: app.py:839
+msgid "[GuestDesk] Submission"
+msgstr ""
+
+#: app.py:855
+msgid "A new grievance has been submitted."
+msgstr ""
+
+#: app.py:856
+#, python-format
+msgid "ID: %(case)s"
+msgstr ""
+
+#: app.py:857
+#, python-format
+msgid "Submitted: %(timestamp)s"
+msgstr ""
+
+#: app.py:858
+#, python-format
+msgid "From: %(name)s (%(contact)s)"
+msgstr ""
+
+#: app.py:860
+msgid "not provided"
+msgstr ""
+
+#: app.py:862 app.py:897 mailer.py:240
+msgid "Message:"
+msgstr ""
+
+#: app.py:866
+#, python-format
+msgid "Attachments: %(info)s"
+msgstr ""
+
+#: app.py:868
+#, python-format
+msgid "[GuestDesk] Grievance %(case)s"
+msgstr ""
+
+#: app.py:889 mailer.py:231
+#, python-format
+msgid "Category: %(category)s"
+msgstr ""
+
+#: app.py:890
+#, python-format
+msgid "Subject: %(value)s"
+msgstr ""
+
+#: app.py:891 mailer.py:232
+#, python-format
+msgid "Name: %(value)s"
+msgstr ""
+
+#: app.py:892 mailer.py:233
+#, python-format
+msgid "Email: %(value)s"
+msgstr ""
+
+#: app.py:893 mailer.py:234
+#, python-format
+msgid "Phone: %(value)s"
+msgstr ""
+
+#: app.py:894 mailer.py:235
+#, python-format
+msgid "Page URL: %(value)s"
+msgstr ""
+
+#: app.py:895 mailer.py:236
+#, python-format
+msgid "Extra: %(value)s"
+msgstr ""
+
+#: app.py:1177
+msgid "Username and password required."
+msgstr ""
+
+#: app.py:1180 app.py:2097
+msgid "Username already exists."
+msgstr ""
+
+#: app.py:1190
+msgid "Account created. Awaiting staff approval before login."
+msgstr ""
+
+#: app.py:1205
+msgid "Account pending approval. Please contact an administrator."
+msgstr ""
+
+#: app.py:1211
+msgid "Welcome back."
+msgstr ""
+
+#: app.py:1213
+msgid "Wrong username or password."
+msgstr ""
+
+#: app.py:1287
+msgid "Email settings updated."
+msgstr ""
+
+#: app.py:1754
+msgid "Service created."
+msgstr ""
+
+#: app.py:1794
+msgid "Service updated."
+msgstr ""
+
+#: app.py:1816
+msgid "Service deleted."
+msgstr ""
+
+#: app.py:1847
+msgid "Time slot added."
+msgstr ""
+
+#: app.py:1872
+msgid "Slot deleted."
+msgstr ""
+
+#: app.py:1903
+msgid "Announcement posted."
+msgstr ""
+
+#: app.py:1915
+msgid "Announcement deleted."
+msgstr ""
+
+#: app.py:2014
+msgid "No submissions to delete."
+msgstr ""
+
+#: app.py:2022
+msgid "Could not clear submissions. Check logs for details."
+msgstr ""
+
+#: app.py:2063
+msgid "Could not clear leaderboard. Check logs for details."
+msgstr ""
+
+#: app.py:2090
+msgid "Username and password are required."
+msgstr ""
+
+#: app.py:2093 app.py:2152
+msgid "Invalid role."
+msgstr ""
+
+#: app.py:2113
+msgid "User created."
+msgstr ""
+
+#: app.py:2125
+msgid "You can't delete yourself."
+msgstr ""
+
+#: app.py:2136
+msgid "User deleted."
+msgstr ""
+
+#: app.py:2173
+msgid "User updated."
+msgstr ""
+
+#: app.py:2274
+msgid "Select a PDF to upload."
+msgstr ""
+
+#: app.py:2300
+msgid "Template uploaded."
+msgstr ""
+
+#: app.py:2357
+msgid "Layout saved."
+msgstr ""
+
+#: mailer.py:230
+#, python-format
+msgid "New %(category)s submission"
+msgstr ""
+
+#: templates/announcements.html:3 templates/base.html:26 templates/home.html:16
+#: templates/home.html:26
+msgid "Announcements"
+msgstr ""
+
+#: templates/announcements.html:14 templates/home.html:37
+#: templates/schedule.html:18 templates/services.html:27
+msgid "Nothing here yet. Check back soon."
+msgstr ""
+
+#: templates/base.html:24
+msgid "Get Help"
+msgstr ""
+
+#: templates/base.html:25 templates/base.html:53 templates/home.html:10
+#: templates/home.html:42 templates/services.html:5
+msgid "Services"
+msgstr ""
+
+#: templates/base.html:27 templates/base.html:55 templates/home.html:19
+#: templates/report.html:5
+msgid "Report an Issue"
+msgstr ""
+
+#: templates/base.html:32
+msgid "Toggle Spanish language"
+msgstr ""
+
+#: templates/base.html:33
+msgid "Español"
+msgstr ""
+
+#: templates/base.html:54 templates/home.html:13 templates/schedule.html:3
+msgid "Schedule"
+msgstr ""
+
+#: templates/base.html:56 templates/fun.html:53 templates/home.html:22
+msgid "Fun Zone"
+msgstr ""
+
+#: templates/base.html:58
+msgid "Admin"
+msgstr ""
+
+#: templates/base.html:61
+#, python-format
+msgid "Hi, %(name)s"
+msgstr ""
+
+#: templates/base.html:62
+msgid "Logout"
+msgstr ""
+
+#: templates/base.html:64 templates/login.html:10
+msgid "Staff Login"
+msgstr ""
+
+#: templates/home.html:7
+msgid "Welcome"
+msgstr ""
+
+#: templates/login.html:17
+msgid "Display name"
+msgstr ""
+
+#: templates/login.html:18 templates/signup.html:14 templates/signup.html:15
+msgid "Username"
+msgstr ""
+
+#: templates/login.html:21 templates/login.html:22 templates/signup.html:18
+#: templates/signup.html:19
+msgid "Password"
+msgstr ""
+
+#: templates/login.html:24
+msgid "Log in"
+msgstr ""
+
+#: templates/login.html:27
+msgid "Need an account? Sign up"
+msgstr ""
+
+#: templates/report.html:6
+msgid "You can leave your name/contact blank to stay anonymous."
+msgstr ""
+
+#: templates/report.html:9 templates/submit_kind.html:8
+msgid "File a Grievance"
+msgstr ""
+
+#: templates/report.html:11 templates/submit_kind.html:10
+msgid "Ask a Question"
+msgstr ""
+
+#: templates/schedule.html:14
+msgid "on-site"
+msgstr ""
+
+#: templates/service_detail.html:7 templates/services.html:14
+msgid "On call"
+msgstr ""
+
+#: templates/service_detail.html:8 templates/services.html:15
+msgid "By appointment"
+msgstr ""
+
+#: templates/service_detail.html:9 templates/services.html:16
+msgid "Hotline"
+msgstr ""
+
+#: templates/service_detail.html:10
+msgid "Off-site / Mobile"
+msgstr ""
+
+#: templates/service_detail.html:15
+msgid "Learn more"
+msgstr ""
+
+#: templates/service_detail.html:17
+msgid "Weekly Times"
+msgstr ""
+
+#: templates/service_detail.html:21
+msgid "Day"
+msgstr ""
+
+#: templates/service_detail.html:21
+msgid "Start"
+msgstr ""
+
+#: templates/service_detail.html:21
+msgid "End"
+msgstr ""
+
+#: templates/service_detail.html:21
+msgid "Note"
+msgstr ""
+
+#: templates/service_detail.html:36
+#, python-format
+msgid "No fixed schedule. This service is %(mode)s and responds to requests."
+msgstr ""
+
+#: templates/service_detail.html:36
+msgid "on call"
+msgstr ""
+
+#: templates/service_detail.html:38
+#, python-format
+msgid "No fixed schedule. Available %(mode)s."
+msgstr ""
+
+#: templates/service_detail.html:38
+msgid "by appointment"
+msgstr ""
+
+#: templates/service_detail.html:40
+#, python-format
+msgid "This is a %(type)s. Call anytime."
+msgstr ""
+
+#: templates/service_detail.html:40
+msgid "hotline"
+msgstr ""
+
+#: templates/service_detail.html:42
+msgid "No posted times."
+msgstr ""
+
+#: templates/services.html:17
+msgid "Off-site"
+msgstr ""
+
+#: templates/signup.html:10 templates/signup.html:21
+msgid "Sign Up"
+msgstr ""
+
+#: templates/signup.html:24
+msgid "Already have an account? Log in"
+msgstr ""
+
+#: templates/submit_kind.html:17
+msgid "Subject"
+msgstr ""
+
+#: templates/submit_kind.html:24
+msgid "Category"
+msgstr ""
+
+#: templates/submit_kind.html:32
+msgid "Building"
+msgstr ""
+
+#: templates/submit_kind.html:36
+msgid "Location / Room"
+msgstr ""
+
+#: templates/submit_kind.html:45
+msgid "Your Name"
+msgstr ""
+
+#: templates/submit_kind.html:49
+msgid "Phone"
+msgstr ""
+
+#: templates/submit_kind.html:53
+msgid "Email"
+msgstr ""
+
+#: templates/submit_kind.html:58
+msgid "Staff Involved"
+msgstr ""
+
+#: templates/submit_kind.html:64
+msgid "GRACE Staff"
+msgstr ""
+
+#: templates/submit_kind.html:68
+msgid "Policies & Procedures"
+msgstr ""
+
+#: templates/submit_kind.html:72
+msgid "Volunteer"
+msgstr ""
+
+#: templates/submit_kind.html:76
+msgid "Other"
+msgstr ""
+
+#: templates/submit_kind.html:78
+msgid "If Other, describe…"
+msgstr ""
+
+#: templates/submit_kind.html:82
+msgid "Incident Date"
+msgstr ""
+
+#: templates/submit_kind.html:86
+msgid "Incident Time"
+msgstr ""
+
+#: templates/submit_kind.html:91
+msgid "Description"
+msgstr ""
+
+#: templates/submit_kind.html:93
+#, python-format
+msgid "Remaining: %(count)s characters."
+msgstr ""
+
+#: templates/submit_kind.html:97
+msgid "Details"
+msgstr ""
+
+#: templates/submit_kind.html:102
+msgid "Photo (optional)"
+msgstr ""
+
+#: templates/submit_kind.html:104
+#, python-format
+msgid "Upload a JPG, PNG, or GIF image (max %(size)s MB)."
+msgstr ""
+
+#: templates/submit_kind.html:112
+msgid "Your Name (optional)"
+msgstr ""
+
+#: templates/submit_kind.html:116
+msgid "Contact (optional)"
+msgstr ""
+
+#: templates/submit_kind.html:117
+msgid "phone or email"
+msgstr ""
+
+#: templates/submit_kind.html:123
+msgid "Submitting..."
+msgstr ""
+
+#: templates/submit_kind.html:123
+msgid "Submit"
+msgstr ""
+
+#: templates/thanks.html:6
+msgid "Thanks! Your submission was received. Your reference number is"
+msgstr ""
+
+#: templates/thanks.html:8
+msgid "Home"
+msgstr ""
+

@@ -107,6 +107,13 @@ class AnalyticsEvent(Base):
     created_at = Column(DateTime, nullable=False, server_default=func.now())
 
 
+Index('ix_analytics_events_started_at', AnalyticsEvent.started_at)
+Index('ix_analytics_events_path_started', AnalyticsEvent.path, AnalyticsEvent.started_at)
+Index('ix_analytics_events_anon_started', AnalyticsEvent.anon_id, AnalyticsEvent.started_at)
+Index('ix_analytics_events_category_started', AnalyticsEvent.category, AnalyticsEvent.started_at)
+Index('ix_analytics_events_is_staff_started', AnalyticsEvent.is_staff, AnalyticsEvent.started_at)
+
+
 # ---- Recurring Service Schedules ----
 class ServiceSeries(Base):
     __tablename__ = "service_series"

@@ -4,21 +4,21 @@
 <h4 class="mb-2">{{ s.name }}</h4>
 <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
   {% if s.category %}<span class="badge bg-secondary-subtle text-dark">{{ s.category }}</span>{% endif %}
-  {% if s.availability == 'on_call' %}<span class="badge bg-warning text-dark">On call</span>{% endif %}
-  {% if s.availability == 'by_appt' %}<span class="badge bg-info text-dark">By appointment</span>{% endif %}
-  {% if s.availability == 'hotline' %}<span class="badge bg-danger">Hotline</span>{% endif %}
-  {% if s.is_offsite %}<span class="badge bg-primary-subtle text-dark">Off-site / Mobile</span>{% endif %}
+  {% if s.availability == 'on_call' %}<span class="badge bg-warning text-dark">{{ _('On call') }}</span>{% endif %}
+  {% if s.availability == 'by_appt' %}<span class="badge bg-info text-dark">{{ _('By appointment') }}</span>{% endif %}
+  {% if s.availability == 'hotline' %}<span class="badge bg-danger">{{ _('Hotline') }}</span>{% endif %}
+  {% if s.is_offsite %}<span class="badge bg-primary-subtle text-dark">{{ _('Off-site / Mobile') }}</span>{% endif %}
   {% if s.location %}<span class="small text-muted">{{ s.location }}</span>{% endif %}
   {% if s.contact %}<span class="small text-muted">{{ s.contact }}</span>{% endif %}
 </div>
 <p>{{ s.description }}</p>
-{% if s.external_link %}<p><a href="{{ s.external_link }}" target="_blank" rel="noopener">Learn more</a></p>{% endif %}
+{% if s.external_link %}<p><a href="{{ s.external_link }}" target="_blank" rel="noopener">{{ _('Learn more') }}</a></p>{% endif %}
 
-<h6>Weekly Times</h6>
+<h6>{{ _('Weekly Times') }}</h6>
 {% if s.slots and (s.availability == 'scheduled') %}
   <div class="table-responsive w-auto">
   <table class="table table-sm w-auto">
-    <thead><tr><th>Day</th><th>Start</th><th>End</th><th>Note</th></tr></thead>
+    <thead><tr><th>{{ _('Day') }}</th><th>{{ _('Start') }}</th><th>{{ _('End') }}</th><th>{{ _('Note') }}</th></tr></thead>
     <tbody>
     {% for slot in s.slots %}
       <tr>
@@ -33,13 +33,13 @@
   </div>
 {% else %}
   {% if s.availability == 'on_call' %}
-    <div class="alert alert-info">No fixed schedule. This service is <strong>on call</strong> and responds to requests.</div>
+    <div class="alert alert-info">{{ _('No fixed schedule. This service is %(mode)s and responds to requests.', mode='<strong>' + _('on call') + '</strong>')|safe }}</div>
   {% elif s.availability == 'by_appt' %}
-    <div class="alert alert-info">No fixed schedule. Available <strong>by appointment</strong>.</div>
+    <div class="alert alert-info">{{ _('No fixed schedule. Available %(mode)s.', mode='<strong>' + _('by appointment') + '</strong>')|safe }}</div>
   {% elif s.availability == 'hotline' %}
-    <div class="alert alert-info">This is a <strong>hotline</strong>. Call anytime.</div>
+    <div class="alert alert-info">{{ _('This is a %(type)s. Call anytime.', type='<strong>' + _('hotline') + '</strong>')|safe }}</div>
   {% else %}
-    <div class="text-muted">No posted times.</div>
+    <div class="text-muted">{{ _('No posted times.') }}</div>
   {% endif %}
 {% endif %}
 {% endblock %}
