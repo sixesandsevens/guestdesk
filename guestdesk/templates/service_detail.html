@@ -1,5 +1,4 @@
 {% extends 'base.html' %}
-{% from '_macros.html' import f12 %}
 
 {% block content %}
 <h4 class="mb-2">{{ s.name }}</h4>
@@ -24,8 +23,8 @@
     {% for slot in s.slots %}
       <tr>
         <td>{{ days[slot.dow] }}</td>
-        <td>{{ f12(slot.start) }}</td>
-        <td>{{ f12(slot.end) }}</td>
+        <td>{{ slot.start|h12 }}</td>
+        <td>{{ slot.end|h12 }}</td>
         <td>{{ slot.note or '' }}</td>
       </tr>
     {% endfor %}

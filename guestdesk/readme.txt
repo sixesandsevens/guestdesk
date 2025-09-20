@@ -118,6 +118,9 @@ Common environment variables (see `config.py` and `app.py` for full list):
   `EMAIL_ENABLED=0` and `MAIL_ENABLED=0`.
 * **REDIS_URL** – used by `antispam.py`, `task_queue.py`, and `rq_worker.py`
   (default `redis://localhost:6379/0`).
+* **RATELIMIT_STORAGE_URI** – optional rate-limit storage backend for
+  Flask-Limiter (default `memory://`; set to your Redis instance in production
+  such as `redis://127.0.0.1:6379/0`).
 * **GUESTDESK_MAX_UPLOAD_MB** / `GUESTDESK_MAX_UPLOAD_BYTES` – optional file size
   limits for photo uploads.
 

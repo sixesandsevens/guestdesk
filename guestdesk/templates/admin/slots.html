@@ -14,8 +14,15 @@
         <option value="3">Thu</option><option value="4">Fri</option><option value="5">Sat</option><option value="6">Sun</option>
       </select>
     </div>
-    <div class="col-md-2"><label class="form-label">Start</label><input name="start" class="form-control" placeholder="09:00"></div>
-    <div class="col-md-2"><label class="form-label">End</label><input name="end" class="form-control" placeholder="11:00"></div>
+    <div class="col-md-2">
+      <label class="form-label">Start</label>
+      <input type="time" name="start" class="form-control" placeholder="09:00">
+      <div class="form-text">Use 24-hour format (e.g., 09:00, 15:30).</div>
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">End</label>
+      <input type="time" name="end" class="form-control" placeholder="11:00">
+    </div>
     <div class="col-md-6"><label class="form-label">Note</label><input name="note" class="form-control"></div>
   </div>
   <div class="mt-2"><button class="btn btn-primary">Add Slot</button></div>
@@ -28,8 +35,8 @@
     {% for sl in s.slots %}
       <tr>
         <td>{{ ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][sl.dow] }}</td>
-        <td>{{ sl.start }}</td>
-        <td>{{ sl.end }}</td>
+        <td>{{ sl.start|h12 }}</td>
+        <td>{{ sl.end|h12 }}</td>
         <td>{{ sl.note }}</td>
         <td>
           <form method="post" action="{{ url_for('admin_slot_delete', slot_id=sl.id) }}" onsubmit="return confirm('Delete this slot?')">

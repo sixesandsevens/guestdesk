@@ -41,7 +41,11 @@ DATA_DIR = (
 )
 
 csrf = CSRFProtect()
-limiter = Limiter(key_func=get_remote_address, default_limits=[])
+limiter = Limiter(
+    key_func=get_remote_address,
+    default_limits=[],
+    storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
+)
 
 def build_grievance_case_id(submission_id: int, created_at: datetime | None) -> str:
     """Generate a stable grievance case identifier."""
@@ -171,6 +175,41 @@ def create_app():
     @app.before_request
     def _attach_request_id():
         g.request_id = request.headers.get("X-Request-ID", str(uuid4()))
+
+    @app.after_request
+    def _inject_robots_headers(response):
+        response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
+        return response
+
+    def _normalize_form_time(raw: str | None) -> str | None:
+        if not raw:
+            return None
+        text = str(raw).strip()
+        if not text:
+            return None
+        meridian = None
+        lower = text.lower()
+        if lower.endswith("am") or lower.endswith("pm"):
+            meridian = lower[-2:]
+            text = text[: -2].strip()
+        if ":" in text:
+            hour_part, minute_part = text.split(":", 1)
+        else:
+            hour_part, minute_part = text, "00"
+        try:
+            hours = int(hour_part)
+        except Exception:
+            return None
+        minute_digits = "".join(ch for ch in minute_part if ch.isdigit())
+        minutes = int(minute_digits[:2] or 0)
+        if meridian:
+            if meridian == "pm" and hours != 12:
+                hours += 12
+            if meridian == "am" and hours == 12:
+                hours = 0
+        hours %= 24
+        minutes %= 60
+        return f"{hours:02d}:{minutes:02d}"
 
     def _parse_upload_limit(raw):
         if raw is None:
@@ -459,6 +498,11 @@ def create_app():
     @app.get('/_healthz')
     def _healthz():
         return {"ok": True, "version": os.getenv("GUESTDESK_VERSION", "dev")}, 200
+
+    @app.route('/robots.txt')
+    def robots_txt():
+        body = "User-agent: *\nDisallow: /\n"
+        return current_app.response_class(body, mimetype="text/plain")
 
     @app.route('/lang/<code>')
     def set_lang(code):
@@ -1634,8 +1678,8 @@ def create_app():
             slot = ProgramSlot(
                 service_id=s.id,
                 dow=dow,
-                start=(request.form.get('start') or '').strip() or None,
-                end=(request.form.get('end') or '').strip() or None,
+                start=_normalize_form_time(request.form.get('start')),
+                end=_normalize_form_time(request.form.get('end')),
                 note=(request.form.get('note') or '').strip() or None,
             )
             db.add(slot)
