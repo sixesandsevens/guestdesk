@@ -1,3 +1,5 @@
+"""Database models that back the GuestDesk application."""
+
 from __future__ import annotations
 from datetime import datetime
 from sqlalchemy.orm import declarative_base, relationship
@@ -7,7 +9,9 @@ from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Bool
 
 Base = declarative_base()
 
+
 class Service(Base):
+    """A public-facing service entry with localized content and schedule metadata."""
     __tablename__ = 'services'
     id = Column(Integer, primary_key=True)
     name = Column(String(120), nullable=False)
@@ -34,6 +38,7 @@ class Service(Base):
     slots = relationship("ProgramSlot", back_populates="service", cascade="all, delete-orphan", order_by="ProgramSlot.dow")
 
     def _pick_locale(self, value_en: str | None, value_es: str | None, fallback: str | None = None) -> str | None:
+        """Return the best localized value for the current visitor locale."""
         from flask_babel import get_locale
         locale = str(get_locale() or 'en').lower()
         if locale.startswith('es') and value_es:
@@ -45,25 +50,31 @@ class Service(Base):
 
     @property
     def name_i18n(self) -> str:
+        """Return the service name in the visitor's preferred language."""
         return self._pick_locale(self.name_en, self.name_es, self.name) or ''
 
     @property
     def description_i18n(self) -> str:
+        """Return the localized description when available."""
         return self._pick_locale(self.description_en, self.description_es, self.description) or ''
 
     @property
     def location_i18n(self) -> str:
+        """Return the location string matching the visitor's locale."""
         return self._pick_locale(self.location_en, self.location_es, self.location) or ''
 
     @property
     def contact_i18n(self) -> str:
+        """Return the localized contact details for the service."""
         return self._pick_locale(self.contact_en, self.contact_es, self.contact) or ''
 
     @property
     def schedule_note_i18n(self) -> str:
+        """Return the localized schedule note for the service."""
         return self._pick_locale(self.schedule_note_en, self.schedule_note_es, self.schedule_note) or ''
 
 class ProgramSlot(Base):
+    """Weekly recurring slot associated with a service."""
     __tablename__ = 'program_slots'
     id = Column(Integer, primary_key=True)
     service_id = Column(Integer, ForeignKey('services.id', ondelete="CASCADE"), index=True, nullable=False)
@@ -75,6 +86,7 @@ class ProgramSlot(Base):
     service = relationship("Service", back_populates="slots")
 
 class Announcement(Base):
+    """Time-bound announcement displayed on the guest portal."""
     __tablename__ = 'announcements'
     id = Column(Integer, primary_key=True)
     title = Column(String(200), nullable=False)
@@ -83,6 +95,7 @@ class Announcement(Base):
     ends_at = Column(DateTime, nullable=True)
 
 class Submission(Base):
+    """Feedback or request submitted through the public forms."""
     __tablename__ = 'submissions'
     id = Column(Integer, primary_key=True)
     kind = Column(String(32), nullable=False) # maintenance, grievance, suggestion, question
@@ -97,6 +110,7 @@ class Submission(Base):
     status = Column(String(16), nullable=False, default='new')
 
 class User(Base):
+    """Administrative user account with role-based permissions."""
     __tablename__ = "users"
     id = Column(Integer, primary_key=True)
     username = Column(String(64), unique=True, nullable=False)
@@ -107,6 +121,7 @@ class User(Base):
 
 
 class GameScore(Base):
+    """High score entry for Fun Zone games."""
     __tablename__ = 'game_scores'
     id = Column(Integer, primary_key=True)
     game = Column(String(32), nullable=False, index=True)  # e.g., 'snake', 'tetris'
@@ -117,6 +132,7 @@ class GameScore(Base):
 
 
 class AnalyticsEvent(Base):
+    """Stored analytics event emitted by the optional front-end tracker."""
     __tablename__ = "analytics_events"
 
     id = Column(Integer, primary_key=True)
@@ -156,6 +172,7 @@ Index('ix_analytics_events_is_staff_started', AnalyticsEvent.is_staff, Analytics
 
 # ---- Recurring Service Schedules ----
 class ServiceSeries(Base):
+    """Recurring schedule definition (RRULE + overrides) for a service."""
     __tablename__ = "service_series"
 
     id = Column(Integer, primary_key=True)
@@ -184,6 +201,7 @@ class ServiceSeries(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 class ServiceOverride(Base):
+    """One-off adjustments or cancellations applied to slot/series instances."""
     __tablename__ = "service_overrides"
 
     id = Column(Integer, primary_key=True)
@@ -199,11 +217,11 @@ class ServiceOverride(Base):
     new_dtend = Column(DateTime, nullable=True)
     cancelled = Column(Boolean, nullable=False, default=False)
 
-from sqlalchemy.orm import relationship
 ServiceSeries.overrides = relationship("ServiceOverride", backref="series", cascade="all, delete-orphan")
 
 # ---- App Settings (key/value store) ----
 class Setting(Base):
+    """Simple key/value store for feature toggles and runtime options."""
     __tablename__ = 'settings'
     key = Column(String(64), primary_key=True)
     value = Column(Text, nullable=True)
@@ -211,6 +229,7 @@ class Setting(Base):
 
 # ---- PDF Template system ----
 class PDFTemplate(Base):
+    """Editable PDF template along with layout hints for overlay rendering."""
     __tablename__ = 'pdf_templates'
 
     id = Column(Integer, primary_key=True)
@@ -233,6 +252,7 @@ class PDFTemplate(Base):
 
 
 class PDFTemplateVersion(Base):
+    """Versioned snapshot of a PDF template's layout configuration."""
     __tablename__ = 'pdf_template_versions'
 
     id = Column(Integer, primary_key=True)
@@ -251,6 +271,7 @@ class PDFTemplateVersion(Base):
 
 
 class PDFBinding(Base):
+    """Link between a public form and a specific published PDF template version."""
     __tablename__ = 'pdf_bindings'
 
     id = Column(Integer, primary_key=True)
@@ -269,6 +290,7 @@ class PDFBinding(Base):
 
 # ---- Simplified per-form PDF config ----
 class FormPDFConfig(Base):
+    """Simplified per-form PDF binding used by the streamlined renderer."""
     __tablename__ = "form_pdf_config"
 
     id = Column(Integer, primary_key=True)

@@ -79,6 +79,7 @@ DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 def t(message: str, **kwargs):
+    """Shortcut alias for Flask-Babel translations."""
     return _(message, **kwargs)
 
 
@@ -95,6 +96,7 @@ def human_filesize(num_bytes: int) -> str:
     return f"{size:.1f} TB"
 
 def create_app():
+    """Application factory wiring blueprints, services, and admin UI."""
     app = Flask(__name__)
     env_name = (os.getenv("FLASK_ENV") or os.getenv("ENV") or "").lower()
     is_production = env_name == "production"
@@ -139,6 +141,7 @@ def create_app():
     )
 
     def _select_locale() -> str:
+        """Select the preferred locale using query param, session, or headers."""
         supported = ("en", "es")
         query_lang = request.args.get("lang")
         if query_lang and query_lang in supported:
@@ -167,14 +170,17 @@ def create_app():
 
     @app.before_request
     def _attach_request_id():
+        """Attach a request identifier for downstream logging and tracing."""
         g.request_id = request.headers.get("X-Request-ID", str(uuid4()))
 
     @app.after_request
     def _inject_robots_headers(response):
+        """Discourage indexing of any page by default."""
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
         return response
 
     def _normalize_form_time(raw: str | None) -> str | None:
+        """Convert form-entered time strings to 24-hour ``HH:MM`` format."""
         if not raw:
             return None
         text = str(raw).strip()
@@ -205,12 +211,14 @@ def create_app():
         return f"{hours:02d}:{minutes:02d}"
 
     def _weekday_labels(width: str = 'abbreviated') -> list[str]:
+        """Return localized weekday labels in the desired width."""
         locale = str(get_locale() or 'en')
         names = get_day_names(width, locale=locale)
         order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
         return [names.get(key, names.get(key.upper(), key.title())) for key in order]
 
     def _parse_upload_limit(raw):
+        """Interpret size strings like ``20MB`` into a byte limit."""
         if raw is None:
             return None
         text = str(raw).strip().lower()
@@ -244,6 +252,7 @@ def create_app():
 
     @app.errorhandler(RequestEntityTooLarge)
     def handle_large_upload(_err):
+        """Redirect back to the form when an upload exceeds the configured cap."""
         limit_bytes = app.config.get('MAX_CONTENT_LENGTH', DEFAULT_MAX_UPLOAD_BYTES)
         limit_mb = limit_bytes / (1024 * 1024)
         # Trim trailing zeros while keeping at most one decimal place
@@ -264,6 +273,7 @@ def create_app():
     app.config.setdefault("SHOW_HOME_SERVICES", False)
     # --- Jinja filter: "HH:MM" (24h) -> locale-aware time string
     def h12(t: str) -> str:
+        """Render ``HH:MM`` values using the current locale's 12-hour format."""
         if not t:
             return ""
         try:
@@ -292,7 +302,9 @@ def create_app():
         # Keep app running even if analytics init fails
         pass
 
-    def dbs(): return Session()
+    def dbs():
+        """Provide a short-lived database session for request handlers."""
+        return Session()
     app.dbs = dbs
 
     try:
@@ -303,6 +315,7 @@ def create_app():
 
     @app.teardown_appcontext
     def shutdown_session(_exc=None):
+        """Ensure scoped sessions are cleaned up after each request."""
         try:
             Session.remove()
         except Exception:
@@ -448,9 +461,11 @@ def create_app():
 
     @app.before_request
     def _attach_user():
+        """Populate ``g.user`` before each request if the session is authenticated."""
         load_user()
 
     def _tail_audit_entries(log_path: str, limit: int = 200) -> list[dict[str, object]]:
+        """Return the newest JSON audit entries without loading the entire file."""
         try:
             limit_val = int(limit)
         except Exception:
@@ -488,6 +503,7 @@ def create_app():
 
     @app.context_processor
     def inject_globals():
+        """Expose translation helper and user metadata to every template."""
         return dict(
             t=t,
             lang=str(get_locale() or 'en'),
@@ -497,6 +513,7 @@ def create_app():
 
     @app.context_processor
     def inject_audit_flag():
+        """Let templates know if the audit log view is registered."""
         available = False
         try:
             available = 'admin_audit' in current_app.view_functions
@@ -506,35 +523,40 @@ def create_app():
 
     @app.context_processor
     def inject_csrf_token():
+        """Provide a callable for generating CSRF tokens inside templates."""
         return dict(csrf_token=lambda: generate_csrf())
 
     @app.context_processor
     def inject_flags():
-        # makes SHOW_HOME_SERVICES available in all templates
+        """Expose feature flags like ``SHOW_HOME_SERVICES`` to templates."""
         return dict(SHOW_HOME_SERVICES=app.config["SHOW_HOME_SERVICES"])
 
     @app.context_processor
     def inject_asset_version():
-        # expose ASSET_VERSION for cache-busting static assets
+        """Expose ``ASSET_VERSION`` for cache-busting static assets."""
         return dict(ASSET_VERSION=app.config.get("ASSET_VERSION", "1"))
 
     @app.get('/_healthz')
     def _healthz():
+        """Lightweight readiness probe consumed by uptime monitors."""
         return {"ok": True, "version": os.getenv("GUESTDESK_VERSION", "dev")}, 200
 
     @app.route('/robots.txt')
     def robots_txt():
+        """Serve a restrictive robots.txt discouraging indexing."""
         body = "User-agent: *\nDisallow: /\n"
         return current_app.response_class(body, mimetype="text/plain")
 
     @app.route('/lang/<code>')
     def set_lang(code):
+        """Persist the visitor's language preference in the session."""
         session['lang'] = code if code in ('en', 'es') else 'en'
         next_url = request.args.get('next')
         return redirect(next_url or request.referrer or url_for('home'))
 
     @app.route('/')
     def home():
+        """Render the guest-facing dashboard with announcements and service counts."""
         db = dbs()
         now = datetime.utcnow()
         anns = db.query(Announcement).filter(
@@ -548,6 +570,7 @@ def create_app():
 
     @app.route('/services')
     def services():
+        """List all services, optionally filtered by category."""
         db = dbs()
         cat = request.args.get('cat')
         q = db.query(Service)
@@ -558,6 +581,7 @@ def create_app():
 
     @app.route('/service/<int:sid>')
     def service_detail(sid:int):
+        """Show a single service with its weekly schedule."""
         db = dbs()
         s = db.get(Service, sid)
         if not s:
@@ -567,6 +591,7 @@ def create_app():
 
     @app.route('/schedule')
     def schedule():
+        """Render a weekly matrix view of all service slots."""
         db = dbs()
         days = _weekday_labels('abbreviated')
         services = db.query(Service).order_by(Service.category, func.lower(func.coalesce(Service.name_en, Service.name))).all()
@@ -579,6 +604,7 @@ def create_app():
 
     @app.route('/announcements')
     def announcements():
+        """Display active announcements for guests."""
         db = dbs()
         now = datetime.utcnow()
         anns = db.query(Announcement).filter(Announcement.starts_at <= now).filter(
@@ -589,11 +615,13 @@ def create_app():
     # ----- Submissions (guest) -----
     @app.route('/report')
     def report():
+        """Landing page for selecting a submission form."""
         return render_template('report.html')
 
     @app.route('/submit/<kind>', methods=['GET','POST'])
     @limiter.limit("10/minute")
     def submit(kind):
+        """Handle guest submissions for maintenance, grievances, suggestions, or questions."""
         if kind not in ['maintenance','grievance','suggestion','question']:
             abort(404)
         if request.method == 'POST':
@@ -757,8 +785,10 @@ def create_app():
                     from .pdf_render import render_pdf
                     # Map submission to renderer payload
                     def bool_to_checkbox(b):
+                        """Return ``True`` when a checkbox should render as checked."""
                         return True if b else False
                     def pdf_payload_for_form(form_key, submission):
+                        """Normalize submission data into the PDF renderer schema."""
                         k = (form_key or '').strip().lower()
                         if k == 'grievance':
                             import datetime as _dt
@@ -945,6 +975,7 @@ def create_app():
     # Development-only mail smoke test
     @app.get('/_mail_test')
     def _mail_test():
+        """Send a test maintenance notification to verify SMTP wiring."""
         try:
             send_category_notification("maintenance", {
                 "name": "Smoke Test",
@@ -990,6 +1021,7 @@ def create_app():
 
     @app.route('/fun')
     def fun():
+        """Serve light entertainment (joke, quote, trivia) for the guest portal."""
         import random
         # Serve cached live pieces; retry fetching for anything not live or stale
         now = datetime.utcnow()
@@ -1070,6 +1102,7 @@ def create_app():
 
     @app.route('/funzone')
     def funzone():
+        """Render the Fun Zone page and inject the optional mobile controls."""
         # Render base funzone then enhance with mobile controls script
         html = render_template('funzone.html')
         try:
@@ -1083,6 +1116,7 @@ def create_app():
     # ----- Arcade leaderboards (Snake/Tetris) -----
     @app.route('/arcade/scores/<game>', methods=['GET'])
     def arcade_scores(game: str):
+        """Return the top scores for a given arcade game as JSON."""
         game = (game or '').strip().lower()
         limit = max(1, min(50, int(request.args.get('limit', 10))))
         db = dbs()
@@ -1110,6 +1144,7 @@ def create_app():
 
     @app.route('/arcade/scores/<game>', methods=['POST'])
     def arcade_submit_score(game: str):
+        """Persist a submitted arcade score and respond with the player's rank."""
         game = (game or '').strip().lower()
         if not game:
             return jsonify({"ok": False, "error": "invalid game"}), 400
@@ -1144,6 +1179,7 @@ def create_app():
 
     # ----- Staff auth & admin -----
     def current_user():
+        """Retrieve the current ``User`` record when authenticated."""
         uid = session.get('user_id')
         if not uid:
             return None
@@ -1151,8 +1187,10 @@ def create_app():
         return db.get(User, uid)
 
     def login_required(fn):
+        """Decorator that redirects unauthenticated visitors to the login screen."""
         @wraps(fn)
         def _wrap(*a, **kw):
+            """Redirect to login when the request lacks an authenticated user."""
             # Let admin session OR a logged-in user through
             if session.get("is_admin") or session.get("admin"):
                 return fn(*a, **kw)
@@ -1162,9 +1200,12 @@ def create_app():
             return redirect(url_for("login", next=request.path))
         return _wrap
     def roles_required(*required_roles):
+        """Decorator enforcing that the current user carries one of the roles."""
         def deco(fn):
+            """Wrap a view to enforce that the user has an allowed role."""
             @wraps(fn)
             def _wrap(*a, **kw):
+                """Abort with 403 when the visitor lacks the appropriate role."""
                 # one-password admin (no DB user) bypasses role checks
                 if session.get("is_admin") or session.get("admin"):
                     return fn(*a, **kw)
@@ -1177,6 +1218,7 @@ def create_app():
         return deco
 
     def audit_actor() -> str:
+        """Identify the string actor for audit logging (user, admin session, anon)."""
         user = getattr(g, 'user', None)
         if user and getattr(user, 'username', None):
             return str(user.username)
@@ -1200,6 +1242,7 @@ def create_app():
 
     @app.route('/signup', methods=['GET', 'POST'])
     def signup():
+        """Allow prospective staff to request a viewer account pending approval."""
         db = dbs()
         if request.method == 'POST':
             username = (request.form.get('username') or '').strip()
@@ -1225,6 +1268,7 @@ def create_app():
     @app.route('/login', methods=['GET', 'POST'])
     @limiter.limit("5/minute")
     def login():
+        """Authenticate a staff account and persist details in the session."""
         # Carry next from query or form so POST preserves it; default to home
         next_url = request.args.get('next') or request.form.get('next') or url_for('home')
         if request.method == 'POST':
@@ -1246,6 +1290,7 @@ def create_app():
 
     @app.route('/logout')
     def logout():
+        """Clear the session and bounce visitors back to the guest homepage."""
         session.clear()
         return redirect(url_for('home'))
 
@@ -1253,6 +1298,7 @@ def create_app():
     @app.route('/admin')
     @roles_required('admin', 'editor')
     def admin_index():
+        """Landing page for administrators with recent submission highlights."""
         # Admin/editor dashboard
         svc_count = 0
         ann_count = 0
@@ -1278,6 +1324,7 @@ def create_app():
     @app.route('/admin/analytics')
     @roles_required('admin')
     def admin_analytics():
+        """Render the analytics dashboard shell (data fetched via JSON)."""
         # Render dashboard shell; data loads via JSON APIs below
         return render_template('admin/analytics.html')
 
@@ -1285,6 +1332,7 @@ def create_app():
     @app.route('/admin/email-settings', methods=['GET', 'POST'])
     @roles_required('admin')
     def admin_email_settings():
+        """Manage category-specific notification email settings."""
         db = dbs()
         keys = [
             'MAINTENANCE_EMAIL_TO',
@@ -1329,6 +1377,7 @@ def create_app():
 
     # ---- Analytics JSON APIs ----
     def _analytics_range():
+        """Interpret date filters from the query string and return UTC bounds."""
         tzname = app.config.get("ANALYTICS_TZ", "America/New_York")
         try:
             tz = ZoneInfo(tzname)
@@ -1356,6 +1405,7 @@ def create_app():
         return start_date, end_date, start_utc, end_utc
 
     def _staff_filter_sql() -> str:
+        """Translate the staff filter into a SQL WHERE clause fragment."""
         staff = (request.args.get('staff') or '').strip()
         if staff == '1':
             return " AND COALESCE(is_staff,0)=1"
@@ -1364,6 +1414,7 @@ def create_app():
         return ""
 
     def _bind_list(prefix: str, values: list[str]) -> tuple[str, dict[str, str]]:
+        """Return placeholders and params for binding a list into SQL."""
         bits = []
         params: dict[str, str] = {}
         for idx, val in enumerate(values):
@@ -1373,6 +1424,7 @@ def create_app():
         return ", ".join(bits), params
 
     def _compute_p95(samples: list[int]) -> int | None:
+        """Compute the 95th percentile for a set of integer samples."""
         if not samples:
             return None
         samples.sort()
@@ -1380,6 +1432,7 @@ def create_app():
         return samples[idx]
 
     def _load_samples(conn, base_params: dict[str, object], staff_clause: str, paths: list[str]) -> dict[str, list[int]]:
+        """Fetch latency samples grouped by path from analytics_events."""
         placeholders, extra = _bind_list('path', paths)
         if not placeholders:
             return {}
@@ -1404,6 +1457,7 @@ def create_app():
         return out
 
     def _maybe_csv(filename: str, headers: list[str], rows: list[tuple]):
+        """Emit a CSV attachment when ``?format=csv`` is supplied."""
         if (request.args.get('format') or '').lower() != 'csv':
             return None
         buf = io.StringIO()
@@ -1421,6 +1475,7 @@ def create_app():
     @app.get('/admin/analytics/api/summary')
     @roles_required('admin')
     def analytics_api_summary():
+        """Return aggregate visit counts and submission totals for the window."""
         _, _, start_dt, end_dt = _analytics_range()
         params = dict(start=start_dt, end=end_dt)
         staff_clause = _staff_filter_sql()
@@ -1450,6 +1505,7 @@ def create_app():
     @app.get('/admin/analytics/api/timeseries')
     @roles_required('admin')
     def analytics_api_timeseries():
+        """Provide daily hits/unique counts for charting."""
         start_date, end_date, start_dt, end_dt = _analytics_range()
         params = dict(start=start_dt, end=end_dt)
         staff_clause = _staff_filter_sql()
@@ -1475,6 +1531,7 @@ def create_app():
     @app.get('/admin/analytics/api/top-pages')
     @roles_required('admin')
     def analytics_api_top_pages():
+        """Return top paths with average and p95 load times."""
         _, _, start_dt, end_dt = _analytics_range()
         params = dict(start=start_dt, end=end_dt)
         staff_clause = _staff_filter_sql()
@@ -1512,6 +1569,7 @@ def create_app():
     @app.get('/admin/analytics/api/flows')
     @roles_required('admin')
     def analytics_api_flows():
+        """Summarize most common navigation transitions."""
         _, _, start_dt, end_dt = _analytics_range()
         params = dict(start=start_dt, end=end_dt)
         staff_clause = _staff_filter_sql()
@@ -1537,6 +1595,7 @@ def create_app():
     @app.get('/admin/analytics/api/categories')
     @roles_required('admin')
     def analytics_api_categories():
+        """Count events grouped by analytics category attribute."""
         _, _, start_dt, end_dt = _analytics_range()
         params = dict(start=start_dt, end=end_dt)
         staff_clause = _staff_filter_sql()
@@ -1557,6 +1616,7 @@ def create_app():
     @app.get('/admin/analytics/api/forms')
     @roles_required('admin')
     def analytics_api_forms():
+        """Return top form labels within the selected window."""
         _, _, start_dt, end_dt = _analytics_range()
         params = dict(start=start_dt, end=end_dt)
         staff_clause = _staff_filter_sql()
@@ -1579,6 +1639,7 @@ def create_app():
     @app.get('/admin/analytics/api/perf')
     @roles_required('admin')
     def analytics_api_perf():
+        """Surface paths with the slowest observed load times."""
         _, _, start_dt, end_dt = _analytics_range()
         params = dict(start=start_dt, end=end_dt)
         staff_clause = _staff_filter_sql()
@@ -1621,6 +1682,7 @@ def create_app():
     @app.route('/admin/services')
     @roles_required('admin', 'editor')
     def admin_services():
+        """List services for editing within the admin console."""
         db = dbs()
         rows = db.query(Service).order_by(Service.category, Service.name).all()
         return render_template('admin/services.html', rows=rows)
@@ -1628,6 +1690,7 @@ def create_app():
     @app.route('/admin/audit')
     @roles_required('admin')
     def admin_audit():
+        """Tail the structured audit log inside the admin UI."""
         log_path = os.getenv('GUESTDESK_AUDIT_LOG', '/var/log/guestdesk/audit.log')
         limit_param = request.args.get('n', '200')
         try:
@@ -1652,16 +1715,19 @@ def create_app():
     @app.route('/admin/services/calendar')
     @roles_required('admin', 'editor')
     def admin_services_calendar():
+        """Render the calendar management view spanning all services."""
         return render_template('admin/services_calendar.html', sid=None)
 
     @app.route('/admin/services/<int:sid>/calendar')
     @roles_required('admin', 'editor')
     def admin_services_calendar_one(sid:int):
+        """Render the calendar management view scoped to a single service."""
         return render_template('admin/services_calendar.html', sid=sid)
 
     @app.get('/admin/services/feed')
     @roles_required('admin', 'editor')
     def admin_services_feed():
+        """Return merged service occurrences for FullCalendar in the admin UI."""
         from dateutil.parser import isoparse
         try:
             s = request.args.get('start') or ''
@@ -1682,6 +1748,7 @@ def create_app():
     @app.post('/admin/services/series')
     @roles_required('admin', 'editor')
     def admin_series_create():
+        """Create a new recurring service series definition."""
         data = request.get_json(force=True)
         db = dbs()
         try:
@@ -1708,6 +1775,7 @@ def create_app():
     @app.put('/admin/services/series/<int:series_id>')
     @roles_required('admin', 'editor')
     def admin_series_update(series_id:int):
+        """Update an existing series with changes from the calendar editor."""
         data = request.get_json(force=True)
         db = dbs()
         try:
@@ -1729,6 +1797,7 @@ def create_app():
     @app.post('/admin/services/override')
     @roles_required('admin', 'editor')
     def admin_series_override():
+        """Persist one-off overrides or cancellations for a service instance."""
         data = request.get_json(force=True)
         db = dbs()
         try:
@@ -1749,6 +1818,7 @@ def create_app():
             db.close()
 
     def fromiso(s:str|None):
+        """Parse ISO8601 strings while allowing ``None`` as passthrough."""
         from dateutil.parser import isoparse as _isoparse
         if not s:
             return None
@@ -1757,9 +1827,11 @@ def create_app():
     @app.route('/admin/services/new', methods=['GET', 'POST'])
     @roles_required('admin', 'editor')
     def admin_services_new():
+        """Create a new service entry from the admin form."""
         if request.method == 'POST':
             db = dbs()
             def _clean(value: str | None) -> str:
+                """Strip whitespace and coerce ``None`` to empty string."""
                 return (value or '').strip()
             name_en = _clean(request.form.get('name_en')) or 'Unnamed'
             name_es = _clean(request.form.get('name_es'))
@@ -1811,12 +1883,14 @@ def create_app():
     @app.route('/admin/services/<int:sid>/edit', methods=['GET', 'POST'])
     @roles_required('admin', 'editor')
     def admin_services_edit(sid: int):
+        """Edit an existing service including localized fields and metadata."""
         db = dbs()
         s = db.get(Service, sid)
         if not s:
             abort(404)
         if request.method == 'POST':
             def _clean(value: str | None) -> str:
+                """Normalize optional form values to trimmed strings."""
                 return (value or '').strip()
             before_data = {
                 "name": s.name,
@@ -1873,6 +1947,7 @@ def create_app():
     @app.route('/admin/services/<int:sid>/delete', methods=['POST'])
     @roles_required('admin')
     def admin_services_delete(sid: int):
+        """Delete a service and emit an audit log entry."""
         db = dbs()
         s = db.get(Service, sid)
         if s:
@@ -1895,6 +1970,7 @@ def create_app():
     @app.route('/admin/services/<int:sid>/slots', methods=['GET', 'POST'])
     @roles_required('admin', 'editor')
     def admin_slots(sid: int):
+        """Manage recurring weekly slots for a given service."""
         db = dbs()
         s = db.get(Service, sid)
         if not s:
@@ -1926,6 +2002,7 @@ def create_app():
     @app.route('/admin/slots/<int:slot_id>/delete', methods=['POST'])
     @roles_required('admin', 'editor')
     def admin_slot_delete(slot_id: int):
+        """Remove a specific program slot instance."""
         db = dbs()
         slot = db.get(ProgramSlot, slot_id)
         if slot:
@@ -1952,6 +2029,7 @@ def create_app():
     @app.route('/admin/announcements')
     @roles_required('admin', 'editor')
     def admin_announcements():
+        """List announcements for review in the admin console."""
         db = dbs()
         rows = db.query(Announcement).order_by(Announcement.starts_at.desc()).all()
         return render_template('admin/announcements.html', rows=rows)
@@ -1959,6 +2037,7 @@ def create_app():
     @app.route('/admin/announcements/new', methods=['GET', 'POST'])
     @roles_required('admin', 'editor')
     def admin_announcements_new():
+        """Create a new time-bound announcement."""
         if request.method == 'POST':
             db = dbs()
             start = datetime.strptime(
@@ -1982,6 +2061,7 @@ def create_app():
     @app.route('/admin/announcements/<int:aid>/delete', methods=['POST'])
     @roles_required('admin', 'editor')
     def admin_announcements_delete(aid: int):
+        """Delete an announcement from the schedule."""
         db = dbs()
         a = db.get(Announcement, aid)
         if a:
@@ -1994,6 +2074,7 @@ def create_app():
     @app.route('/admin/submissions')
     @roles_required('admin', 'editor')
     def admin_submissions():
+        """List recent submissions with optional filtering by kind."""
         db = dbs()
         kind = request.args.get('kind')
         q = db.query(Submission)
@@ -2005,6 +2086,7 @@ def create_app():
     @app.route('/admin/submissions/<int:sid>')
     @roles_required('admin', 'editor')
     def admin_submission_detail(sid: int):
+        """Show submission details plus any uploaded attachments."""
         db = dbs()
         s = db.get(Submission, sid)
         if not s:
@@ -2028,6 +2110,7 @@ def create_app():
     @app.route('/admin/submissions/<int:sid>/attachments/<path:filename>')
     @roles_required('admin', 'editor')
     def admin_submission_attachment(sid: int, filename: str):
+        """Send back a stored attachment for a submission."""
         db = dbs()
         s = db.get(Submission, sid)
         if not s:
@@ -2046,6 +2129,7 @@ def create_app():
     @app.route('/admin/data-tools')
     @roles_required('admin')
     def admin_data_tools():
+        """Provide operational summaries (submission counts, uploads, arcade stats)."""
         db = dbs()
         submission_total = db.query(func.count(Submission.id)).scalar() or 0
         score_rows = (
@@ -2083,6 +2167,7 @@ def create_app():
     @app.route('/admin/submissions/clear', methods=['POST'])
     @roles_required('admin')
     def admin_submissions_clear():
+        """Erase all submissions and associated uploads."""
         db = dbs()
         total = db.query(func.count(Submission.id)).scalar() or 0
         if total == 0:
@@ -2120,6 +2205,7 @@ def create_app():
     @app.route('/admin/arcade/scores/<string:game>/clear', methods=['POST'])
     @roles_required('admin')
     def admin_arcade_clear(game: str):
+        """Reset leaderboard entries for the specified arcade game."""
         game_key = (game or '').strip().lower()
         if not game_key:
             abort(400)
@@ -2150,6 +2236,7 @@ def create_app():
     @app.route('/admin/users')
     @roles_required('admin')
     def admin_users():
+        """List user accounts for approval or role management."""
         db = dbs()
         users = db.query(User).order_by(User.approved.asc(), User.role.desc(), User.username).all()
         return render_template('admin/users.html', users=users)
@@ -2157,6 +2244,7 @@ def create_app():
     @app.route('/admin/users/new', methods=['GET', 'POST'])
     @roles_required('admin')
     def admin_users_new():
+        """Create a new staff account from the admin interface."""
         if request.method == 'POST':
             username = (request.form.get('username') or '').strip()
             password = request.form.get('password') or ''
@@ -2192,6 +2280,7 @@ def create_app():
     @app.route('/admin/users/<int:uid>/delete', methods=['POST'])
     @roles_required('admin')
     def admin_users_delete(uid: int):
+        """Remove a user account and audit the action."""
         db = dbs()
         u = db.get(User, uid)
         if not u:
@@ -2214,6 +2303,7 @@ def create_app():
     @app.route('/admin/users/<int:uid>/update', methods=['POST'])
     @roles_required('admin')
     def admin_users_update(uid: int):
+        """Update user role/approval status and optionally reset the password."""
         db = dbs()
         u = db.get(User, uid)
         if not u:
@@ -2250,6 +2340,7 @@ def create_app():
 
     @app.template_filter('dt')
     def fmt_dt(v):
+        """Format datetimes for templates, tolerating ISO strings."""
         if not v:
             return ''
         try:
@@ -2270,6 +2361,7 @@ def create_app():
     @app.get('/admin/forms/<form_key>/pdf')
     @roles_required('admin', 'editor')
     def admin_form_pdf(form_key: str):
+        """Render the PDF editor for a particular submission form."""
         key = (form_key or '').strip().lower()
         db = dbs()
         cfg = db.query(FormPDFConfig).filter(FormPDFConfig.form_key == key).first()
@@ -2329,6 +2421,7 @@ def create_app():
     @app.get('/admin/forms/<form_key>/pdf/file')
     @roles_required('admin', 'editor')
     def admin_form_pdf_file(form_key: str):
+        """Download the current template PDF for the form."""
         key = (form_key or '').strip().lower()
         db = dbs()
         cfg = db.query(FormPDFConfig).filter(FormPDFConfig.form_key == key).first()
@@ -2343,6 +2436,7 @@ def create_app():
     @app.post('/admin/forms/<form_key>/pdf/upload')
     @roles_required('admin', 'editor')
     def admin_form_pdf_upload(form_key: str):
+        """Upload or replace the base PDF used for rendering a form."""
         key = (form_key or '').strip().lower()
         f = request.files.get('file')
         if not (f and f.filename):
@@ -2378,6 +2472,7 @@ def create_app():
     @app.post('/admin/forms/<form_key>/pdf/save')
     @roles_required('admin', 'editor')
     def admin_form_pdf_save(form_key: str):
+        """Persist layout coordinates and email attachment preferences."""
         key = (form_key or '').strip().lower()
         db = dbs()
         cfg = db.query(FormPDFConfig).filter(FormPDFConfig.form_key == key).first()
@@ -2435,6 +2530,7 @@ def create_app():
     @app.get('/admin/forms/<form_key>/pdf/preview')
     @roles_required('admin', 'editor')
     def admin_form_pdf_preview(form_key: str):
+        """Generate a temporary PDF preview using either sample or real data."""
         key = (form_key or '').strip().lower()
         db = dbs()
         cfg = db.query(FormPDFConfig).filter(FormPDFConfig.form_key == key).first()
@@ -2448,6 +2544,7 @@ def create_app():
         case_id = build_grievance_case_id(sub.id, sub.created_at) if (sub and key == 'grievance') else None
         # Build payload for preview PDF rendering
         def _payload():
+            """Build the data dict passed into the PDF renderer for preview."""
             import datetime as _dt
             if sub:
                 data = {
@@ -2514,6 +2611,7 @@ def create_app():
     @app.get('/admin/forms/pdf')
     @roles_required('admin', 'editor')
     def admin_forms_pdf_index():
+        """List available forms with PDF configuration for quick navigation."""
         db = dbs()
         # Collect known forms + any from submissions
         keys = set(['grievance', 'maintenance', 'suggestion', 'question'])

@@ -1,3 +1,5 @@
+"""File-based audit logging utilities."""
+
 # GuestDesk
 # Copyright (c) 2025 Chris Tant
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
@@ -27,6 +29,7 @@ if not audit_log.handlers:
 
 
 def log(action, actor, obj=None, before=None, after=None, extra=None):
+    """Append a structured audit entry to the configured log target."""
     audit_log.info(json.dumps({
         "ts": datetime.utcnow().isoformat() + "Z",
         "action": action,

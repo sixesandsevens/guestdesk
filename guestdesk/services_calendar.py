@@ -1,3 +1,5 @@
+"""Expand recurring service definitions into concrete calendar events."""
+
 from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
@@ -8,10 +10,10 @@ from dateutil.parser import isoparse
 
 from .models import ServiceSeries, ServiceOverride, Service, ProgramSlot
 from sqlalchemy.orm import Session
-from datetime import timedelta
 
 
 def _parse_dates(lst):
+    """Normalize JSON stored date strings into ``datetime`` instances."""
     out = []
     if isinstance(lst, str):
         try:
@@ -30,10 +32,7 @@ def _parse_dates(lst):
 
 
 def expand_occurrences(series: ServiceSeries, start: datetime, end: datetime) -> List[Dict[str, Any]]:
-    """Expand a series between [start,end) into FullCalendar-style dicts.
-
-    Expects series.dtstart/dtend to be local times in series.tz. Start/end are compared as naive local.
-    """
+    """Expand a single series into FullCalendar-style dicts within ``[start, end)``."""
     tzname = series.tz or "America/New_York"
     # Treat inbound window as naive local for comparison
     win_start = start.replace(tzinfo=None)
@@ -99,6 +98,7 @@ def expand_occurrences(series: ServiceSeries, start: datetime, end: datetime) ->
 
 
 def expand_between(session: Session, start: datetime, end: datetime, service_id: int | None = None) -> List[Dict[str, Any]]:
+    """Return recurring series instances inside the requested window."""
     events: List[Dict[str, Any]] = []
     q = session.query(ServiceSeries).filter(ServiceSeries.is_active == True)
     if service_id:
@@ -109,7 +109,7 @@ def expand_between(session: Session, start: datetime, end: datetime, service_id:
 
 
 def expand_slots_between(session: Session, start: datetime, end: datetime, service_id: int | None = None, tzname: str = "America/New_York") -> List[Dict[str, Any]]:
-    """Expand baseline ProgramSlot schedule into concrete instances in [start,end)."""
+    """Expand baseline ``ProgramSlot`` entries into concrete occurrences."""
     services = session.query(Service).all() if not service_id else [session.get(Service, service_id)]
     services = [s for s in services if s]
     # Preload slots by service
@@ -147,7 +147,7 @@ def expand_slots_between(session: Session, start: datetime, end: datetime, servi
 
 
 def merged_occurrences(session: Session, start: datetime, end: datetime, service_id: int | None = None) -> List[Dict[str, Any]]:
-    """Merge slot and series occurrences and apply overrides (series- and service-level)."""
+    """Mix recurring slots and RRULE series, applying overrides along the way."""
     series_events = expand_between(session, start, end, service_id)
     slot_events = expand_slots_between(session, start, end, service_id)
 

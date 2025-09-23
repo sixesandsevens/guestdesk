@@ -1,3 +1,5 @@
+"""Utilities for overlaying structured data onto PDF templates."""
+
 from __future__ import annotations
 import io
 import json
@@ -10,6 +12,7 @@ from PyPDF2 import PdfReader, PdfWriter
 
 
 def to_points_box(box: Dict[str, Any], W: float, H: float) -> Tuple[float, float, float, float]:
+    """Convert normalized layout coordinates into PDF points."""
     x = float(box.get("x", 0.0)) * W
     w = float(box.get("w", 0.0)) * W
     y_top = float(box.get("y", 0.0))
@@ -20,6 +23,7 @@ def to_points_box(box: Dict[str, Any], W: float, H: float) -> Tuple[float, float
 
 
 def to_points_checkbox(cb: Dict[str, Any], W: float, H: float) -> Tuple[float, float, float]:
+    """Convert normalized checkbox coordinates into PDF points."""
     cx = float(cb.get("cx", 0.0)) * W
     cy = (1.0 - float(cb.get("cy", 0.0))) * H
     size = float(cb.get("size", 0.018)) * min(W, H)
@@ -27,11 +31,13 @@ def to_points_checkbox(cb: Dict[str, Any], W: float, H: float) -> Tuple[float, f
 
 
 def draw_line(c: canvas.Canvas, x: float, y: float, w: float, h: float, text: str, pad: float = 3.0, font: str = "Helvetica", size: int = 10):
+    """Draw a single-line text field using the provided baseline padding."""
     c.setFont(font or "Helvetica", size or 10)
     c.drawString(x, y + float(pad or 0), text or "")
 
 
 def draw_multiline(c: canvas.Canvas, x: float, y: float, w: float, h: float, text: str, size: int = 10, leading: int = 12, align: str = "left", ellipsis: bool = True):
+    """Render multiline text using a Frame wrapper with ReportLab paragraphs."""
     style = ParagraphStyle(
         "f",
         fontName="Helvetica",
@@ -45,6 +51,7 @@ def draw_multiline(c: canvas.Canvas, x: float, y: float, w: float, h: float, tex
 
 
 def draw_checkbox(c: canvas.Canvas, cx: float, cy: float, size: float, checked: bool = True):
+    """Draw a simple X style checkbox at the given center point."""
     half = size / 2.0
     if checked:
         c.setLineWidth(1)
@@ -53,6 +60,7 @@ def draw_checkbox(c: canvas.Canvas, cx: float, cy: float, size: float, checked: 
 
 
 def _render_overlay_page(page_layout: Dict[str, Any], page_w: float, page_h: float, data: Dict[str, Any], baseline_pad_pt: float = 3.0, debug: bool = False) -> bytes:
+    """Build an overlay PDF for a single page according to the v1 JSON schema."""
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(page_w, page_h))
 
@@ -90,6 +98,7 @@ def _render_overlay_page(page_layout: Dict[str, Any], page_w: float, page_h: flo
 
 
 def render_pdf_v1(template_pdf_path: str, layout_json: Dict[str, Any], page_w: float, page_h: float, baseline_pad_pt: float, data: Dict[str, Any], strict_size: bool = True, debug: bool = False) -> bytes:
+    """Overlay rendered fields onto a PDF template using the original schema."""
     reader = PdfReader(template_pdf_path)
     # Strict size check
     for i, pg in enumerate(reader.pages):
@@ -118,6 +127,7 @@ def render_pdf_v1(template_pdf_path: str, layout_json: Dict[str, Any], page_w: f
 
 # ---- New simplified renderer: bottom-left coordinates in points ----
 def _draw_debug(c: canvas.Canvas, page_w: float, page_h: float):
+    """Render a grid overlay that helps visualize coordinates when debugging."""
     try:
         # Light grid each 12pt, bold each 72pt with labels
         c.setLineWidth(0.2)
@@ -183,6 +193,7 @@ def render_pdf(template_path: str, layout_json: Any, data_dict: Dict[str, Any], 
 
     # Compute transform from CropBox to MediaBox
     def _page_geom(pg) -> Tuple[float, float, float, float, float, float]:
+        """Derive CropBox size and offsets relative to the MediaBox."""
         mb = pg.mediabox
         cb = getattr(pg, 'cropbox', None) or mb
         mb_left, mb_bottom, mb_right, mb_top = float(mb.left), float(mb.bottom), float(mb.right), float(mb.top)

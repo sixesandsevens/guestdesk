@@ -1,3 +1,5 @@
+"""iCalendar feed exposing the consolidated services schedule."""
+
 # GuestDesk
 # Copyright (c) 2025 Chris Tant
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
@@ -11,6 +13,7 @@ bp = Blueprint("ics", __name__)
 
 
 def _to_aware(dt_str: str) -> datetime:
+    """Parse ISO-8601 strings and return timezone-aware UTC datetimes."""
     dt = datetime.fromisoformat(dt_str.replace('Z', '+00:00'))
     if dt.tzinfo is None:
         return dt.replace(tzinfo=timezone.utc)
@@ -19,6 +22,7 @@ def _to_aware(dt_str: str) -> datetime:
 
 @bp.get("/calendar.ics")
 def calendar_feed():
+    """Emit the next 90 days of merged occurrences as an ICS file."""
     session_factory = getattr(current_app, "dbs", None)
     if not session_factory:
         return Response("database unavailable", status=503)

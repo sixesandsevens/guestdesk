@@ -1,3 +1,5 @@
+"""Redis Queue instance used by the mailer and other background jobs."""
+
 # GuestDesk
 # Copyright (c) 2025 Chris Tant
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1

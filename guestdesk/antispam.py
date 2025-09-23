@@ -1,3 +1,5 @@
+"""Redis-backed idempotency helpers for guest submissions."""
+
 # GuestDesk
 # Copyright (c) 2025 Chris Tant
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
@@ -11,6 +13,7 @@ _redis = Redis.from_url(os.getenv("REDIS_URL", "redis://localhost:6379/0"))
 
 
 def seen(token: str) -> bool:
+    """Return ``True`` if *token* has already been recorded within the TTL."""
     if not token:
         return False
     key = f"idemp:{token}"
@@ -24,6 +27,7 @@ def seen(token: str) -> bool:
 
 
 def remember(token: str, submission_id: int) -> None:
+    """Persist the submission id so callers can retrieve it after retries."""
     if not token:
         return
     try:
@@ -33,6 +37,7 @@ def remember(token: str, submission_id: int) -> None:
 
 
 def fetch(token: str) -> int | None:
+    """Return the cached submission id for *token*, if it is still available."""
     if not token:
         return None
     try:

@@ -1,1 +1,1 @@
-# package
+"""GuestDesk package marker."""

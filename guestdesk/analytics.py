@@ -1,3 +1,5 @@
+"""Visitor analytics blueprint and storage helpers."""
+
 # GuestDesk
 # Copyright (c) 2025 Chris Tant
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
@@ -21,6 +23,7 @@ SessionLocal = None  # set in init_analytics()
 
 
 def _ip_hash(ip: str, salt: str) -> str | None:
+    """Return a truncated HMAC hash for the given IP address."""
     if not ip or not salt:
         return None
     h = hmac.new(salt.encode("utf-8"), ip.encode("utf-8"), hashlib.sha256).hexdigest()
@@ -28,7 +31,7 @@ def _ip_hash(ip: str, salt: str) -> str | None:
 
 
 def _is_staff_ip(ip: str) -> bool:
-    """Check if the IP is within any CIDR from STAFF_CIDRS config."""
+    """Return ``True`` when the IP falls inside any configured staff CIDR."""
     try:
         raw = (current_app.config.get("STAFF_CIDRS") or "")
         cidrs = [c.strip() for c in raw.split(",") if c.strip()]
@@ -48,6 +51,7 @@ def _is_staff_ip(ip: str) -> bool:
 
 @analytics_bp.post("/collect")
 def collect():
+    """Store a browser session payload emitted by the front-end tracker."""
     if not current_app.config.get("ANALYTICS_ENABLED", True):
         return jsonify({"ok": True, "disabled": True}), 200
 
@@ -60,6 +64,7 @@ def collect():
     now = datetime.utcnow()
 
     def ts(ms, default):
+        """Best-effort conversion from epoch milliseconds to UTC datetime."""
         try:
             return datetime.utcfromtimestamp(int(ms) / 1000.0)
         except Exception:
@@ -131,6 +136,7 @@ def collect():
 
 
 def init_analytics(app, engine):
+    """Bind the SQLAlchemy session factory and register the blueprint."""
     global SessionLocal
     SessionLocal = sessionmaker(bind=engine)
     # Ensure table exists; restrict to AnalyticsEvent

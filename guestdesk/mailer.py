@@ -1,3 +1,5 @@
+"""Email delivery utilities and notification routing helpers."""
+
 # GuestDesk
 # Copyright (c) 2025 Chris Tant
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
@@ -15,6 +17,7 @@ except Exception:  # pragma: no cover
     q = None  # type: ignore
 
 def _env_bool(name: str, default: str = "0") -> bool:
+    """Interpret common truthy values from the environment."""
     return (os.getenv(name, default) or "").strip() in ("1", "true", "True", "yes", "on")
 
 def _smtp_settings():
@@ -55,6 +58,7 @@ def _recipient_for(category: str) -> list[str]:
     cfg = getattr(current_app, "config", {})
 
     def _as_list(val, fallback_key=None):
+        """Normalize comma-separated strings or lists into a list of addresses."""
         if isinstance(val, (list, tuple)):
             return [x for x in val if x]
         if isinstance(val, str) and ',' in val:
@@ -146,6 +150,7 @@ def _deliver_mail_job(subject: str,
                       sender: Optional[str],
                       cc: Optional[list[str]],
                       attachments: Optional[Iterable[tuple]]) -> None:
+    """Background job entry point used when RQ is available."""
     send_mail(
         subject=subject,
         body=body,
@@ -165,6 +170,7 @@ def queue_mail(subject: str,
                cc: Optional[Iterable[str]] = None,
                attachments: Optional[Iterable[tuple]] = None,
                job_timeout: int = 120) -> None:
+    """Schedule an email for delivery or send immediately when queuing fails."""
     if isinstance(to, str):
         to_list = [to]
     else:

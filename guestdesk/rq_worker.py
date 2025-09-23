@@ -1,3 +1,5 @@
+"""Convenience script to run an RQ worker aligned with app settings."""
+
 from rq import Worker, Connection
 from redis import Redis
 import os
