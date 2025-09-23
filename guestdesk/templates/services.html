@@ -8,7 +8,7 @@
   <div class="col-md-6 col-lg-4">
     <div class="card h-100">
       <div class="card-body">
-        <h5 class="card-title"><a href="{{ url_for('service_detail', sid=s.id) }}">{{ s.name }}</a></h5>
+        <h5 class="card-title"><a href="{{ url_for('service_detail', sid=s.id) }}">{{ s.name_i18n }}</a></h5>
         <div class="small mb-2 d-flex gap-2 flex-wrap">
           {% if s.category %}<span class="badge bg-secondary-subtle text-dark">{{ s.category }}</span>{% endif %}
           {% if s.availability == 'on_call' %}<span class="badge bg-warning text-dark">{{ _('On call') }}</span>{% endif %}
@@ -16,10 +16,13 @@
           {% if s.availability == 'hotline' %}<span class="badge bg-danger">{{ _('Hotline') }}</span>{% endif %}
           {% if s.is_offsite %}<span class="badge bg-primary-subtle text-dark">{{ _('Off-site') }}</span>{% endif %}
         </div>
-        <div>{{ s.description }}</div>
+        <div>{{ s.description_i18n }}</div>
       </div>
       <div class="card-footer small text-muted">
-        {{ s.location or '' }} · {{ s.contact or '' }}
+        {{ s.location_i18n }}{% if s.location_i18n and s.contact_i18n %} · {% endif %}{{ s.contact_i18n }}
+        {% if s.schedule_note_i18n %}
+          <div class="mt-1">{{ s.schedule_note_i18n }}</div>
+        {% endif %}
       </div>
     </div>
   </div>

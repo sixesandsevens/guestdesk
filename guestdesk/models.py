@@ -11,17 +11,57 @@ class Service(Base):
     __tablename__ = 'services'
     id = Column(Integer, primary_key=True)
     name = Column(String(120), nullable=False)
+    name_en = Column(String(120), nullable=True)
+    name_es = Column(String(120), nullable=True)
     category = Column(String(64), nullable=False) # Food, Showers, Laundry, Mail, ID, Medical, Legal, Employment, Transport, Other
     # Availability mode: 'scheduled' | 'on_call' | 'by_appt' | 'hotline'
     availability = Column(String(20), nullable=False, default='scheduled')
     # Off-site / phone-only / mobile unit flag
     is_offsite = Column(Boolean, nullable=False, default=False)
     description = Column(Text, nullable=True)
+    description_en = Column(Text, nullable=True)
+    description_es = Column(Text, nullable=True)
     location = Column(String(120), nullable=True)
+    location_en = Column(String(120), nullable=True)
+    location_es = Column(String(120), nullable=True)
     contact = Column(String(120), nullable=True)
+    contact_en = Column(String(120), nullable=True)
+    contact_es = Column(String(120), nullable=True)
     schedule_note = Column(String(200), nullable=True)
+    schedule_note_en = Column(String(200), nullable=True)
+    schedule_note_es = Column(String(200), nullable=True)
     external_link = Column(String(200), nullable=True)
     slots = relationship("ProgramSlot", back_populates="service", cascade="all, delete-orphan", order_by="ProgramSlot.dow")
+
+    def _pick_locale(self, value_en: str | None, value_es: str | None, fallback: str | None = None) -> str | None:
+        from flask_babel import get_locale
+        locale = str(get_locale() or 'en').lower()
+        if locale.startswith('es') and value_es:
+            return value_es
+        if locale.startswith('en') and value_en:
+            return value_en
+        # fallback: prefer English, then raw
+        return value_en or fallback or value_es
+
+    @property
+    def name_i18n(self) -> str:
+        return self._pick_locale(self.name_en, self.name_es, self.name) or ''
+
+    @property
+    def description_i18n(self) -> str:
+        return self._pick_locale(self.description_en, self.description_es, self.description) or ''
+
+    @property
+    def location_i18n(self) -> str:
+        return self._pick_locale(self.location_en, self.location_es, self.location) or ''
+
+    @property
+    def contact_i18n(self) -> str:
+        return self._pick_locale(self.contact_en, self.contact_es, self.contact) or ''
+
+    @property
+    def schedule_note_i18n(self) -> str:
+        return self._pick_locale(self.schedule_note_en, self.schedule_note_es, self.schedule_note) or ''
 
 class ProgramSlot(Base):
     __tablename__ = 'program_slots'

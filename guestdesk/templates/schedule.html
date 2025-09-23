@@ -10,8 +10,8 @@
         <ul class="list-unstyled">
           {% for svc, slot in matrix[i] %}
             <li class="mb-2">
-              <strong>{{ svc.name }}</strong> — {{ slot.start|h12 or '?' }}–{{ slot.end|h12 or '?' }}
-              <span class="text-muted small">({{ svc.location or _('on-site') }})</span>
+              <strong>{{ svc.name_i18n }}</strong> — {{ slot.start|h12 or '?' }}–{{ slot.end|h12 or '?' }}
+              <span class="text-muted small">({{ svc.location_i18n or _('on-site') }})</span>
               {% if slot.note %}<div class="small text-muted">{{ slot.note }}</div>{% endif %}
             </li>
           {% else %}

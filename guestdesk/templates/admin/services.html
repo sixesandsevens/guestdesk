@@ -14,8 +14,11 @@
     {% for s in rows %}
     <tr>
       <td>
-        <a href="{{ url_for('service_detail', sid=s.id) }}">{{ s.name }}</a>
-        <div class="small"><a href="{{ url_for('admin_services_edit', sid=s.id) }}">Edit</a></div>
+        <a href="{{ url_for('service_detail', sid=s.id) }}">{{ s.name_en or s.name }}</a>
+        <div class="small d-flex flex-wrap gap-2">
+          <a href="{{ url_for('admin_services_edit', sid=s.id) }}">Edit</a>
+          {% if not s.name_es or not s.description_es %}<span class="badge bg-warning text-dark">ES translation needed</span>{% endif %}
+        </div>
       </td>
       <td class="small">
         {% if s.category %}<span class="badge bg-secondary-subtle text-dark">{{ s.category }}</span>{% endif %}
@@ -24,8 +27,8 @@
         {% if s.availability == 'hotline' %}<span class="badge bg-danger">Hotline</span>{% endif %}
         {% if s.is_offsite %}<span class="badge bg-primary-subtle text-dark">Off-site</span>{% endif %}
       </td>
-      <td>{{ s.location }}</td>
-      <td>{{ s.contact }}</td>
+      <td>{{ s.location_en or s.location }}</td>
+      <td>{{ s.contact_en or s.contact }}</td>
       <td>
         <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_slots', sid=s.id) }}">Slots</a>
         <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_services_calendar_one', sid=s.id) }}">Calendar</a>

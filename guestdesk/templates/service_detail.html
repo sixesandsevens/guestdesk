@@ -1,17 +1,18 @@
 {% extends 'base.html' %}
 
 {% block content %}
-<h4 class="mb-2">{{ s.name }}</h4>
+<h4 class="mb-2">{{ s.name_i18n }}</h4>
 <div class="d-flex align-items-center gap-2 flex-wrap mb-2">
   {% if s.category %}<span class="badge bg-secondary-subtle text-dark">{{ s.category }}</span>{% endif %}
   {% if s.availability == 'on_call' %}<span class="badge bg-warning text-dark">{{ _('On call') }}</span>{% endif %}
   {% if s.availability == 'by_appt' %}<span class="badge bg-info text-dark">{{ _('By appointment') }}</span>{% endif %}
   {% if s.availability == 'hotline' %}<span class="badge bg-danger">{{ _('Hotline') }}</span>{% endif %}
   {% if s.is_offsite %}<span class="badge bg-primary-subtle text-dark">{{ _('Off-site / Mobile') }}</span>{% endif %}
-  {% if s.location %}<span class="small text-muted">{{ s.location }}</span>{% endif %}
-  {% if s.contact %}<span class="small text-muted">{{ s.contact }}</span>{% endif %}
+  {% if s.location_i18n %}<span class="small text-muted">{{ s.location_i18n }}</span>{% endif %}
+  {% if s.contact_i18n %}<span class="small text-muted">{{ s.contact_i18n }}</span>{% endif %}
 </div>
-<p>{{ s.description }}</p>
+<p>{{ s.description_i18n }}</p>
+{% if s.schedule_note_i18n %}<p class="text-muted small">{{ s.schedule_note_i18n }}</p>{% endif %}
 {% if s.external_link %}<p><a href="{{ s.external_link }}" target="_blank" rel="noopener">{{ _('Learn more') }}</a></p>{% endif %}
 
 <h6>{{ _('Weekly Times') }}</h6>

@@ -6,11 +6,69 @@
 <h4 class="mb-3">Edit Service</h4>
 <form method="post">
   {{ csrf() }}
-  <div class="row g-2">
+  <div class="row g-3">
     <div class="col-md-6">
-      <label class="form-label">Name</label>
-      <input name="name" class="form-control" required value="{{ service.name }}">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="mb-2">English</h6>
+          <div class="mb-2">
+            <label class="form-label">Name (EN)</label>
+            <input name="name_en" class="form-control" required value="{{ service.name_en or service.name }}">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Description (EN)</label>
+            <textarea name="description_en" class="form-control" rows="5">{{ service.description_en or service.description }}</textarea>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label">Location (EN)</label>
+              <input name="location_en" class="form-control" value="{{ service.location_en or service.location }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Contact (EN)</label>
+              <input name="contact_en" class="form-control" value="{{ service.contact_en or service.contact }}">
+            </div>
+          </div>
+          <div class="mt-2">
+            <label class="form-label">Schedule Note (EN)</label>
+            <input name="schedule_note_en" class="form-control" value="{{ service.schedule_note_en or service.schedule_note }}">
+          </div>
+        </div>
+      </div>
     </div>
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-body">
+          <h6 class="mb-2">Español {% if not service.name_es or not service.description_es %}<span class="badge bg-warning text-dark">Needs translation</span>{% endif %}</h6>
+          <div class="mb-2">
+            <label class="form-label">Nombre (ES)</label>
+            <input name="name_es" class="form-control" value="{{ service.name_es }}">
+          </div>
+          <div class="mb-2">
+            <label class="form-label">Descripción (ES)</label>
+            <textarea name="description_es" class="form-control" rows="5">{{ service.description_es }}</textarea>
+          </div>
+          <div class="row g-2">
+            <div class="col-md-6">
+              <label class="form-label">Ubicación (ES)</label>
+              <input name="location_es" class="form-control" value="{{ service.location_es }}">
+            </div>
+            <div class="col-md-6">
+              <label class="form-label">Contacto (ES)</label>
+              <input name="contact_es" class="form-control" value="{{ service.contact_es }}">
+            </div>
+          </div>
+          <div class="mt-2">
+            <label class="form-label">Nota de horario (ES)</label>
+            <input name="schedule_note_es" class="form-control" value="{{ service.schedule_note_es }}">
+          </div>
+          <small class="text-muted">Leave blank to fall back to the English copy.</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-2 mt-3">
     <div class="col-md-6">
       <label class="form-label">Category</label>
       <select name="category" class="form-select">
@@ -40,26 +98,8 @@
   </div>
 
   <div class="mb-2 mt-2">
-    <label class="form-label">Description</label>
-    <textarea name="description" class="form-control" rows="5">{{ service.description }}</textarea>
-  </div>
-  <div class="row g-2">
-    <div class="col-md-4">
-      <label class="form-label">Location</label>
-      <input name="location" class="form-control" value="{{ service.location }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">Contact</label>
-      <input name="contact" class="form-control" value="{{ service.contact }}">
-    </div>
-    <div class="col-md-4">
-      <label class="form-label">External Link</label>
-      <input name="external_link" class="form-control" placeholder="http(s)://" value="{{ service.external_link }}">
-    </div>
-  </div>
-  <div class="mb-2">
-    <label class="form-label">Schedule Note (optional)</label>
-    <input name="schedule_note" class="form-control" placeholder="e.g., 'Mon/Wed 9–11 at Big House'" value="{{ service.schedule_note }}">
+    <label class="form-label">External Link</label>
+    <input name="external_link" class="form-control" placeholder="http(s)://" value="{{ service.external_link }}">
   </div>
   <button class="btn btn-primary">Save Changes</button>
   <a class="btn btn-outline-secondary" href="{{ url_for('admin_services') }}">Cancel</a>

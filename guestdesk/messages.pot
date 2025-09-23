@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PROJECT VERSION\n"
 "Report-Msgid-Bugs-To: EMAIL@ADDRESS\n"
-"POT-Creation-Date: 2025-09-19 22:50-0400\n"
+"POT-Creation-Date: 2025-09-19 23:12-0400\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,279 +17,251 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.17.0\n"
 
-#: app.py:534 app.py:540
-msgid "Mon"
-msgstr ""
-
-#: app.py:534 app.py:540
-msgid "Tue"
-msgstr ""
-
-#: app.py:534 app.py:540
-msgid "Wed"
-msgstr ""
-
-#: app.py:534 app.py:540
-msgid "Thu"
-msgstr ""
-
-#: app.py:534 app.py:540
-msgid "Fri"
-msgstr ""
-
-#: app.py:534 app.py:540
-msgid "Sat"
-msgstr ""
-
-#: app.py:534 app.py:540
-msgid "Sun"
-msgstr ""
-
-#: app.py:575
+#: app.py:606
 msgid "Please upload a JPG, PNG, or GIF image."
 msgstr ""
 
-#: app.py:583
+#: app.py:614
 msgid "Could not read the uploaded photo. Please try again."
 msgstr ""
 
-#: app.py:586
+#: app.py:617
 msgid "The uploaded photo appears to be empty. Please choose a different file."
 msgstr ""
 
-#: app.py:603
+#: app.py:634
 msgid "Please add some details."
 msgstr ""
 
-#: app.py:635
+#: app.py:666
 msgid "Looks like this submission was already received. We kept the earlier one."
 msgstr ""
 
-#: app.py:637
+#: app.py:668
 msgid "Looks like this submission was already received. Thanks for your patience!"
 msgstr ""
 
-#: app.py:663
+#: app.py:694
 msgid ""
 "Looks like this maintenance request was already received a moment ago. We"
 " will use the earlier one."
 msgstr ""
 
-#: app.py:696
+#: app.py:727
 msgid "Could not save the uploaded photo. Please try again."
 msgstr ""
 
-#: app.py:828 mailer.py:224 templates/report.html:8
+#: app.py:859 mailer.py:224 templates/report.html:8
 #: templates/submit_kind.html:7
 msgid "Maintenance Issue"
 msgstr ""
 
-#: app.py:829 mailer.py:225
+#: app.py:860 mailer.py:225
 msgid "Grievance"
 msgstr ""
 
-#: app.py:830 mailer.py:226 templates/report.html:10
+#: app.py:861 mailer.py:226 templates/report.html:10
 #: templates/submit_kind.html:9
 msgid "Suggestion / Idea"
 msgstr ""
 
-#: app.py:831 mailer.py:227
+#: app.py:862 mailer.py:227
 msgid "Question"
 msgstr ""
 
-#: app.py:834
+#: app.py:865
 msgid "[GuestDesk] Maintenance Issue"
 msgstr ""
 
-#: app.py:835
+#: app.py:866
 msgid "[GuestDesk] Grievance"
 msgstr ""
 
-#: app.py:836
+#: app.py:867
 msgid "[GuestDesk] Suggestion / Idea"
 msgstr ""
 
-#: app.py:837
+#: app.py:868
 msgid "[GuestDesk] Question"
 msgstr ""
 
-#: app.py:839
+#: app.py:870
 msgid "[GuestDesk] Submission"
 msgstr ""
 
-#: app.py:855
+#: app.py:886
 msgid "A new grievance has been submitted."
 msgstr ""
 
-#: app.py:856
+#: app.py:887
 #, python-format
 msgid "ID: %(case)s"
 msgstr ""
 
-#: app.py:857
+#: app.py:888
 #, python-format
 msgid "Submitted: %(timestamp)s"
 msgstr ""
 
-#: app.py:858
+#: app.py:889
 #, python-format
 msgid "From: %(name)s (%(contact)s)"
 msgstr ""
 
-#: app.py:860
+#: app.py:891
 msgid "not provided"
 msgstr ""
 
-#: app.py:862 app.py:897 mailer.py:240
+#: app.py:893 app.py:928 mailer.py:240
 msgid "Message:"
 msgstr ""
 
-#: app.py:866
+#: app.py:897
 #, python-format
 msgid "Attachments: %(info)s"
 msgstr ""
 
-#: app.py:868
+#: app.py:899
 #, python-format
 msgid "[GuestDesk] Grievance %(case)s"
 msgstr ""
 
-#: app.py:889 mailer.py:231
+#: app.py:920 mailer.py:231
 #, python-format
 msgid "Category: %(category)s"
 msgstr ""
 
-#: app.py:890
+#: app.py:921
 #, python-format
 msgid "Subject: %(value)s"
 msgstr ""
 
-#: app.py:891 mailer.py:232
+#: app.py:922 mailer.py:232
 #, python-format
 msgid "Name: %(value)s"
 msgstr ""
 
-#: app.py:892 mailer.py:233
+#: app.py:923 mailer.py:233
 #, python-format
 msgid "Email: %(value)s"
 msgstr ""
 
-#: app.py:893 mailer.py:234
+#: app.py:924 mailer.py:234
 #, python-format
 msgid "Phone: %(value)s"
 msgstr ""
 
-#: app.py:894 mailer.py:235
+#: app.py:925 mailer.py:235
 #, python-format
 msgid "Page URL: %(value)s"
 msgstr ""
 
-#: app.py:895 mailer.py:236
+#: app.py:926 mailer.py:236
 #, python-format
 msgid "Extra: %(value)s"
 msgstr ""
 
-#: app.py:1177
+#: app.py:1208
 msgid "Username and password required."
 msgstr ""
 
-#: app.py:1180 app.py:2097
+#: app.py:1211 app.py:2172
 msgid "Username already exists."
 msgstr ""
 
-#: app.py:1190
+#: app.py:1221
 msgid "Account created. Awaiting staff approval before login."
 msgstr ""
 
-#: app.py:1205
+#: app.py:1236
 msgid "Account pending approval. Please contact an administrator."
 msgstr ""
 
-#: app.py:1211
+#: app.py:1242
 msgid "Welcome back."
 msgstr ""
 
-#: app.py:1213
+#: app.py:1244
 msgid "Wrong username or password."
 msgstr ""
 
-#: app.py:1287
+#: app.py:1318
 msgid "Email settings updated."
 msgstr ""
 
-#: app.py:1754
+#: app.py:1807
 msgid "Service created."
 msgstr ""
 
-#: app.py:1794
+#: app.py:1869
 msgid "Service updated."
 msgstr ""
 
-#: app.py:1816
+#: app.py:1891
 msgid "Service deleted."
 msgstr ""
 
-#: app.py:1847
+#: app.py:1922
 msgid "Time slot added."
 msgstr ""
 
-#: app.py:1872
+#: app.py:1947
 msgid "Slot deleted."
 msgstr ""
 
-#: app.py:1903
+#: app.py:1978
 msgid "Announcement posted."
 msgstr ""
 
-#: app.py:1915
+#: app.py:1990
 msgid "Announcement deleted."
 msgstr ""
 
-#: app.py:2014
+#: app.py:2089
 msgid "No submissions to delete."
 msgstr ""
 
-#: app.py:2022
+#: app.py:2097
 msgid "Could not clear submissions. Check logs for details."
 msgstr ""
 
-#: app.py:2063
+#: app.py:2138
 msgid "Could not clear leaderboard. Check logs for details."
 msgstr ""
 
-#: app.py:2090
+#: app.py:2165
 msgid "Username and password are required."
 msgstr ""
 
-#: app.py:2093 app.py:2152
+#: app.py:2168 app.py:2227
 msgid "Invalid role."
 msgstr ""
 
-#: app.py:2113
+#: app.py:2188
 msgid "User created."
 msgstr ""
 
-#: app.py:2125
+#: app.py:2200
 msgid "You can't delete yourself."
 msgstr ""
 
-#: app.py:2136
+#: app.py:2211
 msgid "User deleted."
 msgstr ""
 
-#: app.py:2173
+#: app.py:2248
 msgid "User updated."
 msgstr ""
 
-#: app.py:2274
+#: app.py:2349
 msgid "Select a PDF to upload."
 msgstr ""
 
-#: app.py:2300
+#: app.py:2375
 msgid "Template uploaded."
 msgstr ""
 
-#: app.py:2357
+#: app.py:2432
 msgid "Layout saved."
 msgstr ""
 
@@ -304,7 +276,7 @@ msgid "Announcements"
 msgstr ""
 
 #: templates/announcements.html:14 templates/home.html:37
-#: templates/schedule.html:18 templates/services.html:27
+#: templates/schedule.html:18 templates/services.html:30
 msgid "Nothing here yet. Check back soon."
 msgstr ""
 
@@ -412,58 +384,58 @@ msgstr ""
 msgid "Off-site / Mobile"
 msgstr ""
 
-#: templates/service_detail.html:15
+#: templates/service_detail.html:16
 msgid "Learn more"
 msgstr ""
 
-#: templates/service_detail.html:17
+#: templates/service_detail.html:18
 msgid "Weekly Times"
 msgstr ""
 
-#: templates/service_detail.html:21
+#: templates/service_detail.html:22
 msgid "Day"
 msgstr ""
 
-#: templates/service_detail.html:21
+#: templates/service_detail.html:22
 msgid "Start"
 msgstr ""
 
-#: templates/service_detail.html:21
+#: templates/service_detail.html:22
 msgid "End"
 msgstr ""
 
-#: templates/service_detail.html:21
+#: templates/service_detail.html:22
 msgid "Note"
 msgstr ""
 
-#: templates/service_detail.html:36
+#: templates/service_detail.html:37
 #, python-format
 msgid "No fixed schedule. This service is %(mode)s and responds to requests."
 msgstr ""
 
-#: templates/service_detail.html:36
+#: templates/service_detail.html:37
 msgid "on call"
 msgstr ""
 
-#: templates/service_detail.html:38
+#: templates/service_detail.html:39
 #, python-format
 msgid "No fixed schedule. Available %(mode)s."
 msgstr ""
 
-#: templates/service_detail.html:38
+#: templates/service_detail.html:39
 msgid "by appointment"
 msgstr ""
 
-#: templates/service_detail.html:40
+#: templates/service_detail.html:41
 #, python-format
 msgid "This is a %(type)s. Call anytime."
 msgstr ""
 
-#: templates/service_detail.html:40
+#: templates/service_detail.html:41
 msgid "hotline"
 msgstr ""
 
-#: templates/service_detail.html:42
+#: templates/service_detail.html:43
 msgid "No posted times."
 msgstr ""
 

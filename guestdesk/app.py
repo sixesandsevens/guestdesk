@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import csv
 import math
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, time as dtime
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import io
@@ -37,6 +37,7 @@ from flask_babel import (
     format_currency,
     format_number,
 )
+from babel.dates import get_day_names
 from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting, FormPDFConfig, GameScore
 from . import pdf_config
 from guestdesk.analytics import init_analytics
@@ -203,6 +204,12 @@ def create_app():
         minutes %= 60
         return f"{hours:02d}:{minutes:02d}"
 
+    def _weekday_labels(width: str = 'abbreviated') -> list[str]:
+        locale = str(get_locale() or 'en')
+        names = get_day_names(width, locale=locale)
+        order = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
+        return [names.get(key, names.get(key.upper(), key.title())) for key in order]
+
     def _parse_upload_limit(raw):
         if raw is None:
             return None
@@ -255,17 +262,15 @@ def create_app():
     # Email is handled via guestdesk.mailer using env-driven SMTP; no Flask-Mail init needed.
     # Feature flags (available to templates)
     app.config.setdefault("SHOW_HOME_SERVICES", False)
-    # --- Jinja filter: "HH:MM" (24h) -> "h:MM AM/PM"
+    # --- Jinja filter: "HH:MM" (24h) -> locale-aware time string
     def h12(t: str) -> str:
         if not t:
             return ""
         try:
-            parts = (t or "").split(":")
-            h = int(parts[0])
-            m = int(parts[1])
-            ap = "AM" if h < 12 else "PM"
-            h = (h % 12) or 12
-            return f"{h}:{m:02d} {ap}"
+            parts = (t or "").split(":", 1)
+            hours = int(parts[0])
+            minutes = int(parts[1][:2]) if len(parts) > 1 else 0
+            return format_time(dtime(hour=hours, minute=minutes), format="short")
         except Exception:
             # If the value isn't HH:MM, just show it as-is
             return t
@@ -331,6 +336,32 @@ def create_app():
                 conn.exec_driver_sql("ALTER TABLE services ADD COLUMN availability TEXT NOT NULL DEFAULT 'scheduled'")
             if 'is_offsite' not in s_cols:
                 conn.exec_driver_sql('ALTER TABLE services ADD COLUMN is_offsite INTEGER NOT NULL DEFAULT 0')
+            if 'name_en' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN name_en TEXT')
+            if 'name_es' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN name_es TEXT')
+            if 'description_en' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN description_en TEXT')
+            if 'description_es' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN description_es TEXT')
+            if 'location_en' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN location_en TEXT')
+            if 'location_es' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN location_es TEXT')
+            if 'contact_en' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN contact_en TEXT')
+            if 'contact_es' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN contact_es TEXT')
+            if 'schedule_note_en' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN schedule_note_en TEXT')
+            if 'schedule_note_es' not in s_cols:
+                conn.exec_driver_sql('ALTER TABLE services ADD COLUMN schedule_note_es TEXT')
+            # backfill defaults when columns newly added
+            conn.exec_driver_sql("UPDATE services SET name_en = name WHERE name_en IS NULL")
+            conn.exec_driver_sql("UPDATE services SET description_en = description WHERE description_en IS NULL")
+            conn.exec_driver_sql("UPDATE services SET location_en = location WHERE location_en IS NULL")
+            conn.exec_driver_sql("UPDATE services SET contact_en = contact WHERE contact_en IS NULL")
+            conn.exec_driver_sql("UPDATE services SET schedule_note_en = schedule_note WHERE schedule_note_en IS NULL")
             # AnalyticsEvent columns (backfill if missing)
             a_cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(analytics_events)').all()]
             for col, ddl in [
@@ -522,7 +553,7 @@ def create_app():
         q = db.query(Service)
         if cat:
             q = q.filter(Service.category == cat)
-        rows = q.order_by(Service.category, Service.name).all()
+        rows = q.order_by(Service.category, func.lower(func.coalesce(Service.name_en, Service.name))).all()
         return render_template('services.html', rows=rows, cat=cat)
 
     @app.route('/service/<int:sid>')
@@ -531,14 +562,14 @@ def create_app():
         s = db.get(Service, sid)
         if not s:
             abort(404)
-        days = [_("Mon"), _("Tue"), _("Wed"), _("Thu"), _("Fri"), _("Sat"), _("Sun")]
+        days = _weekday_labels('wide')
         return render_template('service_detail.html', s=s, days=days)
 
     @app.route('/schedule')
     def schedule():
         db = dbs()
-        days = [_("Mon"), _("Tue"), _("Wed"), _("Thu"), _("Fri"), _("Sat"), _("Sun")]
-        services = db.query(Service).order_by(Service.category, Service.name).all()
+        days = _weekday_labels('abbreviated')
+        services = db.query(Service).order_by(Service.category, func.lower(func.coalesce(Service.name_en, Service.name))).all()
         # Build weekly matrix
         matrix = {i: [] for i in range(7)}
         for svc in services:
@@ -1728,16 +1759,38 @@ def create_app():
     def admin_services_new():
         if request.method == 'POST':
             db = dbs()
+            def _clean(value: str | None) -> str:
+                return (value or '').strip()
+            name_en = _clean(request.form.get('name_en')) or 'Unnamed'
+            name_es = _clean(request.form.get('name_es'))
+            desc_en = _clean(request.form.get('description_en'))
+            desc_es = _clean(request.form.get('description_es'))
+            location_en = _clean(request.form.get('location_en'))
+            location_es = _clean(request.form.get('location_es'))
+            contact_en = _clean(request.form.get('contact_en'))
+            contact_es = _clean(request.form.get('contact_es'))
+            note_en = _clean(request.form.get('schedule_note_en'))
+            note_es = _clean(request.form.get('schedule_note_es'))
             s = Service(
-                name=request.form.get('name') or 'Unnamed',
+                name=name_en,
+                name_en=name_en,
+                name_es=name_es or None,
                 category=request.form.get('category') or 'Other',
                 availability=(request.form.get('availability') or 'scheduled'),
                 is_offsite=bool(request.form.get('is_offsite')),
-                description=request.form.get('description') or '',
-                location=request.form.get('location') or '',
-                contact=request.form.get('contact') or '',
-                schedule_note=request.form.get('schedule_note') or '',
-                external_link=request.form.get('external_link') or '',
+                description=desc_en or '',
+                description_en=desc_en or None,
+                description_es=desc_es or None,
+                location=location_en,
+                location_en=location_en or None,
+                location_es=location_es or None,
+                contact=contact_en,
+                contact_en=contact_en or None,
+                contact_es=contact_es or None,
+                schedule_note=note_en,
+                schedule_note_en=note_en or None,
+                schedule_note_es=note_es or None,
+                external_link=_clean(request.form.get('external_link')) or '',
             )
             db.add(s)
             db.commit()
@@ -1763,21 +1816,43 @@ def create_app():
         if not s:
             abort(404)
         if request.method == 'POST':
+            def _clean(value: str | None) -> str:
+                return (value or '').strip()
             before_data = {
                 "name": s.name,
                 "category": s.category,
                 "availability": s.availability,
                 "is_offsite": s.is_offsite,
             }
-            s.name = request.form.get('name') or s.name
+            name_en = _clean(request.form.get('name_en')) or s.name_en or s.name
+            name_es = _clean(request.form.get('name_es'))
+            s.name = name_en or s.name
+            s.name_en = name_en or None
+            s.name_es = name_es or None
             s.category = request.form.get('category') or s.category
             s.availability = request.form.get('availability') or s.availability
             s.is_offsite = bool(request.form.get('is_offsite'))
-            s.description = request.form.get('description') or ''
-            s.location = request.form.get('location') or ''
-            s.contact = request.form.get('contact') or ''
-            s.schedule_note = request.form.get('schedule_note') or ''
-            s.external_link = request.form.get('external_link') or ''
+            desc_en = _clean(request.form.get('description_en'))
+            desc_es = _clean(request.form.get('description_es'))
+            s.description = desc_en or ''
+            s.description_en = desc_en or None
+            s.description_es = desc_es or None
+            loc_en = _clean(request.form.get('location_en'))
+            loc_es = _clean(request.form.get('location_es'))
+            s.location = loc_en or ''
+            s.location_en = loc_en or None
+            s.location_es = loc_es or None
+            contact_en = _clean(request.form.get('contact_en'))
+            contact_es = _clean(request.form.get('contact_es'))
+            s.contact = contact_en or ''
+            s.contact_en = contact_en or None
+            s.contact_es = contact_es or None
+            note_en = _clean(request.form.get('schedule_note_en'))
+            note_es = _clean(request.form.get('schedule_note_es'))
+            s.schedule_note = note_en or ''
+            s.schedule_note_en = note_en or None
+            s.schedule_note_es = note_es or None
+            s.external_link = _clean(request.form.get('external_link')) or ''
             db.commit()
             audit_log(
                 "service.update",
