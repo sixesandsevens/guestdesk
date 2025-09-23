@@ -186,4 +186,4 @@ GuestDesk is released under the **GuestDesk Community License v1.1** (`LicenseRe
 - 🚫 Commercial deployments require written approval.
 - ❤️ Built to support vulnerable communities—no exploitative uses.
 
-Read the full text in [LICENSE](LICENSE) and contact `chris@gracemarketplace.org` with commercial-use questions.
+Read the full text in [LICENSE](LICENSE) and contact `ctanton@gracemarketplace.org` with commercial-use questions.
