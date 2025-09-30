@@ -1,0 +1,23 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-md-6 col-lg-5 col-xl-4">
+    <div class="card">
+      <div class="card-body">
+        <h5 class="card-title">{{ _('Account settings') }}</h5>
+        <p class="text-muted">{{ _('Keep your recovery email up to date so you can reset your password if you get locked out.') }}</p>
+        <form method="post" novalidate>
+          {{ csrf() }}
+          <div class="mb-3">
+            <label class="form-label" for="email">{{ _('Recovery email') }}</label>
+            <input class="form-control" type="email" id="email" name="email" value="{{ email|default('') }}" required>
+          </div>
+          <button class="btn btn-primary">{{ _('Save changes') }}</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

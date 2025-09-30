@@ -5,6 +5,8 @@ from __future__ import annotations
 import os
 import csv
 import math
+import secrets
+import hashlib
 from datetime import datetime, timedelta, timezone, time as dtime
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -38,7 +40,21 @@ from flask_babel import (
     format_number,
 )
 from babel.dates import get_day_names
-from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting, FormPDFConfig, GameScore
+from .models import (
+    Base,
+    Service,
+    ProgramSlot,
+    Announcement,
+    Submission,
+    User,
+    UserContact,
+    PasswordResetToken,
+    ServiceSeries,
+    ServiceOverride,
+    Setting,
+    FormPDFConfig,
+    GameScore,
+)
 from . import pdf_config
 from guestdesk.analytics import init_analytics
 from .services_calendar import expand_between
@@ -271,6 +287,7 @@ def create_app():
     # Email is handled via guestdesk.mailer using env-driven SMTP; no Flask-Mail init needed.
     # Feature flags (available to templates)
     app.config.setdefault("SHOW_HOME_SERVICES", False)
+    app.config.setdefault("PASSWORD_RESET_EXPIRY_MINUTES", int(os.getenv('PASSWORD_RESET_EXPIRY_MINUTES', '60')))
     # --- Jinja filter: "HH:MM" (24h) -> locale-aware time string
     def h12(t: str) -> str:
         """Render ``HH:MM`` values using the current locale's 12-hour format."""
@@ -1238,7 +1255,16 @@ def create_app():
                 approved=True,
             )
             db.add(admin)
-            db.commit()
+            try:
+                db.flush()
+                admin_email = (app.config.get('ADMIN_EMAIL') or '').strip().lower()
+                if admin_email:
+                    db.add(UserContact(user_id=admin.id, email=admin_email))
+                db.commit()
+            except Exception:
+                db.rollback()
+                db.add(admin)
+                db.commit()
 
     @app.route('/signup', methods=['GET', 'POST'])
     def signup():
@@ -1247,11 +1273,18 @@ def create_app():
         if request.method == 'POST':
             username = (request.form.get('username') or '').strip()
             password = request.form.get('password') or ''
-            if not username or not password:
-                flash(_('Username and password required.'), 'danger')
+            email = (request.form.get('email') or '').strip().lower()
+            if not username or not password or not email:
+                flash(_('Username, password, and email are required.'), 'danger')
+                return render_template('signup.html', form=request.form)
+            if '@' not in email or '.' not in email.split('@')[-1]:
+                flash(_('Please provide a valid email address.'), 'danger')
                 return render_template('signup.html', form=request.form)
             if db.query(User).filter(User.username == username).first():
                 flash(_('Username already exists.'), 'danger')
+                return render_template('signup.html', form=request.form)
+            if db.query(UserContact).filter(func.lower(UserContact.email) == email).first():
+                flash(_('Email address is already associated with an account.'), 'danger')
                 return render_template('signup.html', form=request.form)
             u = User(
                 username=username,
@@ -1260,10 +1293,28 @@ def create_app():
                 approved=False,
             )
             db.add(u)
-            db.commit()
+            try:
+                db.flush()
+                db.add(UserContact(user_id=u.id, email=email))
+                db.commit()
+            except Exception:
+                db.rollback()
+                flash(_('Unable to create account right now. Please try again later.'), 'danger')
+                return render_template('signup.html', form=request.form)
             flash(_('Account created. Awaiting staff approval before login.'), 'success')
             return redirect(url_for('home'))
         return render_template('signup.html', form={})
+
+    def _hash_token(raw: str) -> str:
+        """Return a stable SHA-256 hex digest for the supplied token."""
+        return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+    def _client_ip() -> str | None:
+        """Best-effort client IP address for audit trails."""
+        forwarded = request.headers.get('X-Forwarded-For', '')
+        if forwarded:
+            return forwarded.split(',')[0].strip()
+        return request.remote_addr
 
     @app.route('/login', methods=['GET', 'POST'])
     @limiter.limit("5/minute")
@@ -1284,9 +1335,155 @@ def create_app():
                 session['username'] = u.username
                 session['role'] = u.role
                 flash(_('Welcome back.'), 'success')
+                try:
+                    if not getattr(u, 'contact', None):
+                        flash(_('Add a recovery email so you can reset your password later.'), 'info')
+                except Exception:
+                    pass
                 return redirect(next_url)
             flash(_('Wrong username or password.'), 'danger')
         return render_template('login.html')
+
+    @app.route('/login/forgot', methods=['GET', 'POST'])
+    @limiter.limit("5/hour")
+    def forgot_password():
+        """Initiate a password reset email for a staff account."""
+        db = dbs()
+        if request.method == 'POST':
+            email = (request.form.get('email') or '').strip().lower()
+            if not email or '@' not in email:
+                flash(_('Please enter a valid email address.'), 'danger')
+                return render_template('forgot_password.html', email=email)
+
+            # Expire very old tokens opportunistically
+            try:
+                db.query(PasswordResetToken).filter(PasswordResetToken.expires_at < datetime.utcnow() - timedelta(days=1)).delete()
+            except Exception:
+                db.rollback()
+
+            contact = db.query(UserContact).filter(func.lower(UserContact.email) == email).first()
+            if contact and contact.user and getattr(contact.user, 'approved', True):
+                # Void prior unused tokens
+                for existing in db.query(PasswordResetToken).filter(PasswordResetToken.user_id == contact.user_id, PasswordResetToken.used_at.is_(None)).all():
+                    existing.used_at = datetime.utcnow()
+                token = secrets.token_urlsafe(48)
+                token_hash = _hash_token(token)
+                minutes = int(app.config.get('PASSWORD_RESET_EXPIRY_MINUTES', 60))
+                reset = PasswordResetToken(
+                    user_id=contact.user_id,
+                    token_hash=token_hash,
+                    expires_at=datetime.utcnow() + timedelta(minutes=minutes),
+                    request_ip=_client_ip(),
+                    user_agent=(request.headers.get('User-Agent') or '')[:200],
+                )
+                db.add(reset)
+                try:
+                    db.commit()
+                    reset_url = url_for('reset_password', token=token, _external=True)
+                    subject = _('GuestDesk password reset request')
+                    body = _(
+                        "Someone requested a password reset for your GuestDesk staff account.\n\n"
+                        "Use the link below to choose a new password. It expires in %(minutes)d minutes.\n\n"
+                        "%(link)s\n\nIf you did not request this, you can ignore this email.",
+                        minutes=minutes,
+                        link=reset_url,
+                    )
+                    try:
+                        queue_mail(subject=subject, body=body, to=[contact.email])
+                    except Exception as exc:
+                        app.logger.exception('Failed to queue password reset email: %s', exc)
+                    audit_log(
+                        action='password_reset_requested',
+                        actor=audit_actor(),
+                        obj={'user_id': contact.user_id},
+                        extra={'email': contact.email}
+                    )
+                except Exception as exc:
+                    db.rollback()
+                    app.logger.exception('Password reset token creation failed: %s', exc)
+            flash(_('If an account exists for that email, a reset link will arrive shortly.'), 'info')
+            return redirect(url_for('login'))
+        return render_template('forgot_password.html')
+
+    @app.route('/login/reset/<token>', methods=['GET', 'POST'])
+    @limiter.limit("5/hour")
+    def reset_password(token: str):
+        """Allow staff to set a new password using a verified token."""
+        db = dbs()
+        token_hash = _hash_token(token)
+        reset = db.query(PasswordResetToken).filter(PasswordResetToken.token_hash == token_hash).first()
+        if not reset or reset.used_at is not None or reset.expires_at < datetime.utcnow() or not reset.user:
+            flash(_('This password reset link is invalid or has expired.'), 'danger')
+            return redirect(url_for('forgot_password'))
+
+        if request.method == 'POST':
+            password = request.form.get('password') or ''
+            confirm = request.form.get('confirm_password') or ''
+            if len(password) < 8:
+                flash(_('Password must be at least 8 characters long.'), 'danger')
+                return render_template('reset_password.html')
+            if password != confirm:
+                flash(_('Passwords do not match.'), 'danger')
+                return render_template('reset_password.html')
+            reset.user.password_hash = generate_password_hash(password)
+            reset.used_at = datetime.utcnow()
+            # Invalidate other outstanding tokens for this user
+            for other in db.query(PasswordResetToken).filter(PasswordResetToken.user_id == reset.user_id, PasswordResetToken.used_at.is_(None), PasswordResetToken.id != reset.id).all():
+                other.used_at = datetime.utcnow()
+            try:
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                app.logger.exception('Failed to update password via reset: %s', exc)
+                flash(_('Unable to update password right now. Please try again.'), 'danger')
+                return render_template('reset_password.html')
+            audit_log(
+                action='password_reset_completed',
+                actor=audit_actor(),
+                obj={'user_id': reset.user_id},
+                extra={'ip': _client_ip()}
+            )
+            flash(_('Password updated. You can now log in with your new credentials.'), 'success')
+            return redirect(url_for('login'))
+        return render_template('reset_password.html')
+
+    @app.route('/account/security', methods=['GET', 'POST'])
+    @login_required
+    def account_security():
+        """Allow staff to manage their recovery email address."""
+        db = dbs()
+        user = g.user
+        contact = db.query(UserContact).filter(UserContact.user_id == user.id).first()
+        if request.method == 'POST':
+            email = (request.form.get('email') or '').strip().lower()
+            if not email or '@' not in email:
+                flash(_('Please provide a valid email address.'), 'danger')
+                return render_template('account_profile.html', email=email)
+            existing = db.query(UserContact).filter(func.lower(UserContact.email) == email, UserContact.user_id != user.id).first()
+            if existing:
+                flash(_('That email is already in use by another account.'), 'danger')
+                return render_template('account_profile.html', email=email)
+            if contact:
+                contact.email = email
+            else:
+                contact = UserContact(user_id=user.id, email=email)
+                db.add(contact)
+            try:
+                db.commit()
+            except Exception as exc:
+                db.rollback()
+                app.logger.exception('Failed to update recovery email: %s', exc)
+                flash(_('Could not update email right now. Please try again later.'), 'danger')
+                return render_template('account_profile.html', email=email)
+            audit_log(
+                action='account_email_updated',
+                actor=audit_actor(),
+                obj={'user_id': user.id},
+                extra={'email': contact.email}
+            )
+            flash(_('Recovery email saved.'), 'success')
+            return redirect(url_for('account_security'))
+        return render_template('account_profile.html', email=(contact.email if contact else ''))
 
     @app.route('/logout')
     def logout():

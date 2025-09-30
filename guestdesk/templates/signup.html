@@ -14,6 +14,11 @@
             <label class="form-label">{{ _('Username') }}</label>
             <input class="form-control" name="username" placeholder="{{ _('Username') }}" value="{{ form.username|default('') }}">
           </div>
+          <div class="mb-2">
+            <label class="form-label">{{ _('Email') }}</label>
+            <input class="form-control" type="email" name="email" placeholder="name@example.org" value="{{ form.email|default('') }}">
+            <div class="form-text">{{ _('We use this to send password reset emails.') }}</div>
+          </div>
           <div class="mb-3">
             <label class="form-label">{{ _('Password') }}</label>
             <input class="form-control" type="password" name="password" placeholder="{{ _('Password') }}">

@@ -25,18 +25,23 @@
   #funzone .muted { color:#9aa3b2; }
   /* Hide mobile overlays by default (desktop) */
   .touchpad, .touchbar { display:none; }
-  /* Touch controls (hidden on desktop) */
-  .touch-only { display:none; }
   @media (max-width: 768px) {
-    .row-flex { flex-direction: column; }
-    .game-wrap { position: relative; width: 100%; }
-    .touch-only { display:flex; }
-    .touchpad { position:absolute; left:8px; bottom:8px; display:grid; grid-template-columns:repeat(3,56px); grid-auto-rows:56px; gap:8px; z-index:10; }
-    .touchbar { position:absolute; right:8px; bottom:8px; display:flex; flex-direction:column; gap:8px; z-index:10; }
-    .touchbar.tetris { left:50%; right:auto; bottom:8px; transform: translateX(-50%); flex-direction:row; background: rgba(15,18,32,.4); padding:6px; border-radius:12px; }
-    /* Below-canvas variant (does not overlap) */
-    .touchbar--below { position: static !important; transform: none !important; left: auto !important; right: auto !important; bottom: auto !important; margin-top: 8px; justify-content: center; background: rgba(15,18,32,.4); padding:6px; border-radius:12px; }
-    .touchpad .btnish, .touchbar .btnish { width:56px; height:56px; padding:0; display:flex; align-items:center; justify-content:center; touch-action: none; user-select:none; }
+    .row-flex { flex-direction: column; align-items: stretch; }
+    .game-wrap { width: 100%; display:flex; flex-direction: column; align-items:center; gap:12px; }
+    .game-wrap canvas.game { width: min(100%, 440px); height: auto; }
+    .touchpad { display:grid; grid-template-columns: repeat(3, min(82px, 22vw)); grid-auto-rows: min(82px, 22vw); gap:12px; justify-content:center; margin:0 auto 6px; }
+    .touchpad span { visibility:hidden; }
+    .touchpad .btnish { width:100%; height:100%; padding:0; display:flex; align-items:center; justify-content:center; font-size:1.4rem; border-radius:16px; touch-action:none; user-select:none; }
+    .touchbar { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; width:100%; max-width:440px; margin:0 auto; padding:12px; border-radius:18px; background:rgba(15,18,32,.65); box-shadow:0 8px 24px rgba(0,0,0,.35); }
+    .touchbar .btnish { flex:1 1 96px; min-width:96px; height:72px; padding:0; font-size:1.3rem; display:flex; align-items:center; justify-content:center; touch-action:none; user-select:none; border-radius:16px; }
+    .touchbar.tetris { max-width:460px; }
+    .touchbar.astro { display:grid; grid-template-columns: repeat(3, minmax(90px, 1fr)); grid-auto-rows:72px; max-width:480px; }
+    .touchbar.astro .btnish { width:100%; height:100%; font-size:1.2rem; }
+    .touchbar.astro #astFire { grid-column:2; }
+    .touchbar.astro #astPause { grid-column:1 / span 3; }
+    .touchbar.astro #astStart { grid-column:1 / span 3; }
+    .touchbar--wide { max-width:480px; }
+    .touchbar--below { display:flex; justify-content:center; }
   }
 
   /* Neon Mode (Konami) */
@@ -102,7 +107,6 @@
           <button class="btnish" id="tabTetris" data-game="tetris">Tetris</button>
           <button class="btnish" id="tabAsteroids" data-game="asteroids">Asteroids</button>
           <button class="btnish" id="tabPrinter" data-game="printerjam">Printer Jam</button>
-          <button class="btnish" id="tabDuck" data-game="duck">Duck Crossing</button>
         </div>
         <!-- Snake -->
         <div id="viewSnake">
@@ -134,7 +138,7 @@
             <div class="game-wrap">
               <canvas id="astroCanvas" class="game" width="600" height="450" aria-label="Asteroids game"></canvas>
               <!-- mobile overlay controls -->
-              <div class="touchbar astro" aria-hidden="true" style="left:50%; right:auto; bottom:8px; transform: translateX(-50%); flex-direction:row; background: rgba(15,18,32,.4); padding:6px; border-radius:12px;">
+              <div class="touchbar astro" aria-hidden="true">
                 <button class="btnish" id="astLeft">←</button>
                 <button class="btnish" id="astRight">→</button>
                 <button class="btnish" id="astThrust">↑</button>
@@ -182,7 +186,7 @@
             <div class="game-wrap">
               <canvas id="jamCanvas" class="game" width="600" height="420" aria-label="Printer Jam Breakout"></canvas>
               <!-- mobile overlay controls -->
-              <div class="touchbar touchbar--below" aria-hidden="true">
+              <div class="touchbar touchbar--below touchbar--wide" aria-hidden="true">
                 <button class="btnish" id="jamLeft">←</button>
                 <button class="btnish" id="jamRight">→</button>
                 <button class="btnish" id="jamPauseTouch">⏸</button>
@@ -199,30 +203,6 @@
           </div>
         </section>
 
-        <!-- Duck Crossing (Frogger-style) -->
-        <section id="panel-duck" class="panel" style="display:none;">
-          <p class="muted">Controls: <span class="kbd">←</span> <span class="kbd">→</span> <span class="kbd">↑</span> <span class="kbd">↓</span> to waddle, <span class="kbd">P</span> pause.</p>
-          <div class="row-flex">
-            <div class="game-wrap">
-              <canvas id="duckCanvas" class="game" width="600" height="480" aria-label="Duck Crossing"></canvas>
-              <!-- mobile overlay controls -->
-              <div class="touchbar touchbar--below" aria-hidden="true">
-                <button class="btnish" id="duckLeft">←</button>
-                <button class="btnish" id="duckUp">↑</button>
-                <button class="btnish" id="duckDown">↓</button>
-                <button class="btnish" id="duckRight">→</button>
-                <button class="btnish" id="duckPauseTouch">⏸</button>
-                <button class="btnish" id="duckStartTouch">▶</button>
-              </div>
-            </div>
-            <div class="cardish" style="min-width:240px;">
-              <div class="row-flex"><button class="btnish" id="duckStart">Start</button><button class="btnish" id="duckPause">Pause</button></div>
-              <p>Score: <span id="duckScore" class="pill">0</span></p>
-              <p>Lives: <span id="duckLives" class="pill">3</span></p>
-              <p class="muted" id="duckMsg">Press Start to play.</p>
-            </div>
-          </div>
-        </section>
       </div>
       <div class="cardish" style="flex:1; min-width:260px;">
         <h6 class="mb-2">Leaderboards</h6>
@@ -267,6 +247,13 @@
 
 {% block scripts %}
 <script>
+// Clean up any cached Duck Crossing markup so legacy buttons disappear.
+document.querySelectorAll('[data-tab="duck"]').forEach((btn)=>btn.remove());
+const strayArcadeDuckTab = document.getElementById('tabDuck');
+if (strayArcadeDuckTab) strayArcadeDuckTab.remove();
+const orphanDuckPanel = document.getElementById('panel-duck');
+if (orphanDuckPanel) orphanDuckPanel.remove();
+
 // Tabs (main)
 const funTabs = document.querySelectorAll('#funzone .tab');
 const funPanels = {
@@ -289,12 +276,10 @@ const tabSnake = document.getElementById('tabSnake');
 const tabTetris = document.getElementById('tabTetris');
 const tabAsteroids = document.getElementById('tabAsteroids');
 const tabPrinter = document.getElementById('tabPrinter');
-const tabDuck = document.getElementById('tabDuck');
 const viewSnake = document.getElementById('viewSnake');
 const viewTetris = document.getElementById('viewTetris');
 const viewAsteroids = document.getElementById('viewAsteroids');
 const viewPrinter = document.getElementById('panel-printerjam');
-const viewDuck = document.getElementById('panel-duck');
 let arcadeReady = false;
 function ensureArcade(){
   if (arcadeReady) return;
@@ -309,13 +294,11 @@ function setGame(g){
   viewTetris.style.display = (g==='tetris') ? 'block' : 'none';
   if (viewAsteroids) viewAsteroids.style.display = (g==='asteroids') ? 'block' : 'none';
   if (viewPrinter) { viewPrinter.style.display = (g==='printerjam') ? 'block' : 'none'; viewPrinter.classList.toggle('active', g==='printerjam'); }
-  if (viewDuck) { viewDuck.style.display = (g==='duck') ? 'block' : 'none'; viewDuck.classList.toggle('active', g==='duck'); }
   // pause background games
   try { if (g!=='snake') pause(); } catch(e){}
   try { if (g!=='tetris') pauseTetris(); } catch(e){}
   try { if (g!=='asteroids') aPause(); } catch(e){}
   try { if (g!=='printerjam' && window.jamPause) window.jamPause(); } catch(e){}
-  try { if (g!=='duck' && window.duckPause) window.duckPause(); } catch(e){}
   loadScores(g);
   resizeArcade();
 }
@@ -323,7 +306,6 @@ tabSnake.addEventListener('click', ()=>setGame('snake'));
 tabTetris.addEventListener('click', ()=>setGame('tetris'));
 if (tabAsteroids) tabAsteroids.addEventListener('click', ()=>setGame('asteroids'));
 if (tabPrinter) tabPrinter.addEventListener('click', ()=>setGame('printerjam'));
-if (tabDuck) tabDuck.addEventListener('click', ()=>setGame('duck'));
 
 // Ensure arcade only initializes once when needed
 let arcadeBooted = false;
@@ -629,5 +611,4 @@ function bloop(){ const ctx = new (window.AudioContext||window.webkitAudioContex
 </script>
 <!-- Extra arcade games (shared with funzone) -->
 <script src="{{ url_for('static', filename='js/game_printerjam.js') }}?v=2"></script>
-<script src="{{ url_for('static', filename='js/game_duck.js') }}?v=2"></script>
 {% endblock %}

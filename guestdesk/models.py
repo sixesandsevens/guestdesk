@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 from datetime import datetime
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, backref
 from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float, func, UniqueConstraint, Index
 
 
@@ -118,6 +118,32 @@ class User(Base):
     role = Column(String(16), nullable=False, default="viewer")  # viewer|editor|admin
     created_at = Column(DateTime, default=datetime.utcnow)
     approved = Column(Boolean, nullable=False, default=True)
+
+
+class UserContact(Base):
+    """Optional staff contact information tied to a user account."""
+    __tablename__ = "user_contacts"
+    user_id = Column(Integer, ForeignKey('users.id', ondelete="CASCADE"), primary_key=True)
+    email = Column(String(255), nullable=False, unique=True, index=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = relationship("User", backref=backref("contact", uselist=False, cascade="all, delete-orphan"))
+
+
+class PasswordResetToken(Base):
+    """Short-lived password reset token issued to staff accounts."""
+    __tablename__ = "password_reset_tokens"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete="CASCADE"), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False, unique=True, index=True)
+    requested_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime, nullable=True)
+    request_ip = Column(String(64), nullable=True)
+    user_agent = Column(Text, nullable=True)
+
+    user = relationship("User")
 
 
 class GameScore(Base):

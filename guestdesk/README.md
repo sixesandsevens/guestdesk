@@ -102,6 +102,7 @@ GuestDesk reads from environment variables only—no `.env` file is committed. H
 - `GUESTDESK_FORCE_SECURE_COOKIES` – `1` enables HTTPS-only cookies (default `1` in production, `0` locally).
 - `GUESTDESK_AUDIT_LOG` – path for JSON audit log lines. Ensure the service account can write here.
 - `GUESTDESK_MAX_UPLOAD_BYTES` / `GUESTDESK_MAX_UPLOAD_MB` – override upload limits (default 20 MB).
+- `PASSWORD_RESET_EXPIRY_MINUTES` – how long password reset links remain valid (default 60 minutes).
 
 ### Email + Notifications
 - `MAIL_*` or `SMTP_*` – SMTP host, port, credentials, and TLS/SSL flags.

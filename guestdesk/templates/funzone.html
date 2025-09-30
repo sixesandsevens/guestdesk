@@ -29,12 +29,18 @@
   canvas { background:#070a1f; width:100%; max-width:520px; aspect-ratio:1/1; border:1px solid #2a2e52; border-radius:12px; image-rendering: pixelated; }
   .kbd { border:1px solid #2a2e52; background:#0c1130; padding:2px 6px; border-radius:6px; font-size:.85rem; color:#b9c2d6; }
   .ok { color: var(--ok); } .bad { color: var(--bad); }
-  /* Mobile overlays for game controls */
-  .touchbar { display:none; }
+  /* Mobile-friendly touch controls */
+  .touchpad, .touchbar { display:none; }
   @media (max-width: 768px) {
-    .game-wrap { position: relative; width: 100%; }
-    .touchbar { display:flex; position:absolute; left:50%; transform: translateX(-50%); bottom:8px; gap:8px; background: rgba(15,18,32,.4); padding:6px; border-radius:12px; z-index:10; }
-    .touchbar .btn { width:56px; height:56px; padding:0; display:flex; align-items:center; justify-content:center; touch-action:none; user-select:none; }
+    .row { flex-direction: column; align-items: stretch; }
+    .game-wrap { width: 100%; display:flex; flex-direction: column; align-items:center; gap:12px; }
+    .game-wrap canvas { width: min(100%, 440px); height:auto; }
+    .touchpad { display:grid; grid-template-columns: repeat(3, min(82px, 22vw)); grid-auto-rows: min(82px, 22vw); gap:12px; justify-content:center; margin:0 auto 6px; }
+    .touchpad span { visibility:hidden; }
+    .touchpad .btn { width:100%; height:100%; padding:0; display:flex; align-items:center; justify-content:center; font-size:1.4rem; border-radius:16px; touch-action:none; user-select:none; }
+    .touchbar { display:flex; flex-wrap:wrap; justify-content:center; gap:12px; width:100%; max-width:420px; margin:0 auto; padding:12px; border-radius:18px; background:rgba(15,18,32,.65); box-shadow:0 8px 24px rgba(0,0,0,.35); }
+    .touchbar .btn { flex:1 1 96px; min-width:96px; height:72px; padding:0; font-size:1.25rem; display:flex; align-items:center; justify-content:center; touch-action:none; user-select:none; border-radius:16px; }
+    .touchbar--wide { max-width:480px; }
   }
 
   /* Neon Mode (Konami) */
@@ -61,7 +67,6 @@
     <button class="tab" role="tab" aria-selected="true" data-tab="dice">🎲 Dice & Coin</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="snake">🕹️ Snake Game</button>
     <button class="tab" role="tab" aria-selected="false" data-tab="printerjam">🖨️ Printer Jam Escape</button>
-    <button class="tab" role="tab" aria-selected="false" data-tab="duck">🦆 Duck Crossing</button>
   </nav>
 
   <!-- Dice & Coin -->
@@ -101,7 +106,17 @@
     <h2>🕹️ Snake</h2>
     <p class="muted">Controls: <span class="kbd">←</span> <span class="kbd">→</span> <span class="kbd">↑</span> <span class="kbd">↓</span> or <span class="kbd">WASD</span>. Press <span class="kbd">Space</span> to pause.</p>
     <div class="row">
-      <canvas id="snakeCanvas" width="520" height="520" aria-label="Snake game board"></canvas>
+      <div class="game-wrap">
+        <canvas id="snakeCanvas" width="520" height="520" aria-label="Snake game board"></canvas>
+        <div class="touchpad" aria-hidden="true">
+          <span></span><button class="btn" id="snakeUp" aria-label="Up">↑</button><span></span>
+          <button class="btn" id="snakeLeft" aria-label="Left">←</button><button class="btn" id="snakeDown" aria-label="Down">↓</button><button class="btn" id="snakeRight" aria-label="Right">→</button>
+        </div>
+        <div class="touchbar" aria-hidden="true">
+          <button class="btn" id="snakeStartTouch">Start</button>
+          <button class="btn" id="snakePauseTouch">Pause</button>
+        </div>
+      </div>
       <div class="card" style="min-width:240px;">
         <div class="row"><button class="btn" id="startSnake">Start</button><button class="btn" id="pauseSnake">Pause</button></div>
         <p>Speed: <select id="speedSel"><option value="130">Chill</option><option value="100" selected>Normal</option><option value="70">Spicy</option><option value="45">Florida Summer</option></select></p>
@@ -121,7 +136,7 @@
       <div class="game-wrap">
         <canvas id="jamCanvas" width="800" height="520" aria-label="Printer Jam Breakout"></canvas>
         <!-- mobile controls -->
-        <div class="touchbar touchbar--below" aria-hidden="true">
+        <div class="touchbar touchbar--below touchbar--wide" aria-hidden="true">
           <button class="btn" id="jamLeft">←</button>
           <button class="btn" id="jamRight">→</button>
           <button class="btn" id="jamPauseTouch">⏸</button>
@@ -138,37 +153,14 @@
     </div>
   </section>
 
-  <!-- Duck Crossing (Frogger-style) -->
-  <section id="panel-duck" class="panel" role="tabpanel" aria-labelledby="duck">
-    <h2>🦆 Duck Crossing</h2>
-    <p class="muted">
-      Controls: <span class="kbd">←</span><span class="kbd">→</span><span class="kbd">↑</span><span class="kbd">↓</span> to waddle,
-      <span class="kbd">P</span> pause. Reach the pond at the top; avoid traffic!
-    </p>
-  <div class="row">
-    <div class="game-wrap">
-      <canvas id="duckCanvas" width="800" height="560" aria-label="Duck Crossing"></canvas>
-      <!-- mobile controls -->
-      <div class="touchbar touchbar--below" aria-hidden="true">
-        <button class="btn" id="duckLeft">←</button>
-        <button class="btn" id="duckUp">↑</button>
-        <button class="btn" id="duckDown">↓</button>
-        <button class="btn" id="duckRight">→</button>
-        <button class="btn" id="duckPauseTouch">⏸</button>
-        <button class="btn" id="duckStartTouch">▶</button>
-      </div>
-    </div>
-    <div class="card" style="min-width:240px;">
-      <div class="row"><button class="btn" id="duckStart">Start</button><button class="btn" id="duckPause">Pause</button></div>
-      <p>Score: <span id="duckScore" class="pill">0</span></p>
-      <p>Lives: <span id="duckLives" class="pill">3</span></p>
-      <p class="muted" id="duckMsg">Press Start to play.</p>
-    </div>
-  </div>
-  </section>
 </main>
 
 <script>
+// Clean up stray Duck Crossing markup in case an older cached template is served.
+document.querySelectorAll('[data-tab="duck"]').forEach((btn)=>btn.remove());
+const legacyDuckPanel = document.getElementById('panel-duck');
+if (legacyDuckPanel) legacyDuckPanel.remove();
+
 // ---- Tabs (auto-discover panels) ----
 const panels = Array.from(document.querySelectorAll('section.panel'))
   .reduce((m,p)=>{ m[p.id.replace('panel-','')] = p; return m; }, {});
@@ -284,6 +276,16 @@ window.addEventListener('keydown', (e)=>{
   dir = nd;
 });
 
+// Mobile tap controls (Snake)
+function bindTap(id, fn){ const el=document.getElementById(id); if(!el) return; const handler=(ev)=>{ ev.preventDefault(); fn(); }; el.addEventListener('touchstart', handler, {passive:false}); el.addEventListener('click', handler); }
+function setDir(nd){ if (snake.length>1 && (nd.x === -dir.x && nd.y === -dir.y)) return; dir = nd; try{ if(navigator.vibrate) navigator.vibrate(16); }catch(_){ } }
+bindTap('snakeUp',    ()=>setDir({x:0,y:-1}));
+bindTap('snakeDown',  ()=>setDir({x:0,y: 1}));
+bindTap('snakeLeft',  ()=>setDir({x:-1,y:0}));
+bindTap('snakeRight', ()=>setDir({x:1,y: 0}));
+bindTap('snakeStartTouch', ()=>{ if (!playing) { resetSnake(); start(); } });
+bindTap('snakePauseTouch', ()=>{ playing ? pause() : start(); });
+
 // ------- Konami Code (↑↑↓↓←→←→BA) -------
 const KONAMI = ["ArrowUp","ArrowUp","ArrowDown","ArrowDown","ArrowLeft","ArrowRight","ArrowLeft","ArrowRight","b","a"];
 let buffer = [];
@@ -366,6 +368,5 @@ function bloop(){
 </script>
 <!-- Extra arcade games -->
 <script src="{{ url_for('static', filename='js/game_printerjam.js') }}?v=2"></script>
-<script src="{{ url_for('static', filename='js/game_duck.js') }}?v=2"></script>
 </body>
 </html>
