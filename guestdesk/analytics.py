@@ -1,7 +1,7 @@
 """Visitor analytics blueprint and storage helpers."""
 
 # GuestDesk
-# Copyright (c) 2025 Chris Tant
+# Copyright (c) 2025 Chris Tanton
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
 from __future__ import annotations
 import hmac, hashlib

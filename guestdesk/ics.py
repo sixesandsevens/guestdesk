@@ -1,7 +1,7 @@
 """iCalendar feed exposing the consolidated services schedule."""
 
 # GuestDesk
-# Copyright (c) 2025 Chris Tant
+# Copyright (c) 2025 Chris Tanton
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
 from datetime import datetime, timedelta, timezone
 from flask import Blueprint, Response, current_app

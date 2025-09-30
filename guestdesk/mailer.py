@@ -1,7 +1,7 @@
 """Email delivery utilities and notification routing helpers."""
 
 # GuestDesk
-# Copyright (c) 2025 Chris Tant
+# Copyright (c) 2025 Chris Tanton
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
 import os
 import smtplib
