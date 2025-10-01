@@ -18,6 +18,8 @@ from urllib import request as urlreq, error as urlerr
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from uuid import uuid4
 from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g, jsonify, current_app
+from dateutil import parser as dtparser
+from dateutil.rrule import rrulestr
 from flask_wtf.csrf import CSRFProtect, generate_csrf
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -149,7 +151,7 @@ def create_app():
     app.config.setdefault("BABEL_DEFAULT_LOCALE", "en")
     app.config.setdefault("BABEL_DEFAULT_TIMEZONE", "America/New_York")
     app.config.setdefault("BABEL_TRANSLATION_DIRECTORIES", "translations")
-    app.config.setdefault("ASSET_VERSION", "2")
+    app.config.setdefault("ASSET_VERSION", "4")
 
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
@@ -330,6 +332,16 @@ def create_app():
     def _hash_reset_token(raw_token: str) -> str:
         """Return a stable hash for storing password reset tokens."""
         return hashlib.sha256((raw_token or '').encode('utf-8')).hexdigest()
+
+    def _coerce_dates_field(val):
+        """Normalize rdate/exdate payloads into a comma-delimited string or ``None``."""
+        if val is None:
+            return None
+        if isinstance(val, (list, tuple)):
+            cleaned = [str(item).strip() for item in val if str(item).strip()]
+            return ",".join(cleaned) if cleaned else None
+        s = str(val).strip()
+        return s or None
 
     try:
         from .ics import bp as ics_bp
@@ -558,7 +570,7 @@ def create_app():
     @app.context_processor
     def inject_asset_version():
         """Expose ``ASSET_VERSION`` for cache-busting static assets."""
-        return dict(ASSET_VERSION=app.config.get("ASSET_VERSION", "2"))
+        return dict(ASSET_VERSION=app.config.get("ASSET_VERSION", "4"))
 
     @app.get('/_healthz')
     def _healthz():
@@ -1969,6 +1981,50 @@ def create_app():
         finally:
             db.close()
 
+    @app.get('/admin/services/preview')
+    @roles_required('admin', 'editor')
+    def admin_services_preview():
+        """Return the next N occurrence datetimes for a prospective schedule."""
+        rrule_str = (request.args.get('rrule') or '').strip()
+        dtstart_raw = (request.args.get('dtstart') or '').strip()
+        if not dtstart_raw:
+            return jsonify({'ok': False, 'error': 'missing_dtstart'}), 400
+
+        tzname = (request.args.get('tz') or 'America/New_York').strip()
+        count = request.args.get('n', type=int) or 6
+
+        try:
+            tz = ZoneInfo(tzname)
+        except Exception:
+            tz = ZoneInfo('America/New_York')
+
+        try:
+            dtstart = dtparser.parse(dtstart_raw)
+        except Exception as exc:
+            return jsonify({'ok': False, 'error': f'bad_dtstart: {exc}'}), 400
+
+        if dtstart.tzinfo is None:
+            dtstart = dtstart.replace(tzinfo=tz)
+
+        dates: list[datetime] = []
+        if not rrule_str:
+            dates = [dtstart]
+        else:
+            try:
+                rule = rrulestr(rrule_str, dtstart=dtstart)
+            except Exception as exc:
+                return jsonify({'ok': False, 'error': f'bad_rrule: {exc}'}), 400
+
+            cursor = dtstart
+            for _ in range(max(1, count)):
+                nxt = rule.after(cursor, inc=True)
+                if not nxt:
+                    break
+                dates.append(nxt)
+                cursor = nxt
+
+        return jsonify({'ok': True, 'dates': [d.isoformat() for d in dates]})
+
     @app.get('/admin/services/series')
     @roles_required('admin', 'editor')
     def admin_series_list():
@@ -1979,7 +2035,7 @@ def create_app():
             q = db.query(ServiceSeries)
             if svc_id:
                 q = q.filter(ServiceSeries.service_id == svc_id)
-            rows = q.order_by(ServiceSeries.title, ServiceSeries.id).all()
+            rows = q.order_by(ServiceSeries.id.desc()).all()
             return jsonify([
                 {
                     "id": row.id,
@@ -1987,6 +2043,8 @@ def create_app():
                     "service_name": (row.service.name_en if row.service else None) or (row.service.name if row.service else None),
                     "title": row.title,
                     "rrule": row.rrule,
+                    "rdate": row.rdate,
+                    "exdate": row.exdate,
                     "dtstart": row.dtstart.isoformat() if row.dtstart else None,
                     "dtend": row.dtend.isoformat() if row.dtend else None,
                 }
@@ -2010,6 +2068,8 @@ def create_app():
                 "service_name": (series.service.name_en if series.service else None) or (series.service.name if series.service else None),
                 "title": series.title,
                 "rrule": series.rrule,
+                "rdate": series.rdate,
+                "exdate": series.exdate,
                 "dtstart": series.dtstart.isoformat() if series.dtstart else None,
                 "dtend": series.dtend.isoformat() if series.dtend else None,
             })
@@ -2020,30 +2080,36 @@ def create_app():
     @roles_required('admin', 'editor')
     def admin_series_create():
         """Create a new recurring service series definition."""
-        data = request.get_json(force=True)
+        data = request.get_json(force=True) or {}
         db = dbs()
         try:
-            def _normalize_dates(val):
-                if not val:
-                    return None
-                if isinstance(val, (list, tuple)):
-                    return json.dumps(val)
-                return val
+            dtstart = fromiso(data.get('dtstart'))
+            dtend = fromiso(data.get('dtend'))
+            if not dtstart or not dtend:
+                return jsonify({'ok': False, 'error': 'invalid_datetime'}), 400
+
+            title = (data.get('title') or '').strip() or 'Untitled Service'
+            tzval = data.get('timezone') or data.get('tz') or 'America/New_York'
+            rrule = (data.get('rrule') or '').strip() or None
+            rdate = _coerce_dates_field(data.get('rdate'))
+            exdate = _coerce_dates_field(data.get('exdate'))
+            is_all_day = bool(data.get('is_all_day', False))
 
             s = ServiceSeries(
-                title=data.get('title') or 'Untitled Service',
+                title=title,
                 location=data.get('location'),
                 category=data.get('category'),
                 notes=data.get('notes'),
-                tz=data.get('tz') or 'America/New_York',
-                dtstart=(fromiso(data.get('dtstart'))),
-                dtend=(fromiso(data.get('dtend'))),
-                rrule=data.get('rrule'),
-                rdate=_normalize_dates(data.get('rdate')),
-                exdate=_normalize_dates(data.get('exdate')),
-                is_all_day=bool(data.get('is_all_day', False)),
+                tz=tzval,
+                dtstart=dtstart,
+                dtend=dtend,
+                rrule=rrule,
+                rdate=rdate,
+                exdate=exdate,
+                is_all_day=is_all_day,
                 is_active=True,
             )
+
             svc = None
             if data.get('service_id'):
                 try:
@@ -2052,61 +2118,79 @@ def create_app():
                 except Exception:
                     svc = None
             if svc:
-                fallback_name = svc.name_en or svc.name
-                if not s.title or s.title == 'Untitled Service':
+                fallback_name = (svc.name_en or svc.name or '').strip()
+                if not s.title or s.title.lower() == 'untitled service':
                     s.title = fallback_name or s.title
                 if not s.location:
                     s.location = svc.location_en or svc.location
                 if not s.category:
                     s.category = svc.category
+
             db.add(s)
             db.commit()
-            return jsonify({'id': s.id}), 201
+            return jsonify({'ok': True, 'id': s.id}), 201
         finally:
             db.close()
 
     @app.put('/admin/services/series/<int:series_id>')
+    @app.patch('/admin/services/series/<int:series_id>')
     @roles_required('admin', 'editor')
     def admin_series_update(series_id:int):
         """Update an existing series with changes from the calendar editor."""
-        data = request.get_json(force=True)
+        data = request.get_json(force=True) or {}
         db = dbs()
         try:
             s = db.get(ServiceSeries, series_id)
             if not s:
                 abort(404)
-            def _normalize_dates(val):
-                if not val:
-                    return None
-                if isinstance(val, (list, tuple)):
-                    return json.dumps(val)
-                return val
 
-            for k in ['location','category','notes','tz','rrule','is_all_day','is_active']:
-                if k in data:
-                    setattr(s, k, data[k])
+            if 'title' in data:
+                title_val = (data.get('title') or '').strip()
+                if title_val:
+                    s.title = title_val
+            if 'location' in data:
+                s.location = data.get('location')
+            if 'category' in data:
+                s.category = data.get('category')
+            if 'notes' in data:
+                s.notes = data.get('notes')
+            if 'timezone' in data or 'tz' in data:
+                s.tz = data.get('timezone') or data.get('tz') or s.tz
+            if 'rrule' in data:
+                s.rrule = (data.get('rrule') or '').strip() or None
+            if 'is_all_day' in data:
+                s.is_all_day = bool(data.get('is_all_day'))
+            if 'is_active' in data:
+                s.is_active = bool(data.get('is_active'))
             if 'dtstart' in data:
-                s.dtstart = fromiso(data.get('dtstart'))
+                new_start = fromiso(data.get('dtstart'))
+                if new_start:
+                    s.dtstart = new_start
             if 'dtend' in data:
-                s.dtend = fromiso(data.get('dtend'))
+                new_end = fromiso(data.get('dtend'))
+                if new_end:
+                    s.dtend = new_end
             if 'rdate' in data:
-                s.rdate = _normalize_dates(data.get('rdate'))
+                s.rdate = _coerce_dates_field(data.get('rdate'))
             if 'exdate' in data:
-                s.exdate = _normalize_dates(data.get('exdate'))
+                s.exdate = _coerce_dates_field(data.get('exdate'))
             if data.get('service_id'):
                 try:
                     s.service_id = int(data.get('service_id'))
                 except Exception:
                     pass
+
             if s.service_id:
                 svc = db.get(Service, s.service_id)
                 if svc:
-                    fallback_name = svc.name_en or svc.name
-                    s.title = fallback_name or s.title
+                    fallback_name = (svc.name_en or svc.name or '').strip()
+                    if not s.title or s.title.lower() == 'untitled service':
+                        s.title = fallback_name or s.title
                     if not s.location:
                         s.location = svc.location_en or svc.location
                     if not s.category:
                         s.category = svc.category
+
             db.commit()
             return jsonify({'ok': True})
         finally:
