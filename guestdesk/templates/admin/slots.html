@@ -4,6 +4,10 @@
 
 {% block content %}
 <h4 class="mb-3">Slots — {{ s.name }}</h4>
+<div class="alert alert-warning">
+  Legacy weekly slots are deprecated. Please use <strong>Add schedule</strong> on the
+  <a class="alert-link" href="{{ url_for('admin_services_calendar_one', sid=s.id) }}">Services Calendar</a> instead.
+</div>
 <form method="post" class="card card-body mb-3">
   {{ csrf() }}
   <div class="row g-2">

@@ -1,0 +1,95 @@
+--- a/guestdesk/app.py
++++ b/guestdesk/app.py
+@@ -591,16 +591,53 @@
+ 
+     @app.route('/schedule')
+     def schedule():
+-        """Render a weekly matrix view of all service slots."""
+-        db = dbs()
+-        days = _weekday_labels('abbreviated')
+-        services = db.query(Service).order_by(Service.category, func.lower(func.coalesce(Service.name_en, Service.name))).all()
+-        # Build weekly matrix
+-        matrix = {i: [] for i in range(7)}
+-        for svc in services:
+-            for slot in svc.slots:
+-                matrix[slot.dow].append((svc, slot))
+-        return render_template('schedule.html', days=days, matrix=matrix)
++        db = dbs()
++days = _weekday_labels('abbreviated')
++
++# Feature toggle: dynamic view via query param (?view=dynamic)
++view = (request.args.get('view') or '').lower()
++if view == 'dynamic':
++    from dateutil.parser import isoparse
++    from .services_calendar import merged_occurrences
++    tz = ZoneInfo("America/New_York")
++    now = datetime.now(tz)
++    week_start = (now - timedelta(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
++    week_end = week_start + timedelta(days=7)
++
++    events = merged_occurrences(db, week_start, week_end, service_id=None, tzname=str(tz))
++
++    # Bucket by weekday and pre-format HH:MM strings for display
++    bucketed = {i: [] for i in range(7)}
++    for ev in events:
++        try:
++            sdt = isoparse(ev.get("start")).astimezone(tz)
++            edt = isoparse(ev.get("end")).astimezone(tz)
++        except Exception:
++            continue
++        item = {
++            "title": ev.get("title") or "",
++            "location": ev.get("location") or "",
++            "start_hhmm": f"{sdt.hour:02d}:{sdt.minute:02d}",
++            "end_hhmm": f"{edt.hour:02d}:{edt.minute:02d}",
++            "weekday": sdt.weekday(),
++        }
++        bucketed[item["weekday"]].append(item)
++
++    # Sort by start time
++    for i in range(7):
++        bucketed[i].sort(key=lambda x: x["start_hhmm"])
++
++    return render_template('schedule_dynamic.html', days=days, bucketed=bucketed)
++
++# Classic weekly ProgramSlot matrix fallback
++services = db.query(Service).order_by(Service.category, func.lower(func.coalesce(Service.name_en, Service.name))).all()
++matrix = {i: [] for i in range(7)}
++for svc in services:
++    for slot in svc.slots:
++        matrix[slot.dow].append((svc, slot))
++return render_template('schedule.html', days=days, matrix=matrix)
++
++return render_template('schedule.html', days=days, matrix=matrix)
+ 
+     @app.route('/announcements')
+     def announcements():
+
+--- /dev/null
++++ b/guestdesk/templates/schedule_dynamic.html
+@@ -0,0 +1,40 @@
++{% extends 'base.html' %}
++{% block content %}
++<h4 class="mb-3">{{ _('Schedule') }}</h4>
++<div class="row g-3">
++{% for i in range(7) %}
++  <div class="col-md-6 col-lg-4">
++    <div class="card h-100">
++      <div class="card-body">
++        <h6 class="card-title">{{ days[i] }}</h6>
++        <ul class="list-unstyled">
++          {% for ev in bucketed[i] %}
++            <li class="mb-2">
++              <strong>{{ ev.title }}</strong> — {{ ev.start_hhmm }}–{{ ev.end_hhmm }}
++              {% if ev.location %}<span class="text-muted small">({{ ev.location }})</span>{% endif %}
++            </li>
++          {% else %}
++            <li class="text-muted">{{ _('Nothing here yet. Check back soon.') }}</li>
++          {% endfor %}
++        </ul>
++      </div>
++    </div>
++  </div>
++{% endfor %}
++</div>
++{% endblock %}

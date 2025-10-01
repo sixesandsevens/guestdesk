@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block content %}
+<h4 class="mb-3">{{ _('Schedule') }}</h4>
+<div class="row g-3">
+{% for i in range(7) %}
+  <div class="col-md-6 col-lg-4">
+    <div class="card h-100">
+      <div class="card-body">
+        <h6 class="card-title">{{ days[i] }}</h6>
+        <ul class="list-unstyled">
+          {% for ev in bucketed[i] %}
+            <li class="mb-2">
+              <strong>{{ ev.title }}</strong> — {{ ev.start_hhmm }}–{{ ev.end_hhmm }}
+              {% if ev.location %}<span class="text-muted small">({{ ev.location }})</span>{% endif %}
+            </li>
+          {% else %}
+            <li class="text-muted">{{ _('Nothing here yet. Check back soon.') }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </div>
+  </div>
+{% endfor %}
+</div>
+{% endblock %}

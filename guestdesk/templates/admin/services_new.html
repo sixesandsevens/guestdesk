@@ -4,8 +4,12 @@
 
 {% block content %}
 <h4 class="mb-3">New Service</h4>
+<div class="alert alert-info">
+  After creating the service, use the Services Calendar to add schedules.
+</div>
 <form method="post">
   {{ csrf() }}
+  <input type="hidden" name="next" value="{{ next_url or request.args.get('next', '') }}">
   <div class="row g-3">
     <div class="col-md-6">
       <div class="card h-100">
@@ -98,5 +102,6 @@
     <input name="external_link" class="form-control" placeholder="http(s)://">
   </div>
   <button class="btn btn-primary">Create</button>
+  <a class="btn btn-outline-primary" href="{{ url_for('admin_services_calendar') }}">Go to calendar</a>
 </form>
 {% endblock %}

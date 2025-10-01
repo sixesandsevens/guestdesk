@@ -4,9 +4,157 @@
   <h1 class="mb-3">Services Calendar</h1>
   <div class="mb-2 d-flex gap-2">
     <a href="{{ url_for('admin_services') }}" class="btn btn-outline-secondary">Back to Services</a>
-    <button id="new-series" class="btn btn-primary">New service</button>
+    <button id="new-series" class="btn btn-primary">Add schedule</button>
   </div>
   <div id="calendar" data-feed="{{ url_for('admin_services_feed') }}{% if sid %}?service_id={{ sid }}{% endif %}"></div>
+
+  <div class="card mt-3">
+    <div class="card-header">Schedules for selected service</div>
+    <div class="card-body p-0">
+      <table class="table mb-0" id="series-table">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>RRULE</th>
+            <th>Start–End (first date)</th>
+            <th style="width: 160px;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="4" class="text-muted p-3">Select a service to see its schedules.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Simple RRULE Builder Modal -->
+<div class="modal fade" id="rruleModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-lg modal-dialog-centered">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Add a schedule</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label">Service</label>
+            <div class="input-group">
+              <select id="sched-service" class="form-select">
+                <option value="">Select a service…</option>
+              </select>
+              <a id="new-service-btn" class="btn btn-outline-secondary" href="{{ url_for('admin_services_new', next='/admin/services/calendar') }}">New service</a>
+            </div>
+          </div>
+        </div>
+        <div class="row g-3 mt-0">
+          <div class="col-md-3">
+            <label class="form-label">First date</label>
+            <input id="sched-date" type="date" class="form-control">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">Start time</label>
+            <input id="sched-start" type="time" class="form-control" value="10:00">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label">End time</label>
+            <input id="sched-end" type="time" class="form-control" value="12:00">
+          </div>
+        </div>
+
+        <hr class="my-3">
+
+        <ul class="nav nav-pills mb-3" id="freqTabs">
+          <li class="nav-item"><button class="nav-link active" data-bs-toggle="tab" data-bs-target="#weeklyTab">Weekly</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#monthlyTab">Monthly</button></li>
+          <li class="nav-item"><button class="nav-link" data-bs-toggle="tab" data-bs-target="#oneoffTab">One-off</button></li>
+        </ul>
+        <div class="tab-content">
+          <!-- Weekly -->
+          <div class="tab-pane fade show active" id="weeklyTab">
+            <div class="row g-2 align-items-end">
+              <div class="col-md-3">
+                <label class="form-label">Every</label>
+                <input id="wk-interval" type="number" min="1" value="1" class="form-control">
+              </div>
+              <div class="col-md-3">
+                <label class="form-label">weeks</label>
+                <input disabled class="form-control" value="weeks">
+              </div>
+              <div class="col-12 mt-2">
+                <label class="form-label">Days of week</label>
+                <div class="d-flex flex-wrap gap-2">
+                  <label class="btn btn-outline-secondary btn-sm"><input class="form-check-input me-1 dow" type="checkbox" value="MO">Mon</label>
+                  <label class="btn btn-outline-secondary btn-sm"><input class="form-check-input me-1 dow" type="checkbox" value="TU">Tue</label>
+                  <label class="btn btn-outline-secondary btn-sm"><input class="form-check-input me-1 dow" type="checkbox" value="WE">Wed</label>
+                  <label class="btn btn-outline-secondary btn-sm"><input class="form-check-input me-1 dow" type="checkbox" value="TH">Thu</label>
+                  <label class="btn btn-outline-secondary btn-sm"><input class="form-check-input me-1 dow" type="checkbox" value="FR">Fri</label>
+                  <label class="btn btn-outline-secondary btn-sm"><input class="form-check-input me-1 dow" type="checkbox" value="SA">Sat</label>
+                  <label class="btn btn-outline-secondary btn-sm"><input class="form-check-input me-1 dow" type="checkbox" value="SU">Sun</label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Monthly -->
+          <div class="tab-pane fade" id="monthlyTab">
+            <div class="row g-2">
+              <div class="col-md-12">
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="radio" name="monthMode" id="bysetpos" value="bysetpos" checked>
+                  <label class="form-check-label" for="bysetpos">On the</label>
+                </div>
+                <div class="d-inline-flex flex-wrap gap-2 align-items-center ms-2">
+                  <label class="form-check form-check-inline mb-0"><input class="form-check-input mn-pos" type="checkbox" value="1"> 1st</label>
+                  <label class="form-check form-check-inline mb-0"><input class="form-check-input mn-pos" type="checkbox" value="2"> 2nd</label>
+                  <label class="form-check form-check-inline mb-0"><input class="form-check-input mn-pos" type="checkbox" value="3"> 3rd</label>
+                  <label class="form-check form-check-inline mb-0"><input class="form-check-input mn-pos" type="checkbox" value="4"> 4th</label>
+                  <label class="form-check form-check-inline mb-0"><input class="form-check-input mn-pos" type="checkbox" value="-1"> Last</label>
+                  <select id="mn-dow" class="form-select d-inline-block" style="width:auto;">
+                    <option value="MO">Monday</option><option value="TU">Tuesday</option><option value="WE">Wednesday</option>
+                    <option value="TH">Thursday</option><option value="FR">Friday</option><option value="SA">Saturday</option><option value="SU">Sunday</option>
+                  </select>
+                </div>
+              </div>
+              <div class="col-md-12">
+                <div class="form-check form-check-inline">
+                  <input class="form-check-input" type="radio" name="monthMode" id="bymonthday" value="bymonthday">
+                  <label class="form-check-label" for="bymonthday">On day</label>
+                </div>
+                <input id="mn-dom" type="number" class="form-control d-inline-block" style="width: 90px;" min="1" max="31" value="1">
+              </div>
+            </div>
+            <div class="mt-2">
+              <span class="text-muted small">Examples: “2nd &amp; 4th Monday” can be added twice; or choose Last Friday, etc.</span>
+            </div>
+          </div>
+          <!-- One-off -->
+          <div class="tab-pane fade" id="oneoffTab">
+            <p class="text-muted mb-0">No recurrence. We’ll create a single occurrence on the chosen date/time.</p>
+          </div>
+        </div>
+
+        <hr class="my-3">
+        <div>
+          <div class="mb-2"><strong>Summary:</strong> <span id="sched-summary" class="text-muted">Fill in details…</span></div>
+          <div class="mb-2"><label class="form-label">RRULE</label><input id="sched-rrule" class="form-control" readonly></div>
+        </div>
+
+        <div class="mt-2 d-flex flex-wrap gap-2">
+          <span class="text-muted me-2">Quick picks:</span>
+          <button type="button" class="btn btn-sm btn-outline-secondary qp" data-qp="WEEKDAYS">Weekdays</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary qp" data-qp="WEEKENDS">Weekends</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary qp" data-qp="EVERY_OTHER_TU">Every other Tue</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary qp" data-qp="SECOND_FOURTH_MO">2nd &amp; 4th Mon</button>
+          <button type="button" class="btn btn-sm btn-outline-secondary qp" data-qp="LAST_FR">Last Fri (monthly)</button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button id="sched-save" type="button" class="btn btn-primary">Save</button>
+      </div>
+    </div>
+  </div>
 </div>
 
 <script src="{{ url_for('static', filename='vendor/fullcalendar/index.global.min.js') }}"></script>

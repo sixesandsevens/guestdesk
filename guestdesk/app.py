@@ -6,6 +6,8 @@ import os
 import csv
 import math
 from datetime import datetime, timedelta, timezone, time as dtime
+import secrets
+import hashlib
 from zoneinfo import ZoneInfo
 from pathlib import Path
 import io
@@ -13,6 +15,7 @@ import json
 import shutil
 import html as htmlmod
 from urllib import request as urlreq, error as urlerr
+from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from uuid import uuid4
 from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g, jsonify, current_app
 from flask_wtf.csrf import CSRFProtect, generate_csrf
@@ -38,7 +41,21 @@ from flask_babel import (
     format_number,
 )
 from babel.dates import get_day_names
-from .models import Base, Service, ProgramSlot, Announcement, Submission, User, ServiceSeries, ServiceOverride, Setting, FormPDFConfig, GameScore
+from .models import (
+    Base,
+    Service,
+    ProgramSlot,
+    Announcement,
+    Submission,
+    User,
+    ServiceSeries,
+    ServiceOverride,
+    Setting,
+    FormPDFConfig,
+    GameScore,
+    UserContact,
+    PasswordResetToken,
+)
 from . import pdf_config
 from guestdesk.analytics import init_analytics
 from .services_calendar import expand_between
@@ -76,6 +93,8 @@ def format_time_12(dt_obj: datetime) -> str:
 MAX_GRIEVANCE_DESCRIPTION_LENGTH = 2143
 MAINTENANCE_PHOTO_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif'}
 DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024
+PASSWORD_RESET_TOKEN_TTL = timedelta(hours=1)
+MIN_STAFF_PASSWORD_LENGTH = 8
 
 
 def t(message: str, **kwargs):
@@ -130,6 +149,7 @@ def create_app():
     app.config.setdefault("BABEL_DEFAULT_LOCALE", "en")
     app.config.setdefault("BABEL_DEFAULT_TIMEZONE", "America/New_York")
     app.config.setdefault("BABEL_TRANSLATION_DIRECTORIES", "translations")
+    app.config.setdefault("ASSET_VERSION", "2")
 
     app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_host=1)
 
@@ -306,6 +326,10 @@ def create_app():
         """Provide a short-lived database session for request handlers."""
         return Session()
     app.dbs = dbs
+
+    def _hash_reset_token(raw_token: str) -> str:
+        """Return a stable hash for storing password reset tokens."""
+        return hashlib.sha256((raw_token or '').encode('utf-8')).hexdigest()
 
     try:
         from .ics import bp as ics_bp
@@ -534,7 +558,7 @@ def create_app():
     @app.context_processor
     def inject_asset_version():
         """Expose ``ASSET_VERSION`` for cache-busting static assets."""
-        return dict(ASSET_VERSION=app.config.get("ASSET_VERSION", "1"))
+        return dict(ASSET_VERSION=app.config.get("ASSET_VERSION", "2"))
 
     @app.get('/_healthz')
     def _healthz():
@@ -591,11 +615,59 @@ def create_app():
 
     @app.route('/schedule')
     def schedule():
-        """Render a weekly matrix view of all service slots."""
+        """Render either the classic matrix view or the dynamic calendar view."""
         db = dbs()
         days = _weekday_labels('abbreviated')
-        services = db.query(Service).order_by(Service.category, func.lower(func.coalesce(Service.name_en, Service.name))).all()
-        # Build weekly matrix
+
+        view = (request.args.get('view') or '').lower()
+        if view == 'dynamic':
+            from dateutil.parser import isoparse
+            from .services_calendar import merged_occurrences
+
+            tzname = current_app.config.get('BABEL_DEFAULT_TIMEZONE', 'America/New_York')
+            try:
+                tz = ZoneInfo(tzname)
+            except Exception:
+                tz = timezone.utc
+                tzname = 'UTC'
+
+            now = datetime.now(tz)
+            week_start = (now - timedelta(days=now.weekday())).replace(
+                hour=0,
+                minute=0,
+                second=0,
+                microsecond=0,
+            )
+            week_end = week_start + timedelta(days=7)
+
+            events = merged_occurrences(db, week_start, week_end, tzname=tzname)
+
+            bucketed = {i: [] for i in range(7)}
+            for ev in events:
+                try:
+                    sdt = isoparse(ev.get('start')).astimezone(tz)
+                    edt = isoparse(ev.get('end')).astimezone(tz)
+                except Exception:
+                    continue
+                bucketed[sdt.weekday()].append(
+                    {
+                        'title': ev.get('title') or '',
+                        'location': ev.get('location') or '',
+                        'start_hhmm': f"{sdt.hour:02d}:{sdt.minute:02d}",
+                        'end_hhmm': f"{edt.hour:02d}:{edt.minute:02d}",
+                    }
+                )
+
+            for i in range(7):
+                bucketed[i].sort(key=lambda x: x['start_hhmm'])
+
+            return render_template('schedule_dynamic.html', days=days, bucketed=bucketed)
+
+        services = (
+            db.query(Service)
+            .order_by(Service.category, func.lower(func.coalesce(Service.name_en, Service.name)))
+            .all()
+        )
         matrix = {i: [] for i in range(7)}
         for svc in services:
             for slot in svc.slots:
@@ -1265,6 +1337,106 @@ def create_app():
             return redirect(url_for('home'))
         return render_template('signup.html', form={})
 
+    @app.route('/forgot-password', methods=['GET', 'POST'])
+    @limiter.limit("5/hour")
+    def forgot_password():
+        """Allow staff to request a password reset link via email."""
+        if request.method == 'POST':
+            email = (request.form.get('email') or '').strip()
+            if not email:
+                flash(_('Please enter the email address associated with your account.'), 'warning')
+                return render_template('forgot_password.html', email=email)
+
+            normalized = email.lower()
+            db = dbs()
+            contact = (
+                db.query(UserContact)
+                .filter(func.lower(UserContact.email) == normalized)
+                .first()
+            )
+
+            if contact and contact.user and contact.user.approved:
+                try:
+                    raw_token = secrets.token_urlsafe(32)
+                    now = datetime.utcnow()
+                    token = PasswordResetToken(
+                        user_id=contact.user_id,
+                        token_hash=_hash_reset_token(raw_token),
+                        requested_at=now,
+                        expires_at=now + PASSWORD_RESET_TOKEN_TTL,
+                        request_ip=(request.remote_addr or '')[:64],
+                        user_agent=request.headers.get('User-Agent'),
+                    )
+                    db.add(token)
+                    db.commit()
+
+                    reset_url = url_for('reset_password', token=raw_token, _external=True)
+                    subject = _('Reset your GuestDesk password')
+                    body = _(
+                        'Hello %(name)s,\n\n'
+                        'We received a request to reset your GuestDesk password. '
+                        'Use the link below within the next hour to choose a new password.\n\n'
+                        '%(url)s\n\n'
+                        'If you did not request this, you can ignore this email.',
+                        name=contact.user.username,
+                        url=reset_url,
+                    )
+                    queue_mail(subject=subject, body=body, to=contact.email)
+                except Exception as exc:
+                    app.logger.exception('Failed to issue password reset: %s', exc)
+                    db.rollback()
+
+            flash(_('If we find a matching account, a reset link will be emailed shortly.'), 'info')
+            return redirect(url_for('login'))
+
+        return render_template('forgot_password.html')
+
+    @app.route('/reset-password/<token>', methods=['GET', 'POST'])
+    @limiter.limit("10/hour")
+    def reset_password(token):
+        """Validate a password reset token and let staff choose a new password."""
+        if not token:
+            flash(_('That password reset link is invalid or has expired.'), 'danger')
+            return redirect(url_for('login'))
+
+        db = dbs()
+        token_hash = _hash_reset_token(token)
+        now = datetime.utcnow()
+        record = (
+            db.query(PasswordResetToken)
+            .filter(PasswordResetToken.token_hash == token_hash)
+            .filter(PasswordResetToken.used_at.is_(None))
+            .first()
+        )
+
+        if not record or not record.user or record.expires_at < now:
+            flash(_('That password reset link is invalid or has expired.'), 'danger')
+            return redirect(url_for('login'))
+
+        if request.method == 'POST':
+            password = request.form.get('password') or ''
+            confirm = request.form.get('confirm_password') or ''
+
+            if len(password) < MIN_STAFF_PASSWORD_LENGTH:
+                flash(_('Password must be at least %(length)d characters long.', length=MIN_STAFF_PASSWORD_LENGTH), 'danger')
+                return render_template('reset_password.html')
+            if password != confirm:
+                flash(_('Passwords do not match.'), 'danger')
+                return render_template('reset_password.html')
+
+            try:
+                record.user.password_hash = generate_password_hash(password)
+                record.used_at = now
+                db.commit()
+                flash(_('Your password has been updated. You can log in now.'), 'success')
+                return redirect(url_for('login'))
+            except Exception as exc:
+                db.rollback()
+                app.logger.exception('Failed to apply password reset: %s', exc)
+                flash(_('We could not update your password. Please try again.'), 'danger')
+
+        return render_template('reset_password.html')
+
     @app.route('/login', methods=['GET', 'POST'])
     @limiter.limit("5/minute")
     def login():
@@ -1288,6 +1460,52 @@ def create_app():
             flash(_('Wrong username or password.'), 'danger')
         return render_template('login.html')
 
+    @app.route('/account/security', methods=['GET', 'POST'])
+    @login_required
+    def account_security():
+        """Let authenticated staff manage their recovery email address."""
+        user = getattr(g, 'user', None)
+        if not user:
+            return redirect(url_for('login', next=request.path))
+
+        db = dbs()
+        contact = db.query(UserContact).filter(UserContact.user_id == user.id).first()
+        email = contact.email if contact else ''
+
+        if request.method == 'POST':
+            new_email = (request.form.get('email') or '').strip()
+            if not new_email:
+                flash(_('Please enter a valid email address.'), 'danger')
+                return render_template('account_profile.html', email=new_email)
+
+            normalized = new_email.lower()
+            existing = (
+                db.query(UserContact)
+                .filter(func.lower(UserContact.email) == normalized)
+                .filter(UserContact.user_id != user.id)
+                .first()
+            )
+            if existing:
+                flash(_('That email is already in use by another account.'), 'danger')
+                return render_template('account_profile.html', email=new_email)
+
+            try:
+                if not contact:
+                    contact = UserContact(user_id=user.id, email=new_email)
+                    db.add(contact)
+                else:
+                    contact.email = new_email
+                db.commit()
+                flash(_('Account settings updated.'), 'success')
+                return redirect(url_for('account_security'))
+            except Exception as exc:
+                db.rollback()
+                app.logger.exception('Failed to update account settings: %s', exc)
+                flash(_('We could not update your account right now. Please try again.'), 'danger')
+                return render_template('account_profile.html', email=new_email)
+
+        return render_template('account_profile.html', email=email)
+
     @app.route('/logout')
     def logout():
         """Clear the session and bounce visitors back to the guest homepage."""
@@ -1302,23 +1520,14 @@ def create_app():
         # Admin/editor dashboard
         svc_count = 0
         ann_count = 0
-        sub_count = 0
-        recents = []
         try:
             db = dbs()
             svc_count = db.query(Service).count()
             ann_count = db.query(Announcement).count()
-            sub_count = db.query(Submission).count()
-            recents = (
-                db.query(Submission)
-                .order_by(Submission.created_at.desc())
-                .limit(5)
-                .all()
-            )
         except Exception as e:
             # Log and continue with defaults
             app.logger.exception("Admin dashboard load failed: %s", e)
-        return render_template('admin/index.html', svc_count=svc_count, ann_count=ann_count, sub_count=sub_count, recents=recents)
+        return render_template('admin/index.html', svc_count=svc_count, ann_count=ann_count)
 
     # --- manage services ---
     @app.route('/admin/analytics')
@@ -1712,6 +1921,21 @@ def create_app():
         )
 
     # ---- Services Calendar ----
+    @app.get('/admin/services/options')
+    @roles_required('admin', 'editor')
+    def admin_services_options():
+        """Return lightweight id/name pairs for service selectors."""
+        db = dbs()
+        try:
+            rows = (
+                db.query(Service.id, func.coalesce(Service.name_en, Service.name).label('name'))
+                .order_by(func.lower(func.coalesce(Service.name_en, Service.name)))
+                .all()
+            )
+            return jsonify([{"id": r.id, "name": r.name} for r in rows])
+        finally:
+            db.close()
+
     @app.route('/admin/services/calendar')
     @roles_required('admin', 'editor')
     def admin_services_calendar():
@@ -1745,6 +1969,53 @@ def create_app():
         finally:
             db.close()
 
+    @app.get('/admin/services/series')
+    @roles_required('admin', 'editor')
+    def admin_series_list():
+        """List series optionally filtered by service_id for table display."""
+        svc_id = request.args.get('service_id', type=int)
+        db = dbs()
+        try:
+            q = db.query(ServiceSeries)
+            if svc_id:
+                q = q.filter(ServiceSeries.service_id == svc_id)
+            rows = q.order_by(ServiceSeries.title, ServiceSeries.id).all()
+            return jsonify([
+                {
+                    "id": row.id,
+                    "service_id": row.service_id,
+                    "service_name": (row.service.name_en if row.service else None) or (row.service.name if row.service else None),
+                    "title": row.title,
+                    "rrule": row.rrule,
+                    "dtstart": row.dtstart.isoformat() if row.dtstart else None,
+                    "dtend": row.dtend.isoformat() if row.dtend else None,
+                }
+                for row in rows
+            ])
+        finally:
+            db.close()
+
+    @app.get('/admin/services/series/<int:series_id>')
+    @roles_required('admin', 'editor')
+    def admin_series_detail(series_id: int):
+        """Return a single series for editing."""
+        db = dbs()
+        try:
+            series = db.get(ServiceSeries, series_id)
+            if not series:
+                abort(404)
+            return jsonify({
+                "id": series.id,
+                "service_id": series.service_id,
+                "service_name": (series.service.name_en if series.service else None) or (series.service.name if series.service else None),
+                "title": series.title,
+                "rrule": series.rrule,
+                "dtstart": series.dtstart.isoformat() if series.dtstart else None,
+                "dtend": series.dtend.isoformat() if series.dtend else None,
+            })
+        finally:
+            db.close()
+
     @app.post('/admin/services/series')
     @roles_required('admin', 'editor')
     def admin_series_create():
@@ -1752,6 +2023,13 @@ def create_app():
         data = request.get_json(force=True)
         db = dbs()
         try:
+            def _normalize_dates(val):
+                if not val:
+                    return None
+                if isinstance(val, (list, tuple)):
+                    return json.dumps(val)
+                return val
+
             s = ServiceSeries(
                 title=data.get('title') or 'Untitled Service',
                 location=data.get('location'),
@@ -1761,11 +2039,26 @@ def create_app():
                 dtstart=(fromiso(data.get('dtstart'))),
                 dtend=(fromiso(data.get('dtend'))),
                 rrule=data.get('rrule'),
-                rdate=data.get('rdate') or [],
-                exdate=data.get('exdate') or [],
+                rdate=_normalize_dates(data.get('rdate')),
+                exdate=_normalize_dates(data.get('exdate')),
                 is_all_day=bool(data.get('is_all_day', False)),
                 is_active=True,
             )
+            svc = None
+            if data.get('service_id'):
+                try:
+                    s.service_id = int(data.get('service_id'))
+                    svc = db.get(Service, s.service_id)
+                except Exception:
+                    svc = None
+            if svc:
+                fallback_name = svc.name_en or svc.name
+                if not s.title or s.title == 'Untitled Service':
+                    s.title = fallback_name or s.title
+                if not s.location:
+                    s.location = svc.location_en or svc.location
+                if not s.category:
+                    s.category = svc.category
             db.add(s)
             db.commit()
             return jsonify({'id': s.id}), 201
@@ -1782,13 +2075,53 @@ def create_app():
             s = db.get(ServiceSeries, series_id)
             if not s:
                 abort(404)
-            for k in ['title','location','category','notes','tz','rrule','rdate','exdate','is_all_day','is_active']:
+            def _normalize_dates(val):
+                if not val:
+                    return None
+                if isinstance(val, (list, tuple)):
+                    return json.dumps(val)
+                return val
+
+            for k in ['location','category','notes','tz','rrule','is_all_day','is_active']:
                 if k in data:
                     setattr(s, k, data[k])
             if 'dtstart' in data:
                 s.dtstart = fromiso(data.get('dtstart'))
             if 'dtend' in data:
                 s.dtend = fromiso(data.get('dtend'))
+            if 'rdate' in data:
+                s.rdate = _normalize_dates(data.get('rdate'))
+            if 'exdate' in data:
+                s.exdate = _normalize_dates(data.get('exdate'))
+            if data.get('service_id'):
+                try:
+                    s.service_id = int(data.get('service_id'))
+                except Exception:
+                    pass
+            if s.service_id:
+                svc = db.get(Service, s.service_id)
+                if svc:
+                    fallback_name = svc.name_en or svc.name
+                    s.title = fallback_name or s.title
+                    if not s.location:
+                        s.location = svc.location_en or svc.location
+                    if not s.category:
+                        s.category = svc.category
+            db.commit()
+            return jsonify({'ok': True})
+        finally:
+            db.close()
+
+    @app.delete('/admin/services/series/<int:series_id>')
+    @roles_required('admin', 'editor')
+    def admin_series_delete(series_id: int):
+        """Delete a recurring series definition."""
+        db = dbs()
+        try:
+            series = db.get(ServiceSeries, series_id)
+            if not series:
+                abort(404)
+            db.delete(series)
             db.commit()
             return jsonify({'ok': True})
         finally:
@@ -1877,8 +2210,18 @@ def create_app():
                 },
             )
             flash(_('Service created.'), 'success')
+            next_url = request.form.get('next') or request.args.get('next')
+            if next_url:
+                parsed = urlparse(next_url)
+                if not parsed.scheme and not parsed.netloc:
+                    query = parse_qs(parsed.query, keep_blank_values=True)
+                    query['service_id'] = [str(s.id)]
+                    new_query = urlencode(query, doseq=True)
+                    dest = urlunparse(parsed._replace(query=new_query))
+                    return redirect(dest)
             return redirect(url_for('admin_services'))
-        return render_template('admin/services_new.html')
+        next_url = request.args.get('next', '')
+        return render_template('admin/services_new.html', next_url=next_url)
 
     @app.route('/admin/services/<int:sid>/edit', methods=['GET', 'POST'])
     @roles_required('admin', 'editor')

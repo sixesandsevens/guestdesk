@@ -34,6 +34,14 @@ def _parse_dates(lst):
 def expand_occurrences(series: ServiceSeries, start: datetime, end: datetime) -> List[Dict[str, Any]]:
     """Expand a single series into FullCalendar-style dicts within ``[start, end)``."""
     tzname = series.tz or "America/New_York"
+    svc = getattr(series, "service", None)
+    svc_name = ""
+    svc_location = ""
+    svc_category = None
+    if svc:
+        svc_name = svc.name_en or svc.name or ""
+        svc_location = svc.location_en or svc.location or ""
+        svc_category = svc.category
     # Treat inbound window as naive local for comparison
     win_start = start.replace(tzinfo=None)
     win_end = end.replace(tzinfo=None)
@@ -78,15 +86,18 @@ def expand_occurrences(series: ServiceSeries, start: datetime, end: datetime) ->
             continue
         s = ov.new_dtstart if (ov and ov.new_dtstart) else inst["start"]
         e = ov.new_dtend if (ov and ov.new_dtend) else inst["end"]
-        title = ov.new_title if (ov and ov.new_title) else series.title
-        loc = ov.new_location if (ov and ov.new_location) else (series.location or "")
+        base_title = (series.title or "").strip()
+        if not base_title or base_title.lower() == 'untitled service':
+            base_title = svc_name or base_title
+        title = ov.new_title if (ov and ov.new_title) else base_title
+        loc = ov.new_location if (ov and ov.new_location) else (series.location or svc_location or "")
         out.append({
             "series_id": series.id,
             "service_id": series.service_id,
             "instance_start": inst["start"].isoformat(),
             "title": title,
             "location": loc,
-            "category": series.category,
+            "category": series.category or svc_category,
             "start": s.isoformat(),
             "end": e.isoformat(),
             "allDay": bool(series.is_all_day),
@@ -146,10 +157,22 @@ def expand_slots_between(session: Session, start: datetime, end: datetime, servi
     return out
 
 
-def merged_occurrences(session: Session, start: datetime, end: datetime, service_id: int | None = None) -> List[Dict[str, Any]]:
+def merged_occurrences(
+    session: Session,
+    start: datetime,
+    end: datetime,
+    service_id: int | None = None,
+    tzname: str | None = None,
+) -> List[Dict[str, Any]]:
     """Mix recurring slots and RRULE series, applying overrides along the way."""
     series_events = expand_between(session, start, end, service_id)
-    slot_events = expand_slots_between(session, start, end, service_id)
+    slot_events = expand_slots_between(
+        session,
+        start,
+        end,
+        service_id,
+        tzname=tzname or "America/New_York",
+    )
 
     # Build index
     by_key: dict[tuple, Dict[str, Any]] = {}

@@ -210,6 +210,7 @@ class ServiceSeries(Base):
 
     # Link to owning service (optional)
     service_id = Column(Integer, ForeignKey('services.id', ondelete="CASCADE"), nullable=True, index=True)
+    service = relationship("Service", backref=backref("series", cascade="all, delete-orphan"))
 
     # Base instance times (local time)
     dtstart = Column(DateTime, nullable=False)
