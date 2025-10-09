@@ -35,7 +35,6 @@ class Service(Base):
     schedule_note_en = Column(String(200), nullable=True)
     schedule_note_es = Column(String(200), nullable=True)
     external_link = Column(String(200), nullable=True)
-    slots = relationship("ProgramSlot", back_populates="service", cascade="all, delete-orphan", order_by="ProgramSlot.dow")
 
     def _pick_locale(self, value_en: str | None, value_es: str | None, fallback: str | None = None) -> str | None:
         """Return the best localized value for the current visitor locale."""
@@ -72,18 +71,6 @@ class Service(Base):
     def schedule_note_i18n(self) -> str:
         """Return the localized schedule note for the service."""
         return self._pick_locale(self.schedule_note_en, self.schedule_note_es, self.schedule_note) or ''
-
-class ProgramSlot(Base):
-    """Weekly recurring slot associated with a service."""
-    __tablename__ = 'program_slots'
-    id = Column(Integer, primary_key=True)
-    service_id = Column(Integer, ForeignKey('services.id', ondelete="CASCADE"), index=True, nullable=False)
-    dow = Column(Integer, nullable=False) # 0=Mon...6=Sun
-    start = Column(String(5), nullable=True) # "09:00"
-    end = Column(String(5), nullable=True)   # "11:30"
-    note = Column(String(200), nullable=True)
-
-    service = relationship("Service", back_populates="slots")
 
 class Announcement(Base):
     """Time-bound announcement displayed on the guest portal."""
@@ -233,7 +220,7 @@ class ServiceOverride(Base):
 
     id = Column(Integer, primary_key=True)
     series_id = Column(Integer, ForeignKey("service_series.id", ondelete="CASCADE"), index=True, nullable=True)
-    # Direct override for a baseline slot occurrence (no series)
+    # Direct override for a baseline slot occurrence (legacy fallback)
     service_id = Column(Integer, ForeignKey('services.id', ondelete="CASCADE"), index=True, nullable=True)
     # Original instance start (local time) this override targets
     instance_start = Column(DateTime, nullable=False)

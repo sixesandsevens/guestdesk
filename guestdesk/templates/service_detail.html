@@ -15,23 +15,31 @@
 {% if s.schedule_note_i18n %}<p class="text-muted small">{{ s.schedule_note_i18n }}</p>{% endif %}
 {% if s.external_link %}<p><a href="{{ s.external_link }}" target="_blank" rel="noopener">{{ _('Learn more') }}</a></p>{% endif %}
 
-<h6>{{ _('Weekly Times') }}</h6>
-{% if s.slots and (s.availability == 'scheduled') %}
+<h6>{{ _('Upcoming schedule') }}</h6>
+{% if occurrences and (s.availability == 'scheduled') %}
   <div class="table-responsive w-auto">
-  <table class="table table-sm w-auto">
-    <thead><tr><th>{{ _('Day') }}</th><th>{{ _('Start') }}</th><th>{{ _('End') }}</th><th>{{ _('Note') }}</th></tr></thead>
-    <tbody>
-    {% for slot in s.slots %}
-      <tr>
-        <td>{{ days[slot.dow] }}</td>
-        <td>{{ slot.start|h12 }}</td>
-        <td>{{ slot.end|h12 }}</td>
-        <td>{{ slot.note or '' }}</td>
-      </tr>
-    {% endfor %}
-    </tbody>
-  </table>
+    <table class="table table-sm w-auto">
+      <thead>
+        <tr>
+          <th>{{ _('Date') }}</th>
+          <th>{{ _('Time') }}</th>
+          <th>{{ _('Title') }}</th>
+          <th>{{ _('Location') }}</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for occ in occurrences %}
+        <tr>
+          <td>{{ format_date(occ.start, format='full') }}</td>
+          <td>{{ format_time(occ.start, format='short') }}–{{ format_time(occ.end, format='short') }}</td>
+          <td>{{ occ.title }}</td>
+          <td>{{ occ.location or s.location_i18n }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
   </div>
+  <div class="small text-muted">{{ _('Showing next %(count)s occurrences', count=occurrences|length) }}</div>
 {% else %}
   {% if s.availability == 'on_call' %}
     <div class="alert alert-info">{{ _('No fixed schedule. This service is %(mode)s and responds to requests.', mode='<strong>' + _('on call') + '</strong>')|safe }}</div>

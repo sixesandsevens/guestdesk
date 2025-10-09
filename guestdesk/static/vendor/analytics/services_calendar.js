@@ -16,11 +16,86 @@ async function initCalendarPage() {
   await loadServices();
   initServiceChangeHandler();
   initAddScheduleButton();
+  initAdditionalTimeControls();
   initSaveHandler();
+  initDeleteHandler();
   initSeriesTableHandlers();
   initCalendar();
   await renderSeriesTable();
   schedulePreviewRefresh();
+}
+
+function initAdditionalTimeControls() {
+  const addBtn = document.getElementById('sched-time-add');
+  if (addBtn) {
+    addBtn.addEventListener('click', () => {
+      addExtraTimeRow();
+      setSummaryAndRRule();
+    });
+  }
+
+  const container = document.getElementById('sched-extra-times');
+  if (container) {
+    container.addEventListener('click', (ev) => {
+      const target = ev.target;
+      if (!(target instanceof HTMLElement)) return;
+      if (target.classList.contains('sched-time-remove')) {
+        const row = target.closest('.sched-extra-row');
+        row?.remove();
+        setSummaryAndRRule();
+        schedulePreviewRefresh();
+      }
+    });
+  }
+}
+
+function clearExtraTimeRows() {
+  const container = document.getElementById('sched-extra-times');
+  if (container) {
+    container.innerHTML = '';
+  }
+}
+
+function addExtraTimeRow(start = '', end = '') {
+  const container = document.getElementById('sched-extra-times');
+  if (!container) return;
+  const row = document.createElement('div');
+  row.className = 'row g-2 align-items-end sched-extra-row mt-1';
+  row.innerHTML = `
+    <div class="col-md-3 offset-md-3">
+      <label class="form-label visually-hidden">Start time</label>
+      <input type="time" class="form-control sched-extra-start" value="${start}">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label visually-hidden">End time</label>
+      <input type="time" class="form-control sched-extra-end" value="${end}">
+    </div>
+    <div class="col-md-3">
+      <button type="button" class="btn btn-link text-danger sched-time-remove">Remove</button>
+    </div>`;
+  container.appendChild(row);
+  row.querySelectorAll('input').forEach((input) => {
+    input.addEventListener('input', () => {
+      setSummaryAndRRule();
+      schedulePreviewRefresh();
+    });
+  });
+  schedulePreviewRefresh();
+}
+
+function getAllTimeSlots() {
+  const slots = [];
+  const baseStart = document.getElementById('sched-start')?.value || '';
+  const baseEnd = document.getElementById('sched-end')?.value || '';
+  if (baseStart || baseEnd) {
+    slots.push({ start: baseStart, end: baseEnd });
+  }
+  document.querySelectorAll('#sched-extra-times .sched-extra-row').forEach((row) => {
+    const start = row.querySelector('.sched-extra-start')?.value || '';
+    const end = row.querySelector('.sched-extra-end')?.value || '';
+    slots.push({ start, end });
+  });
+  return slots;
 }
 
 function getCsrfToken() {
@@ -111,6 +186,12 @@ function resetModalFields() {
   if (!modalEl) return;
   modalEl.removeAttribute('data-edit-id');
 
+  const delBtn = document.getElementById('sched-delete');
+  if (delBtn) {
+    delBtn.classList.add('d-none');
+    delBtn.disabled = false;
+  }
+
   const sel = document.getElementById('sched-service');
   if (sel) {
     if (sidParam) {
@@ -130,6 +211,7 @@ function resetModalFields() {
   document.getElementById('sched-date').value = '';
   document.getElementById('sched-start').value = '10:00';
   document.getElementById('sched-end').value = '12:00';
+  clearExtraTimeRows();
   document.getElementById('bysetpos').checked = true;
   document.getElementById('bymonthday').checked = false;
   document.getElementById('mn-dom').value = '1';
@@ -160,45 +242,73 @@ function initSaveHandler() {
   saveBtn.addEventListener('click', async () => {
     const titleInput = document.getElementById('sched-title');
     const date = document.getElementById('sched-date').value;
-    const st = document.getElementById('sched-start').value;
-    const et = document.getElementById('sched-end').value;
     const rrule = document.getElementById('sched-rrule').value;
     const serviceId = getSelectedServiceId();
 
     if (!serviceId) { showToast('Please choose a service.', 'warning'); return; }
-    if (!date || !st || !et) { showToast('Please choose date & time.', 'warning'); return; }
+    if (!date) { showToast('Please choose date & time.', 'warning'); return; }
 
     const serviceName = getSelectedServiceName();
     const title = (titleInput?.value || '').trim() || serviceName || 'Untitled Service';
 
-    const payload = {
+    const slots = getAllTimeSlots();
+    const hasPartial = slots.some((slot) => (slot.start && !slot.end) || (!slot.start && slot.end));
+    if (hasPartial) { showToast('Each time needs both a start and end.', 'warning'); return; }
+
+    const filledSlots = slots.filter((slot) => slot.start && slot.end);
+    if (!filledSlots.length) { showToast('Please add at least one time window.', 'warning'); return; }
+
+    const badRange = filledSlots.find((slot) => slot.start >= slot.end);
+    if (badRange) { showToast('Each time must start before it ends.', 'warning'); return; }
+
+    const serviceIdInt = parseInt(serviceId, 10);
+    if (Number.isNaN(serviceIdInt)) { showToast('Invalid service selection.', 'danger'); return; }
+
+    const payloadBase = {
       title,
-      dtstart: `${date}T${st}:00`,
-      dtend: `${date}T${et}:00`,
       rrule,
       rdate: null,
       exdate: null,
-      service_id: parseInt(serviceId, 10),
+      service_id: serviceIdInt,
     };
 
     const modalEl = document.getElementById('rruleModal');
     const editId = modalEl.getAttribute('data-edit-id');
-    const method = editId ? 'PUT' : 'POST';
-    const url = editId ? `/admin/services/series/${editId}` : '/admin/services/series';
 
     saveBtn.disabled = true;
     try {
-      const res = await fetch(url, {
-        method,
-        headers: {
-          'Content-Type': 'application/json',
-          'X-CSRFToken': getCsrfToken(),
-        },
-        body: JSON.stringify(payload),
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text);
+      const submitSlot = async (slot, method, targetUrl) => {
+        const body = JSON.stringify({
+          ...payloadBase,
+          dtstart: `${date}T${slot.start}:00`,
+          dtend: `${date}T${slot.end}:00`,
+        });
+        const res = await fetch(targetUrl, {
+          method,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRFToken': getCsrfToken(),
+          },
+          body,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || 'save_failed');
+        }
+      };
+
+      if (editId) {
+        const [primarySlot, ...extraSlots] = filledSlots;
+        if (primarySlot) {
+          await submitSlot(primarySlot, 'PUT', `/admin/services/series/${editId}`);
+        }
+        for (const slot of extraSlots) {
+          await submitSlot(slot, 'POST', '/admin/services/series');
+        }
+      } else {
+        for (const slot of filledSlots) {
+          await submitSlot(slot, 'POST', '/admin/services/series');
+        }
       }
     } catch (err) {
       console.error('Failed to save schedule', err);
@@ -209,7 +319,38 @@ function initSaveHandler() {
     }
 
     bootstrap.Modal.getInstance(modalEl)?.hide();
-    showToast(editId ? 'Schedule updated.' : 'Schedule saved.', 'success');
+    const successMessage = (() => {
+      if (editId) {
+        return filledSlots.length > 1 ? 'Schedule updated. Extra times added.' : 'Schedule updated.';
+      }
+      return filledSlots.length > 1 ? 'Schedules saved.' : 'Schedule saved.';
+    })();
+    showToast(successMessage, 'success');
+    await renderSeriesTable();
+    calendar?.refetchEvents();
+  });
+}
+
+function initDeleteHandler() {
+  const deleteBtn = document.getElementById('sched-delete');
+  if (!deleteBtn) return;
+  deleteBtn.addEventListener('click', async () => {
+    const modalEl = document.getElementById('rruleModal');
+    const editId = modalEl?.getAttribute('data-edit-id');
+    if (!editId) return;
+    if (!confirm('Delete this schedule?')) return;
+    deleteBtn.disabled = true;
+    try {
+      await deleteSeries(editId);
+    } catch (err) {
+      console.error('Failed to delete schedule', err);
+      showToast('Failed to delete schedule.', 'danger');
+      deleteBtn.disabled = false;
+      return;
+    }
+    bootstrap.Modal.getInstance(modalEl)?.hide();
+    resetModalFields();
+    showToast('Schedule deleted.', 'success');
     await renderSeriesTable();
     calendar?.refetchEvents();
   });
@@ -226,11 +367,7 @@ function initSeriesTableHandlers() {
     if (target.classList.contains('act-del')) {
       if (!confirm('Delete this schedule?')) return;
       try {
-        const res = await fetch(`/admin/services/series/${id}`, {
-          method: 'DELETE',
-          headers: { 'X-CSRFToken': getCsrfToken() },
-        });
-        if (!res.ok) throw new Error(await res.text());
+        await deleteSeries(id);
         showToast('Schedule deleted.', 'success');
       } catch (err) {
         console.error('Delete failed', err);
@@ -307,6 +444,13 @@ async function openEditModal(seriesId) {
 
   const modalEl = document.getElementById('rruleModal');
   modalEl.setAttribute('data-edit-id', seriesId);
+  clearExtraTimeRows();
+
+  const delBtn = document.getElementById('sched-delete');
+  if (delBtn) {
+    delBtn.classList.remove('d-none');
+    delBtn.disabled = false;
+  }
 
   const sel = document.getElementById('sched-service');
   if (sel) {
@@ -366,6 +510,14 @@ async function openEditModal(seriesId) {
   new bootstrap.Modal(modalEl).show();
 }
 
+async function deleteSeries(seriesId) {
+  const res = await fetch(`/admin/services/series/${seriesId}`, {
+    method: 'DELETE',
+    headers: { 'X-CSRFToken': getCsrfToken() },
+  });
+  if (!res.ok) throw new Error(await res.text());
+}
+
 function initCalendar() {
   const el = document.getElementById('calendar');
   if (!el || typeof FullCalendar === 'undefined') return;
@@ -397,12 +549,6 @@ function initCalendar() {
     },
     eventClick: (info) => {
       const seriesId = info.event.extendedProps.series_id;
-      const serviceId = info.event.extendedProps.service_id;
-      const source = info.event.extendedProps.source;
-      if (source === 'slot' && serviceId) {
-        window.location.href = `/admin/services/${serviceId}/slots`;
-        return;
-      }
       if (seriesId) {
         openEditModal(seriesId);
       }
@@ -460,8 +606,10 @@ async function postOverride(payload) {
 // --- Summary + RRULE helpers (existing logic) ---
 function setSummaryAndRRule() {
   const date = document.getElementById('sched-date')?.value || '';
-  const st = document.getElementById('sched-start')?.value || '';
-  const et = document.getElementById('sched-end')?.value || '';
+  const slots = getAllTimeSlots().filter((slot) => slot.start && slot.end);
+  const firstSlot = slots[0] || { start: '', end: '' };
+  const st = firstSlot.start;
+  const et = firstSlot.end;
   const weeklyActive = document.getElementById('weeklyTab')?.classList.contains('active');
   const monthlyActive = document.getElementById('monthlyTab')?.classList.contains('active');
   const oneoffActive = document.getElementById('oneoffTab')?.classList.contains('active');
@@ -503,7 +651,16 @@ function setSummaryAndRRule() {
   const sumEl = document.getElementById('sched-summary');
   if (sumEl) {
     if (summary) {
-      sumEl.textContent = (date && st && et) ? `${summary} at ${st}–${et} starting ${date}` : summary;
+      const timeSummary = slots.map((slot) => `${slot.start}–${slot.end}`).join(', ');
+      if (timeSummary) {
+        if (date) {
+          sumEl.textContent = `${summary} at ${timeSummary} starting ${date}`;
+        } else {
+          sumEl.textContent = `${summary} at ${timeSummary}`;
+        }
+      } else {
+        sumEl.textContent = summary;
+      }
     } else {
       sumEl.textContent = 'Fill in details…';
     }
@@ -571,28 +728,42 @@ async function refreshPreview() {
   if (!list || !spinner) return;
 
   const date = document.getElementById('sched-date')?.value;
-  const st = document.getElementById('sched-start')?.value;
+  const slots = getAllTimeSlots().filter((slot) => slot.start);
   const rrule = document.getElementById('sched-rrule')?.value || '';
 
   list.innerHTML = '';
-  if (!date || !st) {
+  if (!date || !slots.length) {
     spinner.style.display = 'none';
     return;
   }
 
   spinner.style.display = '';
   try {
-    const qs = new URLSearchParams({ dtstart: `${date}T${st}:00`, rrule, tz: 'America/New_York', n: '6' });
-    const res = await fetch(`/admin/services/preview?${qs.toString()}`);
-    const json = await res.json();
-    if (!json.ok) throw new Error(json.error || 'preview_failed');
-
     const formatter = new Intl.DateTimeFormat(undefined, {
       weekday: 'short', year: 'numeric', month: 'short', day: 'numeric',
       hour: 'numeric', minute: '2-digit'
     });
 
-    list.innerHTML = json.dates.map((d) => `<li>${formatter.format(new Date(d))}</li>`).join('');
+    const allDates = [];
+    for (const slot of slots) {
+      const qs = new URLSearchParams({ dtstart: `${date}T${slot.start}:00`, rrule, tz: 'America/New_York', n: '6' });
+      const res = await fetch(`/admin/services/preview?${qs.toString()}`);
+      const json = await res.json();
+      if (!json.ok) throw new Error(json.error || 'preview_failed');
+      json.dates.forEach((d) => {
+        allDates.push({ iso: d, label: slot.end ? `${slot.start}–${slot.end}` : slot.start });
+      });
+    }
+
+    allDates.sort((a, b) => new Date(a.iso) - new Date(b.iso));
+    const limited = allDates.slice(0, 6);
+    if (!limited.length) {
+      list.innerHTML = '<li class="text-muted">No upcoming matches.</li>';
+    } else {
+      list.innerHTML = limited.map((item) => {
+        return `<li><strong>${item.label}</strong> ${formatter.format(new Date(item.iso))}</li>`;
+      }).join('');
+    }
   } catch (err) {
     console.error('Preview failed', err);
     list.innerHTML = '<li class="text-danger">Preview failed.</li>';

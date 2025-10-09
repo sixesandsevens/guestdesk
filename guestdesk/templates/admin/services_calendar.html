@@ -3,7 +3,7 @@
 <div class="container py-3">
   <h1 class="mb-3">Services Calendar</h1>
   <div class="mb-2 d-flex gap-2">
-    <a href="{{ url_for('admin_services') }}" class="btn btn-outline-secondary">Back to Services</a>
+    <a href="{{ url_for('admin_services') }}" class="btn btn-outline-primary" target="_blank" rel="noopener">Manage services</a>
     <button id="new-series" class="btn btn-primary">Add schedule</button>
   </div>
   <div id="calendar" data-feed="{{ url_for('admin_services_feed') }}{% if sid %}?service_id={{ sid }}{% endif %}"></div>
@@ -53,7 +53,7 @@
             <input id="sched-title" class="form-control" placeholder="Defaults to service name">
           </div>
         </div>
-        <div class="row g-3 mt-0">
+        <div class="row g-3 mt-0 align-items-end">
           <div class="col-md-3">
             <label class="form-label">First date</label>
             <input id="sched-date" type="date" class="form-control">
@@ -66,7 +66,13 @@
             <label class="form-label">End time</label>
             <input id="sched-end" type="time" class="form-control" value="12:00">
           </div>
+          <div class="col-md-3">
+            <label class="form-label d-none d-md-block">&nbsp;</label>
+            <button id="sched-time-add" type="button" class="btn btn-outline-secondary w-100">Add another time</button>
+          </div>
         </div>
+
+        <div id="sched-extra-times" class="mt-2"></div>
 
         <hr class="my-3">
 
@@ -165,6 +171,7 @@
         </div>
       </div>
       <div class="modal-footer">
+        <button id="sched-delete" type="button" class="btn btn-danger me-auto d-none">Delete</button>
         <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button id="sched-save" type="button" class="btn btn-primary">Save</button>
       </div>

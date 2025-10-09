@@ -30,12 +30,7 @@
       <td>{{ s.location_en or s.location }}</td>
       <td>{{ s.contact_en or s.contact }}</td>
       <td>
-        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_services_calendar_one', sid=s.id) }}">Add schedule</a>
-        {% if user_role == 'admin' %}
-        <div class="small mt-1">
-          <a class="link-secondary" href="{{ url_for('admin_slots', sid=s.id) }}">Legacy slots</a>
-        </div>
-        {% endif %}
+        <a class="btn btn-sm btn-outline-primary" href="{{ url_for('admin_services_calendar_one', sid=s.id) }}">Manage schedules</a>
       </td>
       <td>
         <form method="post" action="{{ url_for('admin_services_delete', sid=s.id) }}" onsubmit="return confirm('Delete this service?')">

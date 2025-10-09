@@ -8,7 +8,7 @@ from dateutil.rrule import rrulestr
 import json
 from dateutil.parser import isoparse
 
-from .models import ServiceSeries, ServiceOverride, Service, ProgramSlot
+from .models import ServiceSeries, ServiceOverride
 from sqlalchemy.orm import Session
 
 
@@ -119,44 +119,6 @@ def expand_between(session: Session, start: datetime, end: datetime, service_id:
     return events
 
 
-def expand_slots_between(session: Session, start: datetime, end: datetime, service_id: int | None = None, tzname: str = "America/New_York") -> List[Dict[str, Any]]:
-    """Expand baseline ``ProgramSlot`` entries into concrete occurrences."""
-    services = session.query(Service).all() if not service_id else [session.get(Service, service_id)]
-    services = [s for s in services if s]
-    # Preload slots by service
-    out: List[Dict[str, Any]] = []
-    # Iterate days in window
-    day = start.replace(hour=0, minute=0, second=0, microsecond=0)
-    while day < end:
-        dow = day.weekday()  # 0=Mon
-        for svc in services:
-            for sl in svc.slots:
-                if sl.dow != dow:
-                    continue
-                try:
-                    sh, sm = map(int, (sl.start or "00:00").split(":"))
-                    eh, em = map(int, (sl.end or "00:00").split(":"))
-                except Exception:
-                    continue
-                sdt = day.replace(hour=sh, minute=sm)
-                edt = day.replace(hour=eh, minute=em)
-                out.append({
-                    "series_id": None,
-                    "service_id": svc.id,
-                    "instance_start": sdt.isoformat(),
-                    "title": svc.name,
-                    "location": svc.location or "",
-                    "category": svc.category,
-                    "start": sdt.isoformat(),
-                    "end": edt.isoformat(),
-                    "allDay": False,
-                    "source": "slot",
-                    "override": False,
-                })
-        day += timedelta(days=1)
-    return out
-
-
 def merged_occurrences(
     session: Session,
     start: datetime,
@@ -164,21 +126,11 @@ def merged_occurrences(
     service_id: int | None = None,
     tzname: str | None = None,
 ) -> List[Dict[str, Any]]:
-    """Mix recurring slots and RRULE series, applying overrides along the way."""
+    """Return recurring series occurrences with overrides applied."""
     series_events = expand_between(session, start, end, service_id)
-    slot_events = expand_slots_between(
-        session,
-        start,
-        end,
-        service_id,
-        tzname=tzname or "America/New_York",
-    )
 
     # Build index
     by_key: dict[tuple, Dict[str, Any]] = {}
-    for ev in slot_events:
-        key = ("slot", ev["service_id"], ev["instance_start"])
-        by_key[key] = ev
     for ev in series_events:
         key = ("series", ev.get("series_id"), ev["instance_start"])
         by_key[key] = ev
@@ -198,22 +150,6 @@ def merged_occurrences(
                 continue
             if ev:
                 # Modify existing series event
-                if ov.new_dtstart:
-                    ev["start"] = ov.new_dtstart.isoformat()
-                if ov.new_dtend:
-                    ev["end"] = ov.new_dtend.isoformat()
-                if ov.new_title:
-                    ev["title"] = ov.new_title
-                if ov.new_location:
-                    ev["location"] = ov.new_location
-                ev["override"] = True
-        elif ov.service_id:
-            k = ("slot", ov.service_id, inst_iso)
-            ev = by_key.get(k)
-            if ov.cancelled:
-                by_key.pop(k, None)
-                continue
-            if ev:
                 if ov.new_dtstart:
                     ev["start"] = ov.new_dtstart.isoformat()
                 if ov.new_dtend:

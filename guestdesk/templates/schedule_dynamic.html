@@ -10,7 +10,7 @@
         <ul class="list-unstyled">
           {% for ev in bucketed[i] %}
             <li class="mb-2">
-              <strong>{{ ev.title }}</strong> — {{ ev.start_hhmm }}–{{ ev.end_hhmm }}
+              <strong>{{ ev.title }}</strong> — {{ ev.start_hhmm|h12 or '?' }}–{{ ev.end_hhmm|h12 or '?' }}
               {% if ev.location %}<span class="text-muted small">({{ ev.location }})</span>{% endif %}
             </li>
           {% else %}

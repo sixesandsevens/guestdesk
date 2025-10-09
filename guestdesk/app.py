@@ -46,7 +46,6 @@ from babel.dates import get_day_names
 from .models import (
     Base,
     Service,
-    ProgramSlot,
     Announcement,
     Submission,
     User,
@@ -200,37 +199,6 @@ def create_app():
         """Discourage indexing of any page by default."""
         response.headers.setdefault("X-Robots-Tag", "noindex, nofollow")
         return response
-
-    def _normalize_form_time(raw: str | None) -> str | None:
-        """Convert form-entered time strings to 24-hour ``HH:MM`` format."""
-        if not raw:
-            return None
-        text = str(raw).strip()
-        if not text:
-            return None
-        meridian = None
-        lower = text.lower()
-        if lower.endswith("am") or lower.endswith("pm"):
-            meridian = lower[-2:]
-            text = text[: -2].strip()
-        if ":" in text:
-            hour_part, minute_part = text.split(":", 1)
-        else:
-            hour_part, minute_part = text, "00"
-        try:
-            hours = int(hour_part)
-        except Exception:
-            return None
-        minute_digits = "".join(ch for ch in minute_part if ch.isdigit())
-        minutes = int(minute_digits[:2] or 0)
-        if meridian:
-            if meridian == "pm" and hours != 12:
-                hours += 12
-            if meridian == "am" and hours == 12:
-                hours = 0
-        hours %= 24
-        minutes %= 60
-        return f"{hours:02d}:{minutes:02d}"
 
     def _weekday_labels(width: str = 'abbreviated') -> list[str]:
         """Return localized weekday labels in the desired width."""
@@ -622,8 +590,41 @@ def create_app():
         s = db.get(Service, sid)
         if not s:
             abort(404)
-        days = _weekday_labels('wide')
-        return render_template('service_detail.html', s=s, days=days)
+        from dateutil.parser import isoparse
+        from .services_calendar import merged_occurrences
+
+        tzname = current_app.config.get('BABEL_DEFAULT_TIMEZONE', 'America/New_York')
+        try:
+            tz = ZoneInfo(tzname)
+        except Exception:
+            tz = timezone.utc
+
+        now = datetime.now(tz)
+        window_end = now + timedelta(days=21)
+        events = merged_occurrences(db, now, window_end, service_id=s.id, tzname=tzname)
+
+        occurrences = []
+        for ev in events:
+            try:
+                sdt = isoparse(ev.get('start')).astimezone(tz)
+                edt = isoparse(ev.get('end')).astimezone(tz)
+            except Exception:
+                continue
+            occurrences.append({
+                'start': sdt,
+                'end': edt,
+                'title': ev.get('title') or s.name,
+                'location': ev.get('location') or s.location,
+            })
+
+        occurrences.sort(key=lambda item: item['start'])
+        occurrences = occurrences[:12]
+
+        return render_template(
+            'service_detail.html',
+            s=s,
+            occurrences=occurrences,
+        )
 
     @app.route('/schedule')
     def schedule():
@@ -631,60 +632,47 @@ def create_app():
         db = dbs()
         days = _weekday_labels('abbreviated')
 
-        view = (request.args.get('view') or '').lower()
-        if view == 'dynamic':
-            from dateutil.parser import isoparse
-            from .services_calendar import merged_occurrences
+        from dateutil.parser import isoparse
+        from .services_calendar import merged_occurrences
 
-            tzname = current_app.config.get('BABEL_DEFAULT_TIMEZONE', 'America/New_York')
-            try:
-                tz = ZoneInfo(tzname)
-            except Exception:
-                tz = timezone.utc
-                tzname = 'UTC'
+        tzname = current_app.config.get('BABEL_DEFAULT_TIMEZONE', 'America/New_York')
+        try:
+            tz = ZoneInfo(tzname)
+        except Exception:
+            tz = timezone.utc
+            tzname = 'UTC'
 
-            now = datetime.now(tz)
-            week_start = (now - timedelta(days=now.weekday())).replace(
-                hour=0,
-                minute=0,
-                second=0,
-                microsecond=0,
-            )
-            week_end = week_start + timedelta(days=7)
-
-            events = merged_occurrences(db, week_start, week_end, tzname=tzname)
-
-            bucketed = {i: [] for i in range(7)}
-            for ev in events:
-                try:
-                    sdt = isoparse(ev.get('start')).astimezone(tz)
-                    edt = isoparse(ev.get('end')).astimezone(tz)
-                except Exception:
-                    continue
-                bucketed[sdt.weekday()].append(
-                    {
-                        'title': ev.get('title') or '',
-                        'location': ev.get('location') or '',
-                        'start_hhmm': f"{sdt.hour:02d}:{sdt.minute:02d}",
-                        'end_hhmm': f"{edt.hour:02d}:{edt.minute:02d}",
-                    }
-                )
-
-            for i in range(7):
-                bucketed[i].sort(key=lambda x: x['start_hhmm'])
-
-            return render_template('schedule_dynamic.html', days=days, bucketed=bucketed)
-
-        services = (
-            db.query(Service)
-            .order_by(Service.category, func.lower(func.coalesce(Service.name_en, Service.name)))
-            .all()
+        now = datetime.now(tz)
+        week_start = (now - timedelta(days=now.weekday())).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0,
         )
-        matrix = {i: [] for i in range(7)}
-        for svc in services:
-            for slot in svc.slots:
-                matrix[slot.dow].append((svc, slot))
-        return render_template('schedule.html', days=days, matrix=matrix)
+        week_end = week_start + timedelta(days=7)
+
+        events = merged_occurrences(db, week_start, week_end, tzname=tzname)
+
+        bucketed = {i: [] for i in range(7)}
+        for ev in events:
+            try:
+                sdt = isoparse(ev.get('start')).astimezone(tz)
+                edt = isoparse(ev.get('end')).astimezone(tz)
+            except Exception:
+                continue
+            bucketed[sdt.weekday()].append(
+                {
+                    'title': ev.get('title') or '',
+                    'location': ev.get('location') or '',
+                    'start_hhmm': f"{sdt.hour:02d}:{sdt.minute:02d}",
+                    'end_hhmm': f"{edt.hour:02d}:{edt.minute:02d}",
+                }
+            )
+
+        for i in range(7):
+            bucketed[i].sort(key=lambda x: x['start_hhmm'])
+
+        return render_template('schedule_dynamic.html', days=days, bucketed=bucketed)
 
     @app.route('/announcements')
     def announcements():
@@ -2392,65 +2380,6 @@ def create_app():
             )
             flash(_('Service deleted.'), 'info')
         return redirect(url_for('admin_services'))
-
-    # slots
-    @app.route('/admin/services/<int:sid>/slots', methods=['GET', 'POST'])
-    @roles_required('admin', 'editor')
-    def admin_slots(sid: int):
-        """Manage recurring weekly slots for a given service."""
-        db = dbs()
-        s = db.get(Service, sid)
-        if not s:
-            abort(404)
-        if request.method == 'POST':
-            try:
-                dow = int(request.form.get('dow'))
-            except Exception:
-                dow = 0
-            slot = ProgramSlot(
-                service_id=s.id,
-                dow=dow,
-                start=_normalize_form_time(request.form.get('start')),
-                end=_normalize_form_time(request.form.get('end')),
-                note=(request.form.get('note') or '').strip() or None,
-            )
-            db.add(slot)
-            db.commit()
-            audit_log(
-                "slot.create",
-                actor=audit_actor(),
-                obj=slot.id,
-                extra={"service_id": s.id, "dow": slot.dow},
-            )
-            flash(_('Time slot added.'), 'success')
-            return redirect(url_for('admin_slots', sid=s.id))
-        return render_template('admin/slots.html', s=s)
-
-    @app.route('/admin/slots/<int:slot_id>/delete', methods=['POST'])
-    @roles_required('admin', 'editor')
-    def admin_slot_delete(slot_id: int):
-        """Remove a specific program slot instance."""
-        db = dbs()
-        slot = db.get(ProgramSlot, slot_id)
-        if slot:
-            sid = slot.service_id
-            before_data = {
-                "service_id": slot.service_id,
-                "dow": slot.dow,
-                "start": slot.start,
-                "end": slot.end,
-            }
-            db.delete(slot)
-            db.commit()
-            audit_log(
-                "slot.delete",
-                actor=audit_actor(),
-                obj=slot_id,
-                before=before_data,
-            )
-            flash(_('Slot deleted.'), 'info')
-            return redirect(url_for('admin_slots', sid=sid))
-        return redirect(url_for('admin_index'))
 
     # announcements
     @app.route('/admin/announcements')

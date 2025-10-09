@@ -106,11 +106,8 @@
     <input name="external_link" class="form-control" placeholder="http(s)://" value="{{ service.external_link }}">
   </div>
   <button class="btn btn-primary">Save Changes</button>
-  <a class="btn btn-outline-primary" href="{{ url_for('admin_services_calendar_one', sid=service.id) }}">Add schedule</a>
+  <a class="btn btn-outline-primary" href="{{ url_for('admin_services_calendar_one', sid=service.id) }}">Manage schedules</a>
   <a class="btn btn-outline-secondary" href="{{ url_for('admin_services') }}">Cancel</a>
-  {% if user_role == 'admin' %}
-  <a class="btn btn-outline-secondary" href="{{ url_for('admin_slots', sid=service.id) }}">Legacy slots</a>
-  {% endif %}
   <a class="btn btn-outline-danger" href="#" onclick="if(confirm('Delete this service?')){ document.getElementById('del').submit(); } return false;">Delete</a>
   <form id="del" method="post" action="{{ url_for('admin_services_delete', sid=service.id) }}">{{ csrf() }}</form>
 </form>
