@@ -1,0 +1,271 @@
+{% extends "base.html" %}
+{% from '_csrf.html' import csrf %}
+{% block content %}
+<h1>Display Zones & Slides</h1>
+
+<h2>Create New Zone</h2>
+<form method="post" class="mb-4">
+  {{ csrf() }}
+  <input type="hidden" name="action" value="add_zone">
+  <div class="mb-2">
+    <label>Name</label>
+    <input type="text" name="name" class="form-control" placeholder="Lobby TV 1">
+  </div>
+  <div class="mb-2">
+    <label>Slug (used in URL)</label>
+    <input type="text" name="slug" class="form-control" placeholder="lobby1">
+    <small class="form-text text-muted">
+      TV URL will be: {{ request.host_url.rstrip('/') }}/display/&lt;slug&gt;
+    </small>
+  </div>
+  <div class="mb-2">
+    <label>Crossfade duration (seconds)</label>
+    <input type="number" name="fade_duration" value="1.4" min="0.1" step="0.1" class="form-control">
+    <small class="form-text text-muted">Controls how long slides fade between each other.</small>
+  </div>
+  <button type="submit" class="btn btn-primary">Add Zone</button>
+</form>
+
+<hr>
+
+<h2>Existing Zones</h2>
+<table class="table table-sm">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Slug</th>
+      <th>Active</th>
+      <th>Fade (s)</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for z in zones %}
+    <tr>
+      <td>{{ z.name }}</td>
+      <td>{{ z.slug }}</td>
+      <td>{{ 'Yes' if z.active else 'No' }}</td>
+      <td>{{ '{:.1f}'.format(z.fade_duration or 1.4) }}</td>
+      <td>
+        <a href="{{ url_for('display.display_admin', zone=z.slug) }}"
+           class="btn btn-sm btn-secondary">Edit Slides</a>
+
+        <form method="post" style="display:inline;">
+          {{ csrf() }}
+          <input type="hidden" name="action" value="toggle_zone">
+          <input type="hidden" name="zone_id" value="{{ z.id }}">
+          <button class="btn btn-sm btn-warning">
+            {% if z.active %}Disable{% else %}Enable{% endif %}
+          </button>
+        </form>
+
+        <form method="post" class="d-inline-flex align-items-center gap-1">
+          {{ csrf() }}
+          <input type="hidden" name="action" value="edit_zone">
+          <input type="hidden" name="zone_id" value="{{ z.id }}">
+          <input type="text" name="name" value="{{ z.name }}" class="form-control form-control-sm" style="width:8rem;">
+          <input type="text" name="slug" value="{{ z.slug }}" class="form-control form-control-sm" style="width:7rem;">
+          <input type="number" name="fade_duration" value="{{ z.fade_duration or 1.4 }}" class="form-control form-control-sm" style="width:6rem;" min="0.1" step="0.1">
+          <button class="btn btn-sm btn-info">Save</button>
+        </form>
+
+        <form method="post" style="display:inline;" onsubmit="return confirm('Delete this zone? You must delete its slides first.');">
+          {{ csrf() }}
+          <input type="hidden" name="action" value="delete_zone">
+          <input type="hidden" name="zone_id" value="{{ z.id }}">
+          <button class="btn btn-sm btn-danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<hr>
+
+{% if selected_zone %}
+<h2>Slides for zone: {{ selected_zone.name }} ({{ selected_zone.slug }})</h2>
+
+<div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
+  <form method="post" class="d-flex align-items-center gap-2 mb-0 flex-wrap">
+    {{ csrf() }}
+    <input type="hidden" name="action" value="set_duration_all">
+    <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
+    <span>Set all slide durations to</span>
+    <input type="number" name="duration" value="10" min="1" class="form-control form-control-sm" style="width:6rem;">
+    <span>seconds</span>
+    <button type="submit" class="btn btn-sm btn-outline-danger">Apply</button>
+  </form>
+  <small class="text-muted">This changes every slide in this zone.</small>
+</div>
+
+<table class="table table-sm">
+  <thead>
+    <tr>
+      <th>ID</th>
+      <th>Type</th>
+      <th>Preview</th>
+      <th>Order</th>
+      <th>Duration (s)</th>
+      <th>Active</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in slides %}
+    <tr>
+      <td>{{ s.id }}</td>
+      <td>{{ s.type }}</td>
+      <td>
+        {% set file_url = url_for('display.display_media', filename=s.file) if s.file else None %}
+        {% if s.type == 'image' and file_url %}
+          <img src="{{ file_url }}" style="max-height:60px;">
+        {% elif s.type == 'video' and file_url %}
+          <video src="{{ file_url }}" style="max-height:60px;" muted loop playsinline controls></video>
+        {% else %}
+          <strong>{{ s.headline }}</strong><br>
+          <small>{{ s.subheadline }}</small><br>
+          <span style="white-space:pre-line;">{{ s.body }}</span>
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" class="d-flex align-items-center gap-2">
+          {{ csrf() }}
+          <input type="hidden" name="action" value="set_order">
+          <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
+          <input type="hidden" name="slide_id" value="{{ s.id }}">
+          <select name="order" class="form-select form-select-sm" style="width:auto;">
+            {% for pos in range(1, slides|length + 1) %}
+              <option value="{{ pos }}" {% if pos == s.order %}selected{% endif %}>{{ pos }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-outline-primary">Set</button>
+        </form>
+      </td>
+      <td>
+        <form method="post" class="d-flex align-items-center gap-2">
+          {{ csrf() }}
+          <input type="hidden" name="action" value="set_duration">
+          <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
+          <input type="hidden" name="slide_id" value="{{ s.id }}">
+          <input type="number" name="duration" value="{{ s.duration }}" min="1" class="form-control form-control-sm" style="width:6rem;">
+          <button type="submit" class="btn btn-sm btn-outline-primary">Update</button>
+        </form>
+      </td>
+      <td>{{ 'Yes' if s.active else 'No' }}</td>
+      <td>
+        <form method="post" style="display:inline;">
+          {{ csrf() }}
+          <input type="hidden" name="action" value="toggle_slide">
+          <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
+          <input type="hidden" name="slide_id" value="{{ s.id }}">
+          <button class="btn btn-sm btn-warning">
+            {% if s.active %}Disable{% else %}Enable{% endif %}
+          </button>
+        </form>
+
+        <form method="post" style="display:inline;" onsubmit="return confirm('Delete this slide?');">
+          {{ csrf() }}
+          <input type="hidden" name="action" value="delete_slide">
+          <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
+          <input type="hidden" name="slide_id" value="{{ s.id }}">
+          <button class="btn btn-sm btn-danger">Delete</button>
+        </form>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+
+<hr>
+
+<h3>Add Text Slide</h3>
+<form method="post" class="mb-4">
+  {{ csrf() }}
+  <input type="hidden" name="action" value="add_text">
+  <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
+  <div class="mb-2">
+    <label>Headline</label>
+    <input type="text" name="headline" class="form-control">
+  </div>
+  <div class="mb-2">
+    <label>Subheadline</label>
+    <input type="text" name="subheadline" class="form-control">
+  </div>
+  <div class="mb-2">
+    <label>Body</label>
+    <textarea name="body" rows="4" class="form-control"></textarea>
+  </div>
+  <div class="mb-2">
+    <label>Order</label>
+    <input type="number" name="order" value="{{ slides|length + 1 }}" class="form-control">
+  </div>
+  <div class="mb-2">
+    <label>Duration (seconds)</label>
+    <input type="number" name="duration" value="10" class="form-control">
+  </div>
+  <button type="submit" class="btn btn-primary">Add Text Slide</button>
+</form>
+
+<h3>Add Image Slide</h3>
+<form method="post" enctype="multipart/form-data">
+  {{ csrf() }}
+  <input type="hidden" name="action" value="add_image">
+  <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
+  <div class="mb-2">
+    <label>Image file</label>
+    <input type="file" name="image_file" class="form-control" accept="image/*">
+  </div>
+  <div class="mb-2">
+    <label>Order</label>
+    <input type="number" name="order" value="{{ slides|length + 1 }}" class="form-control">
+  </div>
+  <div class="mb-2">
+    <label>Duration (seconds)</label>
+    <input type="number" name="duration" value="10" class="form-control">
+  </div>
+  <button type="submit" class="btn btn-primary">Add Image Slide</button>
+</form>
+
+<h3>Bulk Upload Image Slides</h3>
+<form method="post" enctype="multipart/form-data" class="mb-4">
+  {{ csrf() }}
+  <input type="hidden" name="action" value="add_images_bulk">
+  <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
+  <div class="mb-2">
+    <label>Image files</label>
+    <input type="file" name="image_files" class="form-control" accept="image/*" multiple>
+    <small class="form-text text-muted">Select multiple images to import them all at once.</small>
+  </div>
+  <div class="mb-2">
+    <label>Default duration (seconds)</label>
+    <input type="number" name="duration" value="10" class="form-control">
+  </div>
+  <button type="submit" class="btn btn-primary">Upload Images</button>
+</form>
+
+<h3>Add Video Slide</h3>
+<form method="post" enctype="multipart/form-data" class="mb-4">
+  {{ csrf() }}
+  <input type="hidden" name="action" value="add_video">
+  <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
+  <div class="mb-2">
+    <label>Video file (MP4)</label>
+    <input type="file" name="video_file" class="form-control" accept="video/mp4">
+  </div>
+  <div class="mb-2">
+    <label>Order</label>
+    <input type="number" name="order" value="{{ slides|length + 1 }}" class="form-control">
+  </div>
+  <div class="mb-2">
+    <label>Duration (seconds)</label>
+    <input type="number" name="duration" value="15" class="form-control" min="1">
+  </div>
+  <button type="submit" class="btn btn-primary">Add Video Slide</button>
+</form>
+
+{% else %}
+<p>No zones defined yet. Create one above to start adding slides.</p>
+{% endif %}
+
+{% endblock %}

@@ -2,28 +2,173 @@
 {% import '_macros.html' as m %}
 {% from '_csrf.html' import csrf %}
 
+{% block head %}
+{{ super() }}
+<style>
+  .rich-text-editor {
+    border: 1px solid #ced4da;
+    border-radius: 0.375rem;
+    background-color: #fff;
+  }
+  .rich-text-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    padding: 0.35rem;
+    border-bottom: 1px solid #ced4da;
+    background-color: #f8f9fa;
+  }
+  .rich-text-toolbar button {
+    min-width: 2.25rem;
+  }
+  .rich-text-surface {
+    min-height: 180px;
+    padding: 0.75rem;
+    font-size: 1rem;
+    line-height: 1.5;
+    outline: none;
+  }
+  .rich-text-surface:empty:before {
+    content: attr(data-placeholder);
+    color: #6c757d;
+  }
+  .rich-text-surface[data-invalid="true"] {
+    outline: 2px solid #dc3545;
+    border-radius: 0 0 0.375rem 0.375rem;
+  }
+</style>
+{% endblock %}
+
 {% block content %}
 <h4 class="mb-3">New Announcement</h4>
 <form method="post">
   {{ csrf() }}
   <div class="mb-2">
-    <label class="form-label">Title</label>
-    <input name="title" class="form-control" required>
+    <label class="form-label" for="announcementTitle">Title</label>
+    <textarea name="title" id="announcementTitle" class="form-control" rows="2" required>{{ request.form.get('title', '') | e }}</textarea>
+    <div class="rich-text-editor d-none mt-2" data-rte="announcementTitle">
+      <div class="rich-text-toolbar">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="bold" title="Bold"><strong>B</strong></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="italic" title="Italic"><em>I</em></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="underline" title="Underline"><u>U</u></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="insertUnorderedList" title="Bulleted list">&bull;•</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="insertOrderedList" title="Numbered list">1.</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="createLink" title="Insert link">Link</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="unlink" title="Remove link">Unlink</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="removeFormat" title="Clear formatting">Clear</button>
+        <span class="vr d-none d-md-inline mx-1"></span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="justifyLeft" title="Align left">L</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="justifyCenter" title="Center">C</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="justifyRight" title="Align right">R</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="justifyFull" title="Justify">J</button>
+      </div>
+      <div class="rich-text-surface" data-rte-surface contenteditable="true" aria-label="Announcement title" data-placeholder="Summarize the announcement in a headline..."></div>
+    </div>
+    <div class="invalid-feedback d-none" data-rte-feedback="announcementTitle">Announcement title is required.</div>
+    <div class="form-text text-muted">Keep it short—this appears as the headline on the guest site.</div>
   </div>
   <div class="mb-2">
-    <label class="form-label">Body</label>
-    <textarea name="body" class="form-control" rows="5" required></textarea>
+    <label class="form-label" for="announcementBody">Body</label>
+    <textarea name="body" id="announcementBody" class="form-control" rows="5" required>{{ request.form.get('body', '') | e }}</textarea>
+    <div class="rich-text-editor d-none mt-2" data-rte="announcementBody">
+      <div class="rich-text-toolbar">
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="bold" title="Bold"><strong>B</strong></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="italic" title="Italic"><em>I</em></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="underline" title="Underline"><u>U</u></button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="insertUnorderedList" title="Bulleted list">&bull;•</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="insertOrderedList" title="Numbered list">1.</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="createLink" title="Insert link">Link</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="unlink" title="Remove link">Unlink</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="removeFormat" title="Clear formatting">Clear</button>
+        <span class="vr d-none d-md-inline mx-1"></span>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="justifyLeft" title="Align left">L</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="justifyCenter" title="Center">C</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="justifyRight" title="Align right">R</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" data-command="justifyFull" title="Justify">J</button>
+      </div>
+      <div class="rich-text-surface" data-rte-surface contenteditable="true" aria-label="Announcement body" data-placeholder="Share details, timelines, or instructions..."></div>
+    </div>
+    <div class="invalid-feedback d-none" data-rte-feedback="announcementBody">Announcement body is required.</div>
+    <div class="form-text text-muted">Use the toolbar to highlight key details, add bullet lists, or link to resources.</div>
   </div>
   <div class="row g-2">
     <div class="col-md-6">
       <label class="form-label">Starts</label>
-      <input type="datetime-local" name="starts_at" class="form-control">
+      <input type="datetime-local" name="starts_at" class="form-control" value="{{ request.form.get('starts_at', '') | e }}">
     </div>
     <div class="col-md-6">
       <label class="form-label">Ends (optional)</label>
-      <input type="datetime-local" name="ends_at" class="form-control">
+      <input type="datetime-local" name="ends_at" class="form-control" value="{{ request.form.get('ends_at', '') | e }}">
     </div>
   </div>
   <div class="mt-2"><button class="btn btn-primary">Post</button></div>
 </form>
+{% endblock %}
+
+{% block scripts %}
+{{ super() }}
+<script>
+(function() {
+  const initRichTextEditor = (textareaId) => {
+    const textarea = document.getElementById(textareaId);
+    const editorWrapper = document.querySelector(`[data-rte="${textareaId}"]`);
+    if (!textarea || !editorWrapper) {
+      return;
+    }
+
+    const surface = editorWrapper.querySelector('[data-rte-surface]');
+    const feedback = document.querySelector(`[data-rte-feedback="${textareaId}"]`);
+    const form = textarea.form;
+
+    const syncToTextarea = () => {
+      const html = surface.innerHTML.trim();
+      textarea.value = html;
+      if (html) {
+        surface.removeAttribute('data-invalid');
+        feedback?.classList.add('d-none');
+      }
+    };
+
+    surface.innerHTML = textarea.value || '';
+    textarea.classList.add('visually-hidden');
+    editorWrapper.classList.remove('d-none');
+
+    editorWrapper.querySelectorAll('[data-command]').forEach((btn) => {
+      btn.addEventListener('mousedown', (event) => event.preventDefault());
+      btn.addEventListener('click', (event) => {
+        event.preventDefault();
+        const command = btn.getAttribute('data-command');
+        if (!command) {
+          return;
+        }
+        surface.focus();
+        if (command === 'createLink') {
+          const url = prompt('Enter the URL to link to:', 'https://');
+          if (url) {
+            document.execCommand('createLink', false, url);
+          }
+        } else {
+          document.execCommand(command, false, null);
+        }
+        syncToTextarea();
+      });
+    });
+
+    surface.addEventListener('input', syncToTextarea);
+    surface.addEventListener('blur', syncToTextarea);
+
+    form?.addEventListener('submit', (event) => {
+      syncToTextarea();
+      if (!textarea.value.trim()) {
+        event.preventDefault();
+        surface.setAttribute('data-invalid', 'true');
+        feedback?.classList.remove('d-none');
+        surface.focus();
+      }
+    });
+  };
+
+  ['announcementTitle', 'announcementBody'].forEach((id) => initRichTextEditor(id));
+})();
+</script>
 {% endblock %}

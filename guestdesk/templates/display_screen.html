@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ zone.name }} Display</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      width: 100%;
+      background: #000;
+      color: #fff;
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    #display-root {
+      height: 100%;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    #slide-container {
+      height: 100%;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .slide-frame {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .display-slide-image,
+    .display-slide-video {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+    }
+    .display-slide-text {
+      text-align: center;
+      padding: 2rem;
+    }
+    .display-slide-text h1 { font-size: 5vw; margin-bottom: 1rem; }
+    .display-slide-text h2 { font-size: 3.5vw; margin-bottom: 1rem; }
+    .display-slide-text p  { font-size: 2.5vw; white-space: pre-line; }
+    .fade-frame {
+      opacity: 0;
+      animation: fadeIn ease forwards;
+      animation-duration: var(--fade-duration, 1.4s);
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div id="display-root">
+    <div id="slide-container" style="--fade-duration: {{ zone.fade_duration or 1.4 }}s;"></div>
+  </div>
+
+  <script>
+  const ZONE_SLUG = "{{ zone.slug }}";
+  const FADE_DURATION = {{ zone.fade_duration or 1.4 }};
+
+  async function fetchSlides() {
+    const res = await fetch(`/api/display-slides/${ZONE_SLUG}`);
+    if (!res.ok) {
+      return [];
+    }
+    const data = await res.json();
+    return data.slides || [];
+  }
+
+  let currentFrame = null;
+
+  function buildFrame(slide) {
+    const frame = document.createElement("div");
+    frame.className = "slide-frame";
+
+    if (slide.type === "image" && slide.file_url) {
+      const img = document.createElement("img");
+      img.src = slide.file_url;
+      img.className = "display-slide-image";
+      frame.appendChild(img);
+      return frame;
+    }
+
+    if (slide.type === "video" && slide.file_url) {
+      const video = document.createElement("video");
+      video.src = slide.file_url;
+      video.className = "display-slide-video";
+      video.autoplay = true;
+      video.loop = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.controls = false;
+      video.addEventListener("loadeddata", () => {
+        video.currentTime = 0;
+        video.play().catch(() => {});
+      });
+      frame.appendChild(video);
+      return frame;
+    }
+
+    if (slide.type === "text") {
+      const wrapper = document.createElement("div");
+      wrapper.className = "display-slide-text";
+      if (slide.headline) {
+        const h1 = document.createElement("h1");
+        h1.textContent = slide.headline;
+        wrapper.appendChild(h1);
+      }
+      if (slide.subheadline) {
+        const h2 = document.createElement("h2");
+        h2.textContent = slide.subheadline;
+        wrapper.appendChild(h2);
+      }
+      if (slide.body) {
+        const p = document.createElement("p");
+        p.textContent = slide.body;
+        wrapper.appendChild(p);
+      }
+      frame.appendChild(wrapper);
+      return frame;
+    }
+
+    const fallback = document.createElement("p");
+    fallback.style.color = "white";
+    fallback.style.fontSize = "3vw";
+    fallback.style.textAlign = "center";
+    fallback.textContent = "No supported slide content.";
+    frame.appendChild(fallback);
+    return frame;
+  }
+
+  function renderSlide(slide) {
+    const container = document.getElementById("slide-container");
+    const transition = (slide.transition || "fade").toLowerCase();
+    const frame = buildFrame(slide);
+
+    if (transition === "fade" && currentFrame) {
+      frame.classList.add("fade-frame");
+      container.appendChild(frame);
+      frame.addEventListener("animationend", () => {
+        if (currentFrame && currentFrame.parentNode === container) {
+          container.removeChild(currentFrame);
+        }
+        frame.classList.remove("fade-frame");
+        currentFrame = frame;
+      }, { once: true });
+    } else {
+      if (currentFrame && currentFrame.parentNode === container) {
+        container.removeChild(currentFrame);
+      }
+      container.innerHTML = "";
+      container.appendChild(frame);
+      currentFrame = frame;
+    }
+  }
+
+  async function startSlideshow() {
+    let slides = await fetchSlides();
+    if (!slides.length) {
+      document.getElementById("slide-container").innerHTML =
+        "<p style='color:white;font-size:3vw;text-align:center;'>No slides configured for this display.</p>";
+      setTimeout(startSlideshow, 15000);
+      return;
+    }
+
+    let idx = 0;
+
+    async function showNext() {
+      if (idx === 0) {
+        slides = await fetchSlides();
+        if (!slides.length) {
+          setTimeout(showNext, 15000);
+          return;
+        }
+      }
+
+      const slide = slides[idx];
+      renderSlide(slide);
+      const duration = (slide.duration || 10) * 1000;
+      idx = (idx + 1) % slides.length;
+      setTimeout(showNext, duration);
+    }
+
+    showNext();
+  }
+
+  document.addEventListener("DOMContentLoaded", startSlideshow);
+  </script>
+</body>
+</html>

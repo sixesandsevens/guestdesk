@@ -1,0 +1,45 @@
+{
+  "zones": [
+    {
+      "id": 1,
+      "name": "Lobby TV 1",
+      "slug": "lobby1",
+      "active": true
+    },
+    {
+      "id": 2,
+      "name": "Lobby TV 2",
+      "slug": "lobby2",
+      "active": true
+    }
+  ],
+  "slides": [
+    {
+      "id": 3,
+      "zone_id": 1,
+      "type": "image",
+      "file": "test.png",
+      "duration": 10,
+      "active": true,
+      "order": 1
+    },
+    {
+      "id": 4,
+      "zone_id": 1,
+      "type": "image",
+      "file": "test.png",
+      "duration": 10,
+      "active": true,
+      "order": 3
+    },
+    {
+      "id": 5,
+      "zone_id": 1,
+      "type": "image",
+      "file": "test.png",
+      "duration": 12,
+      "active": true,
+      "order": 3
+    }
+  ]
+}

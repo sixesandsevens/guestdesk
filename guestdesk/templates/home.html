@@ -27,11 +27,11 @@
 <div class="list-group">
   {% for a in anns %}
     <div class="list-group-item">
-      <div class="d-flex justify-content-between">
-        <strong>{{ a.title }}</strong>
-        <span class="small text-muted">{{ a.starts_at|dt }}</span>
+      <div class="d-flex justify-content-between gap-3">
+        <div class="fw-semibold flex-grow-1">{{ a.title|safe }}</div>
+        <span class="small text-muted text-nowrap">{{ a.starts_at|dt }}</span>
       </div>
-      <div>{{ a.body }}</div>
+      <div>{{ a.body|safe }}</div>
     </div>
   {% else %}
     <div class="text-muted">{{ _('Nothing here yet. Check back soon.') }}</div>

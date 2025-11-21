@@ -317,6 +317,12 @@ def create_app():
     except Exception as exc:
         app.logger.warning('Failed to register ICS blueprint: %s', exc)
 
+    try:
+        from .display import bp as display_bp
+        app.register_blueprint(display_bp)
+    except Exception as exc:
+        app.logger.warning('Failed to register display blueprint: %s', exc)
+
     @app.teardown_appcontext
     def shutdown_session(_exc=None):
         """Ensure scoped sessions are cleaned up after each request."""
