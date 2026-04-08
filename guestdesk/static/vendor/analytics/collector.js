@@ -4,6 +4,8 @@
     if (navigator.doNotTrack === '1' || window.doNotTrack === '1') return;
     // avoid self-inflation: skip admin analytics page itself
     if ((location.pathname || '').startsWith('/admin/analytics')) return;
+    // signage display pages should never emit analytics
+    if ((location.pathname || '').startsWith('/display/')) return;
 
     function uuid(){
       return (crypto.randomUUID ? crypto.randomUUID() :
@@ -42,17 +44,25 @@
       }, extra||{});
     }
 
+    var sentPageView = false;
+
     function send(extra){
       var body = JSON.stringify(payload(extra));
       try { navigator.sendBeacon('/analytics/collect', new Blob([body], {type:'application/json'})); }
       catch(e){ fetch('/analytics/collect', {method:'POST', headers:{'Content-Type':'application/json'}, body}); }
     }
 
-    // initial pageview after load to capture load time
-    window.addEventListener('load', function(){ setTimeout(function(){ send({action:'view', category:'page'}); }, 0); });
-    // on hide, send final duration
-    document.addEventListener('visibilitychange', function(){ if (document.visibilityState === 'hidden') send({action:'view', category:'page'}); });
-    window.addEventListener('pagehide', function(){ send({action:'view', category:'page'}); });
+    function sendPageViewOnce(){
+      if (sentPageView) return;
+      sentPageView = true;
+      send({action:'view', category:'page'});
+    }
+
+    // Send one pageview per actual page visit, as late as possible so duration is meaningful.
+    document.addEventListener('visibilitychange', function(){
+      if (document.visibilityState === 'hidden') sendPageViewOnce();
+    });
+    window.addEventListener('pagehide', function(){ sendPageViewOnce(); });
 
     // expose helpers
     window.GDAnalytics = {

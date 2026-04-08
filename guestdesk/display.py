@@ -154,7 +154,20 @@ def display_screen(slug):
     zone = get_zone_by_slug(cfg, slug)
     if not zone or not zone.get("active", True):
         abort(404)
-    return render_template("display_screen.html", zone=zone)
+    preview = request.args.get("preview", "").lower() in {"1", "true", "yes", "on"}
+    preview_duration = None
+    if preview:
+        try:
+            preview_duration = float(request.args.get("duration", "2.5"))
+        except (TypeError, ValueError):
+            preview_duration = 2.5
+        preview_duration = max(0.5, preview_duration)
+    return render_template(
+        "display_screen.html",
+        zone=zone,
+        preview=preview,
+        preview_duration=preview_duration,
+    )
 
 
 @bp.route("/display-media/<path:filename>")

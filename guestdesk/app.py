@@ -58,7 +58,7 @@ from .models import (
     PasswordResetToken,
 )
 from . import pdf_config
-from guestdesk.analytics import init_analytics
+from .analytics import init_analytics
 from .services_calendar import expand_between
 from .mailer import send_category_notification, queue_mail, _recipient_for
 from .antispam import seen as idemp_seen, remember as remember_idemp, fetch as fetch_idemp_result

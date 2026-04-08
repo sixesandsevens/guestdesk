@@ -13,13 +13,21 @@ from user_agents import parse as ua_parse
 from sqlalchemy.orm import sessionmaker
 
 try:
-    from guestdesk.models import AnalyticsEvent, Base
+    from .models import AnalyticsEvent, Base
 except Exception:  # pragma: no cover
-    from guestdesk.app import AnalyticsEvent, Base  # type: ignore
+    from .app import AnalyticsEvent, Base  # type: ignore
 
 analytics_bp = Blueprint("analytics", __name__, url_prefix="/analytics")
 
 SessionLocal = None  # set in init_analytics()
+
+
+def _safe_int(value, default=0):
+    """Return ``value`` as an ``int`` when possible, else ``default``."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _ip_hash(ip: str, salt: str) -> str | None:
@@ -66,13 +74,13 @@ def collect():
     def ts(ms, default):
         """Best-effort conversion from epoch milliseconds to UTC datetime."""
         try:
-            return datetime.utcfromtimestamp(int(ms) / 1000.0)
+            return datetime.utcfromtimestamp(_safe_int(ms) / 1000.0)
         except Exception:
             return default
 
     start = ts(data.get("started_at_ms"), now)
     end = ts(data.get("ended_at_ms"), now)
-    duration_ms = max(0, int((end - start).total_seconds() * 1000))
+    duration_ms = max(0, _safe_int((end - start).total_seconds() * 1000))
 
     ua_raw = request.headers.get("User-Agent") or ""
     ua = ua_parse(ua_raw)
@@ -111,7 +119,7 @@ def collect():
         started_at=start,
         ended_at=end,
         duration_ms=duration_ms,
-        page_load_ms=(int(data.get("page_load_ms") or 0) or None),
+        page_load_ms=(_safe_int(data.get("page_load_ms")) or None),
         ip_hash=ip_hash,
         user_agent=ua_raw,
         device=device,

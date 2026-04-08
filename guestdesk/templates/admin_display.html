@@ -47,6 +47,12 @@
       <td>{{ 'Yes' if z.active else 'No' }}</td>
       <td>{{ '{:.1f}'.format(z.fade_duration or 1.4) }}</td>
       <td>
+        <a href="{{ url_for('display.display_screen', slug=z.slug) }}"
+           class="btn btn-sm btn-outline-dark"
+           target="_blank" rel="noopener">Open Display</a>
+        <a href="{{ url_for('display.display_screen', slug=z.slug, preview=1, duration=2.5) }}"
+           class="btn btn-sm btn-outline-primary"
+           target="_blank" rel="noopener">Quick Preview</a>
         <a href="{{ url_for('display.display_admin', zone=z.slug) }}"
            class="btn btn-sm btn-secondary">Edit Slides</a>
 
