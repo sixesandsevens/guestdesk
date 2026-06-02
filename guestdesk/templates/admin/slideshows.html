@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Slideshows</h4>
+  <a class="btn btn-outline-secondary" href="{{ url_for('display.admin_displays') }}">Manage Displays</a>
+</div>
+<p class="text-muted small">Slideshows are reusable content packages. Assign them to one or more displays without duplicating slides.</p>
+
+{% if slideshows %}
+<div class="table-responsive">
+<table class="table table-sm align-middle">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Description</th>
+      <th>Slides</th>
+      <th>Assigned to</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for slug, ss in slideshows.items() %}
+    {% set assigned = [] %}
+    {% for dslug, d in displays.items() %}
+      {% if d.assigned_slideshow == slug %}{% set _ = assigned.append(d.name) %}{% endif %}
+    {% endfor %}
+    <tr>
+      <td><strong>{{ ss.name }}</strong><br><small class="text-muted font-monospace">{{ slug }}</small></td>
+      <td><small>{{ ss.description or '—' }}</small></td>
+      <td>{{ ss.slides | length }}</td>
+      <td>
+        {% if assigned %}
+          {% for name in assigned %}
+            <span class="badge bg-info text-dark">{{ name }}</span>
+          {% endfor %}
+        {% else %}
+          <span class="text-muted small">unassigned</span>
+        {% endif %}
+      </td>
+      <td>
+        <div class="d-flex flex-wrap gap-1">
+          <a href="{{ url_for('display.admin_slideshow_edit', ss_slug=slug) }}"
+             class="btn btn-sm btn-secondary">Edit Slides</a>
+
+          <a href="{{ url_for('display.slideshow_preview', ss_slug=slug, duration=2.5) }}"
+             class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">Preview</a>
+
+          <form method="post" style="display:inline;">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="duplicate_slideshow">
+            <input type="hidden" name="slug" value="{{ slug }}">
+            <button class="btn btn-sm btn-outline-secondary">Duplicate</button>
+          </form>
+
+          <form method="post" style="display:inline;"
+                onsubmit="return confirm('Delete slideshow {{ ss.name }}? This cannot be undone.');">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="delete_slideshow">
+            <input type="hidden" name="slug" value="{{ slug }}">
+            <button class="btn btn-sm btn-danger"
+              {% if assigned %}disabled title="Unassign from displays before deleting"{% endif %}>
+              Delete
+            </button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="text-muted">No slideshows yet. Create one below.</p>
+{% endif %}
+
+<hr>
+<h5>Create Slideshow</h5>
+<form method="post" class="row g-2 align-items-end">
+  {{ csrf() }}
+  <input type="hidden" name="action" value="add_slideshow">
+  <div class="col-md-3">
+    <label class="form-label form-label-sm">Name</label>
+    <input type="text" name="name" class="form-control form-control-sm" placeholder="Daily Announcements" required>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label form-label-sm">Slug <small class="text-muted">(optional)</small></label>
+    <input type="text" name="slug" class="form-control form-control-sm" placeholder="auto-generated">
+  </div>
+  <div class="col-md-4">
+    <label class="form-label form-label-sm">Description</label>
+    <input type="text" name="description" class="form-control form-control-sm" placeholder="What this slideshow is for">
+  </div>
+  <div class="col-md-2">
+    <label class="form-label form-label-sm">Crossfade (s)</label>
+    <input type="number" name="fade_duration" value="1.4" min="0.1" step="0.1" class="form-control form-control-sm">
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-primary">Create</button>
+  </div>
+</form>
+{% endblock %}

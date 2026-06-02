@@ -1,0 +1,159 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Displays</h4>
+  <a class="btn btn-outline-secondary" href="{{ url_for('display.admin_slideshows') }}">Manage Slideshows</a>
+</div>
+<p class="text-muted small">Each display is a physical screen. The Pi opens its permanent URL and never needs to be reconfigured — just reassign the slideshow here.</p>
+
+{% if displays %}
+<div class="table-responsive">
+<table class="table table-sm align-middle">
+  <thead>
+    <tr>
+      <th>Name</th>
+      <th>Location</th>
+      <th>Permanent URL</th>
+      <th>Assigned Slideshow</th>
+      <th>Status</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for slug, d in displays.items() %}
+    <tr>
+      <td><strong>{{ d.name }}</strong></td>
+      <td>{{ d.location or '—' }}</td>
+      <td>
+        <a href="{{ url_for('display.public_display', display_slug=slug) }}"
+           target="_blank" rel="noopener" class="font-monospace text-nowrap small">
+          /displays/{{ slug }}
+        </a>
+      </td>
+      <td>
+        {% if d.assigned_slideshow and d.assigned_slideshow in slideshows %}
+          <a href="{{ url_for('display.admin_slideshow_edit', ss_slug=d.assigned_slideshow) }}">
+            {{ slideshows[d.assigned_slideshow].name }}
+          </a>
+        {% elif d.assigned_slideshow %}
+          <span class="text-danger small">{{ d.assigned_slideshow }} (not found)</span>
+        {% else %}
+          <span class="text-muted">— none —</span>
+        {% endif %}
+      </td>
+      <td>
+        {% if d.active %}
+          <span class="badge bg-success">Active</span>
+        {% else %}
+          <span class="badge bg-secondary">Disabled</span>
+        {% endif %}
+      </td>
+      <td>
+        <div class="d-flex flex-wrap gap-1">
+          {% if d.assigned_slideshow and d.assigned_slideshow in slideshows %}
+          <a href="{{ url_for('display.public_display', display_slug=slug, preview=1, duration=2.5) }}"
+             class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">Preview</a>
+          {% endif %}
+
+          <button class="btn btn-sm btn-outline-secondary" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#edit-display-{{ loop.index }}">
+            Edit
+          </button>
+
+          <form method="post" style="display:inline;">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="toggle_display">
+            <input type="hidden" name="slug" value="{{ slug }}">
+            <button class="btn btn-sm btn-warning">
+              {% if d.active %}Disable{% else %}Enable{% endif %}
+            </button>
+          </form>
+
+          <form method="post" style="display:inline;"
+                onsubmit="return confirm('Delete display {{ d.name }}?');">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="delete_display">
+            <input type="hidden" name="slug" value="{{ slug }}">
+            <button class="btn btn-sm btn-danger">Delete</button>
+          </form>
+        </div>
+
+        <div class="collapse mt-2" id="edit-display-{{ loop.index }}">
+          <form method="post" class="p-3 border rounded bg-light">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="edit_display">
+            <input type="hidden" name="slug" value="{{ slug }}">
+            <div class="row g-2 mb-2">
+              <div class="col-md-3">
+                <label class="form-label form-label-sm">Name</label>
+                <input type="text" name="name" value="{{ d.name }}" class="form-control form-control-sm" required>
+              </div>
+              <div class="col-md-2">
+                <label class="form-label form-label-sm">Slug</label>
+                <input type="text" name="new_slug" value="{{ slug }}" class="form-control form-control-sm">
+                <div class="form-text">Changing the slug breaks the Pi URL.</div>
+              </div>
+              <div class="col-md-3">
+                <label class="form-label form-label-sm">Location</label>
+                <input type="text" name="location" value="{{ d.location or '' }}" class="form-control form-control-sm" placeholder="e.g. Main lobby">
+              </div>
+              <div class="col-md-4">
+                <label class="form-label form-label-sm">Assigned Slideshow</label>
+                <select name="assigned_slideshow" class="form-select form-select-sm">
+                  <option value="">— none —</option>
+                  {% for ss_slug, ss in slideshows.items() %}
+                  <option value="{{ ss_slug }}"
+                    {% if d.assigned_slideshow == ss_slug %}selected{% endif %}>
+                    {{ ss.name }}
+                  </option>
+                  {% endfor %}
+                </select>
+              </div>
+            </div>
+            <button class="btn btn-sm btn-primary">Save</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="text-muted">No displays yet. Add one below.</p>
+{% endif %}
+
+<hr>
+<h5>Add Display</h5>
+<form method="post" class="row g-2 align-items-end">
+  {{ csrf() }}
+  <input type="hidden" name="action" value="add_display">
+  <div class="col-md-3">
+    <label class="form-label form-label-sm">Name</label>
+    <input type="text" name="name" class="form-control form-control-sm" placeholder="Lobby TV 2" required>
+  </div>
+  <div class="col-md-2">
+    <label class="form-label form-label-sm">Slug</label>
+    <input type="text" name="slug" class="form-control form-control-sm" placeholder="lobby-2">
+    <div class="form-text">URL: /displays/<em>slug</em></div>
+  </div>
+  <div class="col-md-3">
+    <label class="form-label form-label-sm">Location</label>
+    <input type="text" name="location" class="form-control form-control-sm" placeholder="Main lobby, near front desk">
+  </div>
+  <div class="col-md-3">
+    <label class="form-label form-label-sm">Assigned Slideshow</label>
+    <select name="assigned_slideshow" class="form-select form-select-sm">
+      <option value="">— none —</option>
+      {% for ss_slug, ss in slideshows.items() %}
+      <option value="{{ ss_slug }}">{{ ss.name }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-auto">
+    <button class="btn btn-sm btn-primary">Add</button>
+  </div>
+</form>
+{% endblock %}

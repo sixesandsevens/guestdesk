@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{{ zone.name }} Display</title>
+  <title>{{ display.name }} Display</title>
   <style>
     html, body {
       margin: 0;
@@ -90,20 +90,22 @@
 <body>
   <div id="display-root">
     {% if preview %}
-    <div class="preview-badge">Preview Mode · {{ '%.1f'|format(preview_duration or 2.5) }}s per slide</div>
+    <div class="preview-badge">Preview · {{ '%.1f'|format(preview_duration or 2.5) }}s per slide</div>
     {% endif %}
-    <div id="slide-container" style="--fade-duration: {{ zone.fade_duration or 1.4 }}s;"></div>
+    <div id="slide-container" style="--fade-duration: {{ fade_duration or 1.4 }}s;"></div>
   </div>
 
   <script>
-  const ZONE_SLUG = "{{ zone.slug }}";
+  const DISPLAY_SLUG = {{ display_slug | tojson }};
+  const SLIDESHOW_SLUG = {{ slideshow_slug | tojson }};
   const PREVIEW_DURATION = {{ preview_duration if preview_duration is not none else 'null' }};
 
   async function fetchSlides() {
-    const res = await fetch(`/api/display-slides/${ZONE_SLUG}`);
-    if (!res.ok) {
-      return [];
-    }
+    const url = SLIDESHOW_SLUG
+      ? `/api/slideshow-slides/${SLIDESHOW_SLUG}`
+      : `/api/display-slides/${DISPLAY_SLUG}`;
+    const res = await fetch(url);
+    if (!res.ok) return [];
     const data = await res.json();
     return data.slides || [];
   }
@@ -163,9 +165,7 @@
     }
 
     const fallback = document.createElement("p");
-    fallback.style.color = "white";
-    fallback.style.fontSize = "3vw";
-    fallback.style.textAlign = "center";
+    fallback.style.cssText = "color:white;font-size:3vw;text-align:center;";
     fallback.textContent = "No supported slide content.";
     frame.appendChild(fallback);
     return frame;
@@ -174,20 +174,15 @@
   function waitForFrameMedia(frame) {
     const image = frame.querySelector("img");
     if (image) {
-      if (image.complete && image.naturalWidth > 0) {
-        return Promise.resolve();
-      }
+      if (image.complete && image.naturalWidth > 0) return Promise.resolve();
       return new Promise((resolve) => {
         image.addEventListener("load", resolve, { once: true });
         image.addEventListener("error", resolve, { once: true });
       });
     }
-
     const video = frame.querySelector("video");
     if (video) {
-      if (video.readyState >= 2) {
-        return Promise.resolve();
-      }
+      if (video.readyState >= 2) return Promise.resolve();
       return new Promise((resolve) => {
         const done = () => resolve();
         video.addEventListener("loadeddata", done, { once: true });
@@ -195,7 +190,6 @@
         setTimeout(done, 3000);
       });
     }
-
     return Promise.resolve();
   }
 
@@ -206,21 +200,17 @@
     const sequence = ++renderSequence;
 
     await waitForFrameMedia(frame);
-    if (sequence !== renderSequence) {
-      return;
-    }
+    if (sequence !== renderSequence) return;
 
     if (transition === "fade" && currentFrame) {
-      const outgoingFrame = currentFrame;
+      const outgoing = currentFrame;
       frame.classList.add("fade-frame-enter");
-      outgoingFrame.classList.add("fade-frame-exit");
+      outgoing.classList.add("fade-frame-exit");
       container.appendChild(frame);
       frame.addEventListener("animationend", () => {
-        if (outgoingFrame.parentNode === container) {
-          container.removeChild(outgoingFrame);
-        }
+        if (outgoing.parentNode === container) container.removeChild(outgoing);
         frame.classList.remove("fade-frame-enter");
-        outgoingFrame.classList.remove("fade-frame-exit");
+        outgoing.classList.remove("fade-frame-exit");
         currentFrame = frame;
       }, { once: true });
     } else {
@@ -247,15 +237,11 @@
     async function showNext() {
       if (idx === 0) {
         slides = await fetchSlides();
-        if (!slides.length) {
-          setTimeout(showNext, 15000);
-          return;
-        }
+        if (!slides.length) { setTimeout(showNext, 15000); return; }
       }
-
       const slide = slides[idx];
       renderSlide(slide);
-      const duration = ((PREVIEW_DURATION || slide.duration || 10) * 1000);
+      const duration = (PREVIEW_DURATION || slide.duration || 10) * 1000;
       idx = (idx + 1) % slides.length;
       setTimeout(showNext, duration);
     }

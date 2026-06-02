@@ -1,0 +1,227 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-1">
+  <h4 class="mb-0">{{ slideshow.name }}</h4>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('display.slideshow_preview', ss_slug=ss_slug, duration=2.5) }}"
+       class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">Preview</a>
+    <a href="{{ url_for('display.admin_slideshows') }}" class="btn btn-sm btn-outline-secondary">All Slideshows</a>
+  </div>
+</div>
+
+{% if assigned_to %}
+<p class="text-muted small mb-3">
+  Assigned to:
+  {% for dslug, dname in assigned_to %}
+    <a href="{{ url_for('display.public_display', display_slug=dslug) }}" target="_blank" rel="noopener"
+       class="badge bg-info text-dark text-decoration-none">{{ dname }}</a>
+  {% endfor %}
+</p>
+{% else %}
+<p class="text-muted small mb-3">Not assigned to any display.</p>
+{% endif %}
+
+{# ---- Edit slideshow metadata ---- #}
+<details class="mb-3">
+  <summary class="text-muted small">Edit slideshow settings</summary>
+  <form method="post" class="row g-2 align-items-end mt-1 p-2 border rounded bg-light">
+    {{ csrf() }}
+    <input type="hidden" name="action" value="edit_slideshow">
+    <div class="col-md-4">
+      <label class="form-label form-label-sm">Name</label>
+      <input type="text" name="name" value="{{ slideshow.name }}" class="form-control form-control-sm" required>
+    </div>
+    <div class="col-md-4">
+      <label class="form-label form-label-sm">Description</label>
+      <input type="text" name="description" value="{{ slideshow.description or '' }}"
+             class="form-control form-control-sm">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label form-label-sm">Crossfade (s)</label>
+      <input type="number" name="fade_duration" value="{{ slideshow.fade_duration or 1.4 }}"
+             min="0.1" step="0.1" class="form-control form-control-sm">
+    </div>
+    <div class="col-auto">
+      <button class="btn btn-sm btn-primary">Save</button>
+    </div>
+  </form>
+</details>
+
+{# ---- Bulk duration setter ---- #}
+{% if slides %}
+<div class="alert alert-warning d-flex align-items-center flex-wrap gap-3 py-2 mb-3">
+  <form method="post" class="d-flex align-items-center gap-2 mb-0">
+    {{ csrf() }}
+    <input type="hidden" name="action" value="set_duration_all">
+    <span class="small">Set all durations to</span>
+    <input type="number" name="duration" value="10" min="1"
+           class="form-control form-control-sm" style="width:5rem;">
+    <span class="small">s</span>
+    <button class="btn btn-sm btn-outline-danger">Apply to all</button>
+  </form>
+</div>
+
+{# ---- Slide table ---- #}
+<table class="table table-sm align-middle">
+  <thead>
+    <tr>
+      <th style="width:2rem;">#</th>
+      <th>Type</th>
+      <th>Preview</th>
+      <th style="width:10rem;">Order</th>
+      <th style="width:10rem;">Duration (s)</th>
+      <th>Active</th>
+      <th></th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for s in slides %}
+    <tr {% if not s.active %}class="table-secondary opacity-50"{% endif %}>
+      <td class="text-muted">{{ s.order }}</td>
+      <td>{{ s.type }}</td>
+      <td>
+        {% set file_url = url_for('display.display_media', filename=s.file) if s.get('file') else None %}
+        {% if s.type == 'image' and file_url %}
+          <img src="{{ file_url }}" style="max-height:60px; max-width:120px; object-fit:cover;">
+        {% elif s.type == 'video' and file_url %}
+          <video src="{{ file_url }}" style="max-height:60px;" muted loop playsinline controls></video>
+        {% else %}
+          <strong>{{ s.headline or '' }}</strong>
+          {% if s.subheadline %}<br><small>{{ s.subheadline }}</small>{% endif %}
+          {% if s.body %}<br><span class="text-muted small" style="white-space:pre-line;">{{ s.body[:80] }}{% if s.body|length > 80 %}…{% endif %}</span>{% endif %}
+        {% endif %}
+      </td>
+      <td>
+        <form method="post" class="d-flex align-items-center gap-1">
+          {{ csrf() }}
+          <input type="hidden" name="action" value="set_order">
+          <input type="hidden" name="slide_id" value="{{ s.id }}">
+          <select name="order" class="form-select form-select-sm" style="width:auto;">
+            {% for pos in range(1, slides|length + 1) %}
+              <option value="{{ pos }}" {% if pos == s.order %}selected{% endif %}>{{ pos }}</option>
+            {% endfor %}
+          </select>
+          <button type="submit" class="btn btn-sm btn-outline-secondary" title="Set position">↵</button>
+        </form>
+      </td>
+      <td>
+        <form method="post" class="d-flex align-items-center gap-1">
+          {{ csrf() }}
+          <input type="hidden" name="action" value="set_duration">
+          <input type="hidden" name="slide_id" value="{{ s.id }}">
+          <input type="number" name="duration" value="{{ s.duration }}" min="1"
+                 class="form-control form-control-sm" style="width:5rem;">
+          <button type="submit" class="btn btn-sm btn-outline-secondary" title="Update">↵</button>
+        </form>
+      </td>
+      <td>{{ 'Yes' if s.active else 'No' }}</td>
+      <td>
+        <div class="d-flex gap-1 flex-wrap">
+          <form method="post" style="display:inline;">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="toggle_slide">
+            <input type="hidden" name="slide_id" value="{{ s.id }}">
+            <button class="btn btn-sm btn-warning">
+              {% if s.active %}Disable{% else %}Enable{% endif %}
+            </button>
+          </form>
+          <form method="post" style="display:inline;"
+                onsubmit="return confirm('Delete this slide?');">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="delete_slide">
+            <input type="hidden" name="slide_id" value="{{ s.id }}">
+            <button class="btn btn-sm btn-danger">Delete</button>
+          </form>
+        </div>
+      </td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% else %}
+<p class="text-muted">No slides yet. Add some below.</p>
+{% endif %}
+
+<hr>
+
+<div class="row g-4">
+  {# ---- Add text slide ---- #}
+  <div class="col-md-4">
+    <h6>Add Text Slide</h6>
+    <form method="post">
+      {{ csrf() }}
+      <input type="hidden" name="action" value="add_text">
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Headline</label>
+        <input type="text" name="headline" class="form-control form-control-sm">
+      </div>
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Subheadline</label>
+        <input type="text" name="subheadline" class="form-control form-control-sm">
+      </div>
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Body</label>
+        <textarea name="body" rows="3" class="form-control form-control-sm"></textarea>
+      </div>
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Duration (s)</label>
+        <input type="number" name="duration" value="10" min="1" class="form-control form-control-sm">
+      </div>
+      <button class="btn btn-sm btn-primary">Add Text Slide</button>
+    </form>
+  </div>
+
+  {# ---- Add image slide ---- #}
+  <div class="col-md-4">
+    <h6>Add Image Slide</h6>
+    <form method="post" enctype="multipart/form-data">
+      {{ csrf() }}
+      <input type="hidden" name="action" value="add_image">
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Image file</label>
+        <input type="file" name="image_file" class="form-control form-control-sm" accept="image/*">
+      </div>
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Duration (s)</label>
+        <input type="number" name="duration" value="10" min="1" class="form-control form-control-sm">
+      </div>
+      <button class="btn btn-sm btn-primary">Add Image</button>
+    </form>
+
+    <h6 class="mt-3">Bulk Upload Images</h6>
+    <form method="post" enctype="multipart/form-data">
+      {{ csrf() }}
+      <input type="hidden" name="action" value="add_images_bulk">
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Image files</label>
+        <input type="file" name="image_files" class="form-control form-control-sm" accept="image/*" multiple>
+      </div>
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Duration each (s)</label>
+        <input type="number" name="duration" value="10" min="1" class="form-control form-control-sm">
+      </div>
+      <button class="btn btn-sm btn-primary">Upload All</button>
+    </form>
+  </div>
+
+  {# ---- Add video slide ---- #}
+  <div class="col-md-4">
+    <h6>Add Video Slide</h6>
+    <form method="post" enctype="multipart/form-data">
+      {{ csrf() }}
+      <input type="hidden" name="action" value="add_video">
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Video file (MP4)</label>
+        <input type="file" name="video_file" class="form-control form-control-sm" accept="video/mp4">
+      </div>
+      <div class="mb-2">
+        <label class="form-label form-label-sm">Duration (s)</label>
+        <input type="number" name="duration" value="15" min="1" class="form-control form-control-sm">
+      </div>
+      <button class="btn btn-sm btn-primary">Add Video</button>
+    </form>
+  </div>
+</div>
+{% endblock %}
