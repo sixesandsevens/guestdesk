@@ -170,6 +170,32 @@ def display_screen(slug):
     )
 
 
+@bp.route("/displays/<slug>")
+def public_display(slug):
+    """
+    Permanent public URL for managed display endpoints (Pi bookmark target).
+    Example: https://guestdesk.info/displays/lobby-2
+    """
+    cfg = load_config()
+    zone = get_zone_by_slug(cfg, slug)
+    if not zone or not zone.get("active", True):
+        abort(404)
+    preview = request.args.get("preview", "").lower() in {"1", "true", "yes", "on"}
+    preview_duration = None
+    if preview:
+        try:
+            preview_duration = float(request.args.get("duration", "2.5"))
+        except (TypeError, ValueError):
+            preview_duration = 2.5
+        preview_duration = max(0.5, preview_duration)
+    return render_template(
+        "display_screen.html",
+        zone=zone,
+        preview=preview,
+        preview_duration=preview_duration,
+    )
+
+
 @bp.route("/display-media/<path:filename>")
 def display_media(filename):
     """Serve uploaded slide assets from the writable data directory (with legacy fallback)."""
@@ -211,12 +237,13 @@ def display_admin():
                     "id": next_id(zones),
                     "name": name,
                     "slug": slug,
+                    "location": request.form.get("location", "").strip(),
                     "active": True,
                     "fade_duration": max(0.1, fade_val),
                 }
                 zones.append(zone)
                 save_config(cfg)
-                flash("Zone created.", "success")
+                flash("Display created.", "success")
                 return redirect(url_for("display.display_admin", zone=slug))
 
             return redirect(url_for("display.display_admin"))
@@ -224,11 +251,11 @@ def display_admin():
         if action == "edit_zone":
             zone_id = to_int(request.form.get("zone_id"))
             if zone_id is None:
-                flash("Invalid zone.", "danger")
+                flash("Invalid display.", "danger")
                 return redirect(url_for("display.display_admin"))
             zone = next((z for z in zones if z["id"] == zone_id), None)
             if not zone:
-                flash("Zone not found.", "danger")
+                flash("Display not found.", "danger")
                 return redirect(url_for("display.display_admin"))
 
             new_name = request.form.get("name", "").strip()
@@ -247,9 +274,10 @@ def display_admin():
             else:
                 zone["name"] = new_name
                 zone["slug"] = new_slug
+                zone["location"] = request.form.get("location", "").strip()
                 zone["fade_duration"] = new_fade
                 save_config(cfg)
-                flash("Zone updated.", "success")
+                flash("Display updated.", "success")
                 return redirect(url_for("display.display_admin", zone=new_slug))
 
             return redirect(url_for("display.display_admin", zone=zone["slug"]))
@@ -257,34 +285,33 @@ def display_admin():
         if action == "toggle_zone":
             zone_id = to_int(request.form.get("zone_id"))
             if zone_id is None:
-                flash("Invalid zone.", "danger")
+                flash("Invalid display.", "danger")
                 return redirect(url_for("display.display_admin"))
             zone = next((z for z in zones if z["id"] == zone_id), None)
             if zone:
                 zone["active"] = not zone.get("active", True)
                 save_config(cfg)
-                flash("Zone updated.", "success")
+                flash("Display updated.", "success")
                 return redirect(url_for("display.display_admin", zone=zone["slug"]))
             return redirect(url_for("display.display_admin"))
 
         if action == "delete_zone":
             zone_id = to_int(request.form.get("zone_id"))
             if zone_id is None:
-                flash("Invalid zone.", "danger")
+                flash("Invalid display.", "danger")
                 return redirect(url_for("display.display_admin"))
             zone = next((z for z in zones if z["id"] == zone_id), None)
             if not zone:
-                flash("Zone not found.", "danger")
+                flash("Display not found.", "danger")
                 return redirect(url_for("display.display_admin"))
 
-            # Option: prevent delete if there are slides attached.
             zone_slides = [s for s in slides if s["zone_id"] == zone_id]
             if zone_slides:
-                flash("Cannot delete zone with slides. Delete slides first.", "danger")
+                flash("Cannot delete display with slides. Delete slides first.", "danger")
             else:
                 zones.remove(zone)
                 save_config(cfg)
-                flash("Zone deleted.", "success")
+                flash("Display deleted.", "success")
 
             return redirect(url_for("display.display_admin"))
 
@@ -304,7 +331,7 @@ def display_admin():
             selected_zone_slug = request.form.get("selected_zone_slug")
             zone = get_zone_by_slug(cfg, selected_zone_slug)
             if not zone:
-                flash("Zone not found.", "danger")
+                flash("Display not found.", "danger")
                 return redirect(url_for("display.display_admin"))
 
             zone_id = zone["id"]

@@ -1,39 +1,46 @@
 {% extends "base.html" %}
 {% from '_csrf.html' import csrf %}
 {% block content %}
-<h1>Display Zones & Slides</h1>
+<h1>Displays &amp; Slides</h1>
 
-<h2>Create New Zone</h2>
+<h2>Add Display</h2>
 <form method="post" class="mb-4">
   {{ csrf() }}
   <input type="hidden" name="action" value="add_zone">
-  <div class="mb-2">
-    <label>Name</label>
-    <input type="text" name="name" class="form-control" placeholder="Lobby TV 1">
+  <div class="row g-2">
+    <div class="col-md-4">
+      <label class="form-label">Display name</label>
+      <input type="text" name="name" class="form-control" placeholder="Lobby TV 2">
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Slug (used in URL)</label>
+      <input type="text" name="slug" class="form-control" placeholder="lobby-2">
+      <div class="form-text">{{ request.host_url.rstrip('/') }}/displays/<em>&lt;slug&gt;</em></div>
+    </div>
+    <div class="col-md-3">
+      <label class="form-label">Location</label>
+      <input type="text" name="location" class="form-control" placeholder="Lobby, near front desk">
+    </div>
+    <div class="col-md-2">
+      <label class="form-label">Crossfade (s)</label>
+      <input type="number" name="fade_duration" value="1.4" min="0.1" step="0.1" class="form-control">
+    </div>
   </div>
-  <div class="mb-2">
-    <label>Slug (used in URL)</label>
-    <input type="text" name="slug" class="form-control" placeholder="lobby1">
-    <small class="form-text text-muted">
-      TV URL will be: {{ request.host_url.rstrip('/') }}/display/&lt;slug&gt;
-    </small>
-  </div>
-  <div class="mb-2">
-    <label>Crossfade duration (seconds)</label>
-    <input type="number" name="fade_duration" value="1.4" min="0.1" step="0.1" class="form-control">
-    <small class="form-text text-muted">Controls how long slides fade between each other.</small>
-  </div>
-  <button type="submit" class="btn btn-primary">Add Zone</button>
+  <button type="submit" class="btn btn-primary mt-2">Add Display</button>
 </form>
 
 <hr>
 
-<h2>Existing Zones</h2>
-<table class="table table-sm">
+<h2>Existing Displays</h2>
+{% if not zones %}
+<p class="text-muted">No displays defined yet. Add one above.</p>
+{% else %}
+<table class="table table-sm align-middle">
   <thead>
     <tr>
       <th>Name</th>
-      <th>Slug</th>
+      <th>Location</th>
+      <th>Permanent URL</th>
       <th>Active</th>
       <th>Fade (s)</th>
       <th>Actions</th>
@@ -42,55 +49,97 @@
   <tbody>
     {% for z in zones %}
     <tr>
-      <td>{{ z.name }}</td>
-      <td>{{ z.slug }}</td>
+      <td><strong>{{ z.name }}</strong></td>
+      <td>{{ z.location or '—' }}</td>
+      <td>
+        <a href="{{ url_for('display.public_display', slug=z.slug) }}" target="_blank" rel="noopener"
+           class="font-monospace text-nowrap">
+          /displays/{{ z.slug }}
+        </a>
+      </td>
       <td>{{ 'Yes' if z.active else 'No' }}</td>
       <td>{{ '{:.1f}'.format(z.fade_duration or 1.4) }}</td>
       <td>
-        <a href="{{ url_for('display.display_screen', slug=z.slug) }}"
-           class="btn btn-sm btn-outline-dark"
-           target="_blank" rel="noopener">Open Display</a>
-        <a href="{{ url_for('display.display_screen', slug=z.slug, preview=1, duration=2.5) }}"
-           class="btn btn-sm btn-outline-primary"
-           target="_blank" rel="noopener">Quick Preview</a>
-        <a href="{{ url_for('display.display_admin', zone=z.slug) }}"
-           class="btn btn-sm btn-secondary">Edit Slides</a>
+        <div class="d-flex flex-wrap gap-1">
+          <a href="{{ url_for('display.public_display', slug=z.slug, preview=1, duration=2.5) }}"
+             class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">Preview</a>
+          <a href="{{ url_for('display.display_admin', zone=z.slug) }}"
+             class="btn btn-sm btn-secondary">Edit Slides</a>
 
-        <form method="post" style="display:inline;">
-          {{ csrf() }}
-          <input type="hidden" name="action" value="toggle_zone">
-          <input type="hidden" name="zone_id" value="{{ z.id }}">
-          <button class="btn btn-sm btn-warning">
-            {% if z.active %}Disable{% else %}Enable{% endif %}
+          <form method="post" style="display:inline;">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="toggle_zone">
+            <input type="hidden" name="zone_id" value="{{ z.id }}">
+            <button class="btn btn-sm btn-warning">
+              {% if z.active %}Disable{% else %}Enable{% endif %}
+            </button>
+          </form>
+
+          <button class="btn btn-sm btn-info" type="button"
+                  data-bs-toggle="collapse" data-bs-target="#edit-zone-{{ z.id }}">
+            Edit
           </button>
-        </form>
 
-        <form method="post" class="d-inline-flex align-items-center gap-1">
-          {{ csrf() }}
-          <input type="hidden" name="action" value="edit_zone">
-          <input type="hidden" name="zone_id" value="{{ z.id }}">
-          <input type="text" name="name" value="{{ z.name }}" class="form-control form-control-sm" style="width:8rem;">
-          <input type="text" name="slug" value="{{ z.slug }}" class="form-control form-control-sm" style="width:7rem;">
-          <input type="number" name="fade_duration" value="{{ z.fade_duration or 1.4 }}" class="form-control form-control-sm" style="width:6rem;" min="0.1" step="0.1">
-          <button class="btn btn-sm btn-info">Save</button>
-        </form>
+          <form method="post" style="display:inline;"
+                onsubmit="return confirm('Delete this display? You must delete its slides first.');">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="delete_zone">
+            <input type="hidden" name="zone_id" value="{{ z.id }}">
+            <button class="btn btn-sm btn-danger">Delete</button>
+          </form>
+        </div>
 
-        <form method="post" style="display:inline;" onsubmit="return confirm('Delete this zone? You must delete its slides first.');">
-          {{ csrf() }}
-          <input type="hidden" name="action" value="delete_zone">
-          <input type="hidden" name="zone_id" value="{{ z.id }}">
-          <button class="btn btn-sm btn-danger">Delete</button>
-        </form>
+        <div class="collapse mt-2" id="edit-zone-{{ z.id }}">
+          <form method="post" class="d-flex flex-wrap align-items-end gap-2 p-2 border rounded bg-light">
+            {{ csrf() }}
+            <input type="hidden" name="action" value="edit_zone">
+            <input type="hidden" name="zone_id" value="{{ z.id }}">
+            <div>
+              <label class="form-label form-label-sm mb-0">Name</label>
+              <input type="text" name="name" value="{{ z.name }}"
+                     class="form-control form-control-sm" style="width:10rem;">
+            </div>
+            <div>
+              <label class="form-label form-label-sm mb-0">Slug</label>
+              <input type="text" name="slug" value="{{ z.slug }}"
+                     class="form-control form-control-sm" style="width:8rem;">
+            </div>
+            <div>
+              <label class="form-label form-label-sm mb-0">Location</label>
+              <input type="text" name="location" value="{{ z.location or '' }}"
+                     class="form-control form-control-sm" style="width:12rem;">
+            </div>
+            <div>
+              <label class="form-label form-label-sm mb-0">Fade (s)</label>
+              <input type="number" name="fade_duration" value="{{ z.fade_duration or 1.4 }}"
+                     class="form-control form-control-sm" style="width:6rem;" min="0.1" step="0.1">
+            </div>
+            <button class="btn btn-sm btn-primary">Save</button>
+          </form>
+        </div>
       </td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+{% endif %}
 
 <hr>
 
 {% if selected_zone %}
-<h2>Slides for zone: {{ selected_zone.name }} ({{ selected_zone.slug }})</h2>
+<h2>
+  Slides — {{ selected_zone.name }}
+  {% if selected_zone.location %}
+  <small class="text-muted fw-normal">{{ selected_zone.location }}</small>
+  {% endif %}
+</h2>
+<p class="mb-2">
+  Permanent URL:
+  <a href="{{ url_for('display.public_display', slug=selected_zone.slug) }}"
+     target="_blank" rel="noopener" class="font-monospace">
+    {{ request.host_url.rstrip('/') }}/displays/{{ selected_zone.slug }}
+  </a>
+</p>
 
 <div class="alert alert-warning d-flex justify-content-between align-items-center flex-wrap gap-2">
   <form method="post" class="d-flex align-items-center gap-2 mb-0 flex-wrap">
@@ -102,7 +151,7 @@
     <span>seconds</span>
     <button type="submit" class="btn btn-sm btn-outline-danger">Apply</button>
   </form>
-  <small class="text-muted">This changes every slide in this zone.</small>
+  <small class="text-muted">This changes every slide in this display.</small>
 </div>
 
 <table class="table table-sm">
@@ -191,23 +240,23 @@
   <input type="hidden" name="action" value="add_text">
   <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
   <div class="mb-2">
-    <label>Headline</label>
+    <label class="form-label">Headline</label>
     <input type="text" name="headline" class="form-control">
   </div>
   <div class="mb-2">
-    <label>Subheadline</label>
+    <label class="form-label">Subheadline</label>
     <input type="text" name="subheadline" class="form-control">
   </div>
   <div class="mb-2">
-    <label>Body</label>
+    <label class="form-label">Body</label>
     <textarea name="body" rows="4" class="form-control"></textarea>
   </div>
   <div class="mb-2">
-    <label>Order</label>
+    <label class="form-label">Order</label>
     <input type="number" name="order" value="{{ slides|length + 1 }}" class="form-control">
   </div>
   <div class="mb-2">
-    <label>Duration (seconds)</label>
+    <label class="form-label">Duration (seconds)</label>
     <input type="number" name="duration" value="10" class="form-control">
   </div>
   <button type="submit" class="btn btn-primary">Add Text Slide</button>
@@ -219,15 +268,15 @@
   <input type="hidden" name="action" value="add_image">
   <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
   <div class="mb-2">
-    <label>Image file</label>
+    <label class="form-label">Image file</label>
     <input type="file" name="image_file" class="form-control" accept="image/*">
   </div>
   <div class="mb-2">
-    <label>Order</label>
+    <label class="form-label">Order</label>
     <input type="number" name="order" value="{{ slides|length + 1 }}" class="form-control">
   </div>
   <div class="mb-2">
-    <label>Duration (seconds)</label>
+    <label class="form-label">Duration (seconds)</label>
     <input type="number" name="duration" value="10" class="form-control">
   </div>
   <button type="submit" class="btn btn-primary">Add Image Slide</button>
@@ -239,12 +288,12 @@
   <input type="hidden" name="action" value="add_images_bulk">
   <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
   <div class="mb-2">
-    <label>Image files</label>
+    <label class="form-label">Image files</label>
     <input type="file" name="image_files" class="form-control" accept="image/*" multiple>
-    <small class="form-text text-muted">Select multiple images to import them all at once.</small>
+    <div class="form-text">Select multiple images to import them all at once.</div>
   </div>
   <div class="mb-2">
-    <label>Default duration (seconds)</label>
+    <label class="form-label">Default duration (seconds)</label>
     <input type="number" name="duration" value="10" class="form-control">
   </div>
   <button type="submit" class="btn btn-primary">Upload Images</button>
@@ -256,22 +305,22 @@
   <input type="hidden" name="action" value="add_video">
   <input type="hidden" name="selected_zone_slug" value="{{ selected_zone.slug }}">
   <div class="mb-2">
-    <label>Video file (MP4)</label>
+    <label class="form-label">Video file (MP4)</label>
     <input type="file" name="video_file" class="form-control" accept="video/mp4">
   </div>
   <div class="mb-2">
-    <label>Order</label>
+    <label class="form-label">Order</label>
     <input type="number" name="order" value="{{ slides|length + 1 }}" class="form-control">
   </div>
   <div class="mb-2">
-    <label>Duration (seconds)</label>
+    <label class="form-label">Duration (seconds)</label>
     <input type="number" name="duration" value="15" class="form-control" min="1">
   </div>
   <button type="submit" class="btn btn-primary">Add Video Slide</button>
 </form>
 
 {% else %}
-<p>No zones defined yet. Create one above to start adding slides.</p>
+<p>No displays defined yet. Add one above to start adding slides.</p>
 {% endif %}
 
 {% endblock %}
