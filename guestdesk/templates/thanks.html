@@ -3,7 +3,20 @@
 
 {% block content %}
 <div class="alert alert-success">
-  {{ _('Thanks! Your submission was received. Your reference number is') }} <strong>#{{ sub.id }}</strong>.
+  {% if sub.kind == 'grievance' %}
+    {{ _('Thanks! Your grievance was received. Your case ID is') }} <strong>{{ case_id or grievance_case_id(sub.id, sub.created_at) }}</strong>.
+  {% else %}
+    {{ _('Thanks! Your submission was received. Your reference number is') }} <strong>#{{ sub.id }}</strong>.
+  {% endif %}
 </div>
+{% if notification_status and notification_status.confirmation_email and notification_status.confirmation_notice_queued %}
+  <div class="alert alert-info">
+    {{ _('A confirmation email with a copy of your submission was sent to %(email)s.', email=notification_status.confirmation_email) }}
+  </div>
+{% elif notification_status and notification_status.confirmation_email and notification_status.notification_error %}
+  <div class="alert alert-warning">
+    {{ _('Your submission was saved, but GuestDesk could not send the confirmation email. Please keep the reference above for your records.') }}
+  </div>
+{% endif %}
 <a class="btn btn-primary" href="{{ url_for('home') }}">{{ _('Home') }}</a>
 {% endblock %}

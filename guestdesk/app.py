@@ -14,6 +14,7 @@ import io
 import json
 import shutil
 import html as htmlmod
+from email.utils import parseaddr
 from urllib import request as urlreq, error as urlerr
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from uuid import uuid4
@@ -90,6 +91,42 @@ def build_grievance_case_id(submission_id: int, created_at: datetime | None) -> 
 def format_time_12(dt_obj: datetime) -> str:
     """Return 12-hour time with AM/PM from a datetime."""
     return dt_obj.strftime('%I:%M %p').lstrip('0')
+
+
+def looks_like_email(value: str | None) -> bool:
+    """Return True for a simple, usable email address value."""
+    if not value:
+        return False
+    _name, addr = parseaddr(value.strip())
+    return bool(addr and '@' in addr and '.' in addr.rsplit('@', 1)[-1])
+
+
+def build_submitter_confirmation_body(
+    *,
+    kind_label: str,
+    reference: str,
+    submitted_at: datetime,
+    form_values: dict,
+    message: str,
+    attachment_info: str | None = None,
+) -> str:
+    """Build a plain-text receipt that includes a copy of the submitted form."""
+    rows = [
+        _('This confirms that GuestDesk received your %(kind)s.', kind=kind_label),
+        _('Reference: %(reference)s', reference=reference),
+        _('Submitted: %(timestamp)s', timestamp=submitted_at.strftime('%Y-%m-%d %H:%MZ')),
+        '',
+        _('Please keep this email for your records.'),
+        '',
+        _('Copy of your submission:'),
+    ]
+    for label, value in form_values.items():
+        if value:
+            rows.append(_('%(label)s: %(value)s', label=label, value=value))
+    if attachment_info:
+        rows.append(_('Attachments: %(info)s', info=attachment_info))
+    rows.extend(['', _('Message:'), message or ''])
+    return "\n\n".join([row for row in rows if row is not None])
 
 MAX_GRIEVANCE_DESCRIPTION_LENGTH = 2143
 MAINTENANCE_PHOTO_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif'}
@@ -180,6 +217,7 @@ def create_app():
 
     app.jinja_env.globals.update(
         MAX_GRIEVANCE_DESCRIPTION_LENGTH=MAX_GRIEVANCE_DESCRIPTION_LENGTH,
+        grievance_case_id=build_grievance_case_id,
         uuid4=uuid4,
         _=_ ,
         format_datetime=format_datetime,
@@ -519,6 +557,7 @@ def create_app():
             lang=str(get_locale() or 'en'),
             user_name=session.get('username'),
             user_role=session.get('role'),
+            grievance_case_id=build_grievance_case_id,
         )
 
     @app.context_processor
@@ -743,8 +782,16 @@ def create_app():
             category_val = (request.form.get('category') or '').strip() or None
             building_val = (request.form.get('building') or '').strip() or None
             location_val = (request.form.get('location') or '').strip() or None
-            contact_name_val = (request.form.get('contact_name') or '').strip() or None
-            contact_info_val = (request.form.get('contact_info') or '').strip() or None
+            if kind == 'grievance':
+                contact_name_val = (request.form.get('name') or request.form.get('contact_name') or '').strip() or None
+                contact_bits = [
+                    (request.form.get('phone') or request.form.get('contact_info') or '').strip(),
+                    (request.form.get('email') or '').strip(),
+                ]
+                contact_info_val = ', '.join([bit for bit in contact_bits if bit]) or None
+            else:
+                contact_name_val = (request.form.get('contact_name') or '').strip() or None
+                contact_info_val = (request.form.get('contact_info') or '').strip() or None
             token = (request.form.get('idempotency_key') or '').strip() or None
             body_lower = body.lower()
 
@@ -833,6 +880,28 @@ def create_app():
                     flash(_('Could not save the uploaded photo. Please try again.'), 'danger')
                     return render_template('submit_kind.html', kind=kind, form=request.form)
             db.commit()
+            remote_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
+            if kind == 'grievance':
+                stored_case_id = build_grievance_case_id(sub.id, sub.created_at)
+                app.logger.info(
+                    'Grievance submission stored: id=%s case_id=%s has_email=%s remote_addr=%s',
+                    sub.id,
+                    stored_case_id,
+                    bool((request.form.get('email') or '').strip()),
+                    remote_addr,
+                )
+                audit_log(
+                    'grievance.submission.stored',
+                    actor='guest',
+                    obj=stored_case_id,
+                    extra={
+                        'submission_id': sub.id,
+                        'has_email': bool((request.form.get('email') or '').strip()),
+                        'remote_addr': remote_addr,
+                    },
+                )
+            else:
+                app.logger.info('Submission stored: kind=%s id=%s remote_addr=%s', kind, sub.id, remote_addr)
             if token:
                 try:
                     remember_idemp(token, sub.id)
@@ -945,6 +1014,12 @@ def create_app():
                     attach_info = f"{attach_info} • {note}" if attach_info else note
             except Exception as e:
                 app.logger.exception('PDF render failed: %s', e)
+            notification_status = {
+                'staff_notice_queued': False,
+                'confirmation_notice_queued': False,
+                'confirmation_email': None,
+                'notification_error': False,
+            }
             # Send category-specific notification (non-blocking on failure)
             try:
                 msg_text = (
@@ -977,6 +1052,11 @@ def create_app():
                 }
                 subject = (request.form.get('subject') or '').strip() or default_subjects.get(kind, _('[GuestDesk] Submission'))
                 category_label = kind_labels.get(kind, kind.title())
+                submitter_email = (request.form.get('email') or '').strip()
+                confirmation_to = submitter_email if looks_like_email(submitter_email) else None
+                if confirmation_to:
+                    notification_status['confirmation_email'] = confirmation_to
+                staff_sender = None
 
                 if kind == 'grievance':
                     import datetime as _dt
@@ -985,9 +1065,10 @@ def create_app():
                     to_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_TO', []) if e and e.strip()]
                     cc_list = [e.strip() for e in current_app.config.get('GRIEVANCE_EMAIL_CC', []) if e and e.strip()]
                     sender = current_app.config.get('GRIEVANCE_FROM')
+                    staff_sender = sender
                     contact_bits = [
                         (request.form.get('phone') or request.form.get('contact_info') or '').strip(),
-                        (request.form.get('email') or '').strip(),
+                        submitter_email,
                     ]
                     contact_value = ", ".join([c for c in contact_bits if c])
                     body_lines = [
@@ -1010,7 +1091,26 @@ def create_app():
                         cc=cc_list,
                         sender=sender,
                         attachments=attachments,
-                        reply_to=(request.form.get('email') or '').strip() or None,
+                        reply_to=submitter_email if confirmation_to else None,
+                    )
+                    notification_status['staff_notice_queued'] = True
+                    staff_recipients = to_list or [current_app.config.get('GRIEVANCE_EMAIL') or current_app.config.get('ADMIN_EMAIL')]
+                    app.logger.info(
+                        'Grievance staff notification queued: id=%s case_id=%s to_count=%s cc_count=%s',
+                        sub.id,
+                        grv_id,
+                        len([addr for addr in staff_recipients if addr]),
+                        len(cc_list),
+                    )
+                    audit_log(
+                        'grievance.notification.staff_queued',
+                        actor='system',
+                        obj=grv_id,
+                        extra={
+                            'submission_id': sub.id,
+                            'to_count': len([addr for addr in staff_recipients if addr]),
+                            'cc_count': len(cc_list),
+                        },
                     )
                 else:
                     # Default behavior for other categories
@@ -1042,12 +1142,78 @@ def create_app():
                         subject=subject,
                         body=body_text,
                         to=to_list,
-                        reply_to=(request.form.get('email') or '').strip() or None,
+                        reply_to=submitter_email if confirmation_to else None,
                         attachments=attachments or None,
                     )
+                    notification_status['staff_notice_queued'] = True
+
+                if confirmation_to:
+                    reference = grievance_case_id or f"#{sub.id}"
+                    form_values = {
+                        _('Name'): (request.form.get('name') or request.form.get('contact_name') or '').strip(),
+                        _('Email'): confirmation_to,
+                        _('Phone'): (request.form.get('phone') or request.form.get('contact_info') or '').strip(),
+                        _('Subject'): (request.form.get('subject') or '').strip(),
+                        _('Category'): (request.form.get('category') or '').strip(),
+                        _('Building'): (request.form.get('building') or '').strip(),
+                        _('Location'): (request.form.get('location') or '').strip(),
+                        _('Staff Involved'): (request.form.get('staff_involved') or '').strip(),
+                        _('Incident Date'): (request.form.get('incident_date') or '').strip(),
+                        _('Incident Time'): (request.form.get('incident_time') or '').strip(),
+                        _('Other'): (request.form.get('involves_other') or '').strip(),
+                    }
+                    confirmation_body = build_submitter_confirmation_body(
+                        kind_label=category_label,
+                        reference=reference,
+                        submitted_at=sub.created_at,
+                        form_values=form_values,
+                        message=msg_text or body,
+                        attachment_info=attach_info,
+                    )
+                    queue_mail(
+                        subject=_('[GuestDesk] %(kind)s Confirmation %(reference)s', kind=category_label, reference=reference),
+                        body=confirmation_body,
+                        to=[confirmation_to],
+                        sender=staff_sender,
+                        attachments=attachments or None,
+                    )
+                    notification_status['confirmation_notice_queued'] = True
+                    if kind == 'grievance':
+                        app.logger.info(
+                            'Grievance submitter confirmation queued: id=%s case_id=%s submitter_email=%s',
+                            sub.id,
+                            reference,
+                            confirmation_to,
+                        )
+                        audit_log(
+                            'grievance.notification.confirmation_queued',
+                            actor='system',
+                            obj=reference,
+                            extra={
+                                'submission_id': sub.id,
+                                'has_submitter_email': True,
+                            },
+                        )
+                elif kind == 'grievance':
+                    skipped_case_id = grievance_case_id or build_grievance_case_id(sub.id, sub.created_at)
+                    app.logger.info(
+                        'Grievance submitter confirmation skipped: id=%s case_id=%s reason=no_valid_email',
+                        sub.id,
+                        skipped_case_id,
+                    )
+                    audit_log(
+                        'grievance.notification.confirmation_skipped',
+                        actor='system',
+                        obj=skipped_case_id,
+                        extra={
+                            'submission_id': sub.id,
+                            'reason': 'no_valid_email',
+                        },
+                    )
             except Exception as e:
-                app.logger.exception('Failed to send %s email: %s', kind, e)
-            return render_template('thanks.html', sub=sub)
+                notification_status['notification_error'] = True
+                app.logger.exception('Failed to queue/send %s email notification for submission id=%s: %s', kind, getattr(sub, 'id', None), e)
+            return render_template('thanks.html', sub=sub, case_id=grievance_case_id, notification_status=notification_status)
         return render_template('submit_kind.html', kind=kind, form={})
 
     # Development-only mail smoke test

@@ -2,9 +2,10 @@
 {% import '_macros.html' as m %}
 
 {% block content %}
-<h4 class="mb-2">Submission #{{ s.id }} — {{ s.kind }}</h4>
+<h4 class="mb-2">Submission {% if s.kind == 'grievance' %}{{ grievance_case_id(s.id, s.created_at) }}{% else %}#{{ s.id }}{% endif %} — {{ s.kind }}</h4>
 <div class="card mb-3">
   <div class="card-body">
+    {% if s.kind == 'grievance' %}<div class="mb-2"><strong>Case ID:</strong> {{ grievance_case_id(s.id, s.created_at) }}</div>{% endif %}
     <div class="mb-2"><strong>Subject:</strong> {{ s.subject or '—' }}</div>
     <div class="mb-2"><strong>Details:</strong><br>{{ s.body }}</div>
     {% if attachments %}

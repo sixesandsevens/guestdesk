@@ -108,13 +108,17 @@
 
   {% if kind != 'grievance' %}
   <div class="row g-2">
-    <div class="col-md-6">
+    <div class="col-md-4">
       <label class="form-label">{{ _('Your Name (optional)') }}</label>
       <input name="contact_name" class="form-control" value="{{ form.contact_name or '' }}">
     </div>
-    <div class="col-md-6">
-      <label class="form-label">{{ _('Contact (optional)') }}</label>
-      <input name="contact_info" class="form-control" placeholder="{{ _('phone or email') }}" value="{{ form.contact_info or '' }}">
+    <div class="col-md-4">
+      <label class="form-label">{{ _('Phone / Contact (optional)') }}</label>
+      <input name="contact_info" class="form-control" value="{{ form.contact_info or '' }}">
+    </div>
+    <div class="col-md-4">
+      <label class="form-label">{{ _('Email for Confirmation (optional)') }}</label>
+      <input name="email" type="email" class="form-control" value="{{ form.email or '' }}">
     </div>
   </div>
   {% endif %}
