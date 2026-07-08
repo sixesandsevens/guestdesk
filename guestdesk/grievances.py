@@ -525,12 +525,29 @@ def dashboard():
     db = _dbs()
     now = datetime.utcnow()
     view = (request.args.get('view') or 'open').strip()
+    q = (request.args.get('q') or '').strip()
+    query = db.query(GrievanceCase).join(Submission, GrievanceCase.submission_id == Submission.id)
+    if q:
+        from sqlalchemy import or_
+        like = f"%{q}%"
+        conditions = [
+            GrievanceCase.public_reference.ilike(like),
+            GrievanceCase.staff_involved.ilike(like),
+            Submission.contact_name.ilike(like),
+            Submission.contact_info.ilike(like),
+        ]
+        if q.isdigit():
+            conditions.append(GrievanceCase.submission_id == int(q))
+        query = query.filter(or_(*conditions))
     cases = (
-        db.query(GrievanceCase)
+        query
         .order_by(GrievanceCase.original_received_at.desc())
         .limit(1000)
         .all()
     )
+    if q:
+        # exact reference matches first
+        cases.sort(key=lambda c: c.public_reference != q)
     archived = [{'case': c, 'flags': _case_flags(c, now)} for c in cases if c.archived_at]
     rows = [{'case': c, 'flags': _case_flags(c, now)} for c in cases if not c.archived_at]
     counts = {
@@ -559,7 +576,7 @@ def dashboard():
         visible = [r for r in rows if r['flags']['open']]
     return render_template(
         'admin/grievances.html',
-        rows=visible, counts=counts, view=view, now=now,
+        rows=visible, counts=counts, view=view, now=now, q=q,
         statuses=STATUSES, sources=SOURCES,
     )
 

@@ -307,6 +307,69 @@ def test_ensure_archive_columns_migrates_old_schema(tmp_path):
     assert "archived_at" in cols and "archived_by_user_id" in cols
 
 
+# ---- v0.3: grievance search ----
+
+def _search_fixture(app):
+    """Two cases with distinct fields for search assertions."""
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={
+            "description": "First complaint.", "name": "Alice Smith",
+            "phone": "555-0101", "email": "alice@example.org",
+            "staff_involved": "Marcus Vole",
+        })
+        guest.post("/submit/grievance", data={
+            "description": "Second complaint.", "name": "Bob Jones",
+            "phone": "555-0202", "email": "bob@example.org",
+            "staff_involved": "Dana Reed",
+        })
+    with app.app_context():
+        cases = app.dbs().query(GrievanceCase).order_by(GrievanceCase.id).all()
+        return [(c.id, c.public_reference, c.submission_id) for c in cases]
+
+
+def test_search_by_reference_name_contact_staff_and_submission_id(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    (id1, ref1, sid1), (id2, ref2, sid2) = _search_fixture(app)
+    client = _admin_client(app)
+
+    def results(q, view="all"):
+        return client.get(f"/admin/grievances/?view={view}&q={q}").data
+
+    # full reference
+    body = results(ref1)
+    assert ref1.encode() in body and ref2.encode() not in body
+    # complainant name (case-insensitive partial)
+    body = results("smith")
+    assert ref1.encode() in body and ref2.encode() not in body
+    # contact info
+    body = results("bob@example.org")
+    assert ref2.encode() in body and ref1.encode() not in body
+    # staff involved
+    body = results("Vole")
+    assert ref1.encode() in body and ref2.encode() not in body
+    # submission id
+    body = results(str(sid2))
+    assert ref2.encode() in body
+    # no match
+    body = results("zebra")
+    assert ref1.encode() not in body and ref2.encode() not in body
+
+
+def test_search_combines_with_status_filters(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    (id1, ref1, _), (id2, ref2, _) = _search_fixture(app)
+    client = _admin_client(app)
+    client.post(f"/admin/grievances/{id1}/status", data={"status": "closed"})
+    # Alice's case is closed: name search in open view finds nothing
+    body = client.get("/admin/grievances/?view=open&q=smith").data
+    assert ref1.encode() not in body
+    body = client.get("/admin/grievances/?view=closed&q=smith").data
+    assert ref1.encode() in body
+    # Bob's stays open
+    body = client.get("/admin/grievances/?view=open&q=jones").data
+    assert ref2.encode() in body
+
+
 # ---- v0.2: generated PDFs and intake notification safety ----
 
 def test_public_grievance_attaches_generated_pdf(monkeypatch, tmp_path):

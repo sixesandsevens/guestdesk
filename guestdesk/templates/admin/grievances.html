@@ -7,6 +7,18 @@
   <a class="btn btn-primary" href="{{ url_for('grievances.new_case') }}">+ Enter Grievance</a>
 </div>
 
+<form class="mb-3" method="get">
+  <input type="hidden" name="view" value="{{ view }}">
+  <div class="input-group" style="max-width: 480px;">
+    <input type="search" name="q" class="form-control" value="{{ q or '' }}"
+           placeholder="Search reference, submission #, name, contact, staff involved…">
+    <button class="btn btn-secondary">Search</button>
+    {% if q %}
+    <a class="btn btn-outline-secondary" href="{{ url_for('grievances.dashboard', view=view) }}">Clear</a>
+    {% endif %}
+  </div>
+</form>
+
 <div class="mb-3">
   {% for key, label in [
     ('open', 'Open'), ('unassigned', 'Unassigned'), ('needs_ack', 'Needs acknowledgement'),
@@ -15,8 +27,9 @@
     ('archived', 'Archived')
   ] %}
   <a class="btn btn-sm {% if view == key %}btn-secondary{% else %}btn-outline-secondary{% endif %} me-1 mb-1"
-     href="{{ url_for('grievances.dashboard', view=key) }}">{{ label }} ({{ counts[key] }})</a>
+     href="{{ url_for('grievances.dashboard', view=key, q=q or None) }}">{{ label }} ({{ counts[key] }})</a>
   {% endfor %}
+  {% if q %}<span class="small text-muted ms-2">Counts reflect matches for “{{ q }}”.</span>{% endif %}
 </div>
 
 <div class="table-responsive">
