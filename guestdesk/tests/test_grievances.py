@@ -95,7 +95,7 @@ def test_staff_paper_entry_with_scan_creates_case(monkeypatch, tmp_path):
             "received_time": "09:15",
             "name": "Guest Two",
             "description": "Handwritten complaint.",
-            "attachment": (io.BytesIO(b"\x89PNG fake"), "scan.png"),
+            "attachment": (io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"fakepixels"), "scan.png"),
         },
         content_type="multipart/form-data",
         follow_redirects=True,
@@ -137,6 +137,68 @@ def test_status_lifecycle_stamps_timestamps(monkeypatch, tmp_path):
         case = app.dbs().get(GrievanceCase, case_id)
         assert case.closed_at is None
         assert case.additional_review_due_at is not None
+
+
+def test_response_provided_stays_in_open_queue(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        case = app.dbs().query(GrievanceCase).one()
+        case_id, reference = case.id, case.public_reference
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "response_provided"})
+    resp = client.get("/admin/grievances/?view=open")
+    assert reference.encode() in resp.data
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "closed"})
+    resp = client.get("/admin/grievances/?view=open")
+    assert reference.encode() not in resp.data
+
+
+def test_assign_rejects_non_staff_reviewer(monkeypatch, tmp_path):
+    from werkzeug.security import generate_password_hash
+
+    from guestdesk.models import User
+
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        db = app.dbs()
+        case_id = db.query(GrievanceCase).one().id
+        viewer = User(username="viewer1", role="viewer",
+                      password_hash=generate_password_hash("x"), approved=True)
+        db.add(viewer)
+        db.commit()
+        viewer_id = viewer.id
+    resp = client.post(
+        f"/admin/grievances/{case_id}/assign",
+        data={"assigned_reviewer_id": str(viewer_id)},
+        follow_redirects=True,
+    )
+    assert b"approved admin or editor" in resp.data
+    with app.app_context():
+        assert app.dbs().get(GrievanceCase, case_id).assigned_reviewer_id is None
+
+
+def test_attachment_content_sniff_rejects_mislabeled_file(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    resp = client.post(
+        "/admin/grievances/new",
+        data={
+            "source": "paper",
+            "received_date": "2026-07-03",
+            "name": "Guest Two",
+            "description": "Handwritten complaint.",
+            "attachment": (io.BytesIO(b"not really a png"), "scan.png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert b"does not appear to be valid" in resp.data
+    with app.app_context():
+        assert app.dbs().query(GrievanceCase).count() == 0
 
 
 def test_tracker_requires_staff_role(monkeypatch, tmp_path):

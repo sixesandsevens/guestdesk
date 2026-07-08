@@ -61,7 +61,8 @@ STATUSES = {
     'additional_review': 'Additional review',
     'closed': 'Closed',
 }
-OPEN_STATUSES = ('received', 'acknowledged', 'in_review', 'additional_review')
+# response_provided stays open: the case still needs closure (and may go to additional review)
+OPEN_STATUSES = ('received', 'acknowledged', 'in_review', 'response_provided', 'additional_review')
 
 ATTACHMENT_TYPES = {
     'original_handwritten_grievance': 'Original handwritten grievance',
@@ -186,6 +187,12 @@ def save_case_attachment(db, case: GrievanceCase, file_storage, *,
     data = file_storage.read()
     if not data:
         raise ValueError('The uploaded file appears to be empty.')
+    if ext == '.pdf' and not data.startswith(b'%PDF'):
+        raise ValueError('The uploaded PDF does not appear to be valid.')
+    if ext in ('.jpg', '.jpeg') and not data.startswith(b'\xff\xd8'):
+        raise ValueError('The uploaded JPG does not appear to be valid.')
+    if ext == '.png' and not data.startswith(b'\x89PNG\r\n\x1a\n'):
+        raise ValueError('The uploaded PNG does not appear to be valid.')
     timestamp = datetime.utcnow().strftime('%Y%m%d%H%M%S')
     stored_name = f"{timestamp}_{filename or 'attachment' + ext}"
     root = case_upload_root(case)
@@ -485,6 +492,9 @@ def assign(case_id: int):
         if not reviewer:
             flash('Unknown reviewer.', 'danger')
             return redirect(url_for('grievances.detail', case_id=case.id))
+        if not reviewer.approved or (reviewer.role or '').lower() not in ('admin', 'editor'):
+            flash('Reviewer must be an approved admin or editor.', 'danger')
+            return redirect(url_for('grievances.detail', case_id=case.id))
     actor_label, actor_user_id = _actor()
     old = case.assigned_reviewer.username if case.assigned_reviewer else None
     case.assigned_reviewer_id = reviewer.id if reviewer else None
@@ -583,6 +593,10 @@ def download_attachment(case_id: int, attachment_id: int):
         abort(404)
     root = case_upload_root(case).resolve()
     target = Path(attachment.storage_path).resolve()
-    if not str(target).startswith(str(root)) or not target.is_file():
+    try:
+        target.relative_to(root)
+    except ValueError:
+        abort(404)
+    if not target.is_file():
         abort(404)
     return send_file(target, download_name=attachment.original_filename)
