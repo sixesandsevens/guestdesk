@@ -285,10 +285,16 @@ def build_case_pdf_payload(case: GrievanceCase, submission: Submission) -> dict:
     }
 
 
-def intake_header_lines(case: GrievanceCase) -> list[str]:
-    """Reference/source lines stamped in the PDF's upper-right header area."""
-    lines = [
-        f"Reference: {case.public_reference}",
+def intake_header_lines(case: GrievanceCase, *, include_reference: bool = True) -> list[str]:
+    """Reference/source lines stamped in the PDF's upper-right header area.
+
+    ``include_reference`` is False when the bound layout already prints the
+    case reference, so the stamp doesn't double-print on top of it.
+    """
+    lines = []
+    if include_reference:
+        lines.append(f"Reference: {case.public_reference}")
+    lines += [
         f"Source: {SOURCES.get(case.source, case.source)}",
         f"Received: {_format_received(case.original_received_at)}",
     ]
@@ -298,8 +304,13 @@ def intake_header_lines(case: GrievanceCase) -> list[str]:
     return lines
 
 
-def _stamp_intake_header(pdf_bytes: bytes, lines: list[str]) -> bytes:
-    """Overlay the intake header block on the top-right of page 1."""
+def _stamp_intake_header(pdf_bytes: bytes, lines: list[str], *,
+                         start_y: float | None = None) -> bytes:
+    """Overlay the intake header block on the top-right of page 1.
+
+    ``start_y`` is the baseline (bottom-left points) for the first line;
+    defaults to just inside the top page edge.
+    """
     from reportlab.pdfgen import canvas
     from PyPDF2 import PdfReader, PdfWriter
 
@@ -313,7 +324,7 @@ def _stamp_intake_header(pdf_bytes: bytes, lines: list[str]) -> bytes:
             buf = io.BytesIO()
             c = canvas.Canvas(buf, pagesize=(width, height))
             c.setFont('Helvetica', 7)
-            y = height - 16
+            y = start_y if start_y is not None else height - 16
             for line in lines:
                 c.drawRightString(width - 20, y, line)
                 y -= 9
@@ -348,7 +359,22 @@ def render_case_pdf(db, case: GrievanceCase, submission: Submission) -> bytes | 
     data = build_case_pdf_payload(case, submission)
     pdf_bytes = render_pdf(cfg.template_path, cfg.layout_json, data,
                            pad=float(cfg.baseline_pad or 3), debug=False)
-    return _stamp_intake_header(pdf_bytes, intake_header_lines(case))
+    # When the layout already prints the reference in the header, skip the
+    # stamp's Reference line and anchor the stamp just below the printed one.
+    try:
+        layout = json.loads(cfg.layout_json) if isinstance(cfg.layout_json, str) else (cfg.layout_json or {})
+    except Exception:
+        layout = {}
+    ref_box = layout.get('id') or layout.get('case_id')
+    include_reference = ref_box is None
+    start_y = None
+    if isinstance(ref_box, (list, tuple)) and len(ref_box) >= 2:
+        try:
+            start_y = float(ref_box[1]) - 8
+        except (TypeError, ValueError):
+            start_y = None
+    lines = intake_header_lines(case, include_reference=include_reference)
+    return _stamp_intake_header(pdf_bytes, lines, start_y=start_y)
 
 
 def case_generated_pdf(case: GrievanceCase) -> GrievanceAttachment | None:

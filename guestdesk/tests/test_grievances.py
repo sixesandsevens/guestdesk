@@ -274,6 +274,9 @@ def test_public_grievance_attaches_generated_pdf(monkeypatch, tmp_path):
         assert "Source: Guest digital form" in text
         # layout fields rendered -> same template/layout as the public form
         assert "Guest One" in text and "J. Doe" in text
+        # the layout prints the reference; the stamp must not double-print it
+        assert "Reference:" not in text
+        assert text.count(case.public_reference) == 1
 
 
 def _staff_entry(client, source, attachment=None):
@@ -348,6 +351,27 @@ def test_notification_sent_without_pdf_when_unconfigured(monkeypatch, tmp_path):
         case = db.query(GrievanceCase).one()
         assert db.query(GrievanceAttachment).filter_by(
             case_id=case.id, attachment_type=GENERATED_PDF_TYPE).count() == 0
+
+
+def test_stamp_includes_reference_when_layout_lacks_id(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    _enable_grievance_pdf(app, tmp_path)
+    with app.app_context():
+        db = app.dbs()
+        cfg = db.query(FormPDFConfig).filter_by(form_key="grievance").one()
+        layout = json.loads(cfg.layout_json)
+        layout.pop("id", None)
+        cfg.layout_json = json.dumps(layout)
+        db.commit()
+    with app.test_client() as client:
+        client.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        db = app.dbs()
+        case = db.query(GrievanceCase).one()
+        pdf = db.query(GrievanceAttachment).filter_by(
+            case_id=case.id, attachment_type=GENERATED_PDF_TYPE).one()
+        text = _pdf_text(pdf.storage_path)
+        assert f"Reference: {case.public_reference}" in text
 
 
 def test_upload_route_rejects_reserved_attachment_type(monkeypatch, tmp_path):
