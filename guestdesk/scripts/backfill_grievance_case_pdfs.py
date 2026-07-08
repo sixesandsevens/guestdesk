@@ -26,7 +26,7 @@ from guestdesk.grievances import (
     GENERATED_PDF_TYPE,
     attach_generated_pdf,
     case_generated_pdf,
-    ensure_archive_columns,
+    ensure_case_columns,
     render_case_pdf,
 )
 
@@ -64,7 +64,7 @@ def main() -> int:
         return 1
     engine = create_engine(f"sqlite:///{args.db}", future=True)
     Base.metadata.create_all(engine)
-    ensure_archive_columns(engine)
+    ensure_case_columns(engine)
     Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     db = Session()
     attached = copied = skipped = 0

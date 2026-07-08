@@ -333,8 +333,8 @@ def create_app():
     engine = create_engine(f"sqlite:///{db_path}", future=True, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
     try:
-        from .grievances import ensure_archive_columns
-        ensure_archive_columns(engine)
+        from .grievances import ensure_case_columns
+        ensure_case_columns(engine)
     except Exception:
         app.logger.exception('Grievance archive column migration failed')
     Session = scoped_session(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False))
@@ -914,7 +914,7 @@ def create_app():
                     app.logger.exception('Failed to create grievance case for submission #%s', sub.id)
             remote_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
             if kind == 'grievance':
-                stored_case_id = build_grievance_case_id(sub.id, sub.created_at)
+                stored_case_id = grievance_case.public_reference if grievance_case else build_grievance_case_id(sub.id, sub.created_at)
                 app.logger.info(
                     'Grievance submission stored: id=%s case_id=%s has_email=%s remote_addr=%s',
                     sub.id,
@@ -939,7 +939,9 @@ def create_app():
                     remember_idemp(token, sub.id)
                 except Exception:
                     pass
-            grievance_case_id = build_grievance_case_id(sub.id, sub.created_at) if kind == 'grievance' else None
+            grievance_case_id = None
+            if kind == 'grievance':
+                grievance_case_id = grievance_case.public_reference if grievance_case else build_grievance_case_id(sub.id, sub.created_at)
             # Build normalized payload for renderer
             payload = {
                 'name': (request.form.get('contact_name') or request.form.get('name') or '').strip() or None,
@@ -2659,7 +2661,18 @@ def create_app():
         if kind:
             q = q.filter(Submission.kind == kind)
         rows = q.order_by(Submission.created_at.desc()).limit(500).all()
-        return render_template('admin/submissions.html', rows=rows, kind=kind)
+        # Actual case references for grievance rows (new-format refs aren't
+        # derivable from the submission alone)
+        case_refs = {}
+        grievance_ids = [s.id for s in rows if s.kind == 'grievance']
+        if grievance_ids:
+            pairs = (
+                db.query(GrievanceCase.submission_id, GrievanceCase.public_reference)
+                .filter(GrievanceCase.submission_id.in_(grievance_ids))
+                .all()
+            )
+            case_refs = dict(pairs)
+        return render_template('admin/submissions.html', rows=rows, kind=kind, case_refs=case_refs)
 
     @app.route('/admin/submissions/<int:sid>')
     @permission_required('submissions.view')

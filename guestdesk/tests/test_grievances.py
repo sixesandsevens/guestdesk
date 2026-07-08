@@ -286,12 +286,12 @@ def test_archive_and_restore_case(monkeypatch, tmp_path):
     assert reference.encode() in client.get("/admin/grievances/?view=open").data
 
 
-def test_ensure_archive_columns_migrates_old_schema(tmp_path):
+def test_ensure_case_columns_migrates_old_schema(tmp_path):
     import sqlite3
 
     from sqlalchemy import create_engine
 
-    from guestdesk.grievances import ensure_archive_columns
+    from guestdesk.grievances import ensure_case_columns
 
     db_path = tmp_path / "old.db"
     conn = sqlite3.connect(db_path)
@@ -299,12 +299,75 @@ def test_ensure_archive_columns_migrates_old_schema(tmp_path):
     conn.commit()
     conn.close()
     engine = create_engine(f"sqlite:///{db_path}", future=True)
-    ensure_archive_columns(engine)
-    ensure_archive_columns(engine)  # idempotent
+    ensure_case_columns(engine)
+    ensure_case_columns(engine)  # idempotent
     conn = sqlite3.connect(db_path)
     cols = [r[1] for r in conn.execute("PRAGMA table_info(grievance_cases)").fetchall()]
     conn.close()
     assert "archived_at" in cols and "archived_by_user_id" in cols
+    assert "grievance_year" in cols and "grievance_sequence" in cols
+
+
+# ---- v0.3: readable reference format ----
+
+def test_new_reference_uses_submission_year_sequence(monkeypatch, tmp_path):
+    import re
+
+    app = _make_app(monkeypatch, tmp_path)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "First.", "name": "A"})
+        guest.post("/submit/maintenance", data={"body": "Leaky sink.", "category": "Plumbing"})
+        guest.post("/submit/grievance", data={"description": "Second.", "name": "B"})
+    with app.app_context():
+        db = app.dbs()
+        cases = db.query(GrievanceCase).order_by(GrievanceCase.id).all()
+        assert len(cases) == 2
+        first, second = cases
+        year = first.original_received_at.year
+        # global submission id stays global (maintenance took an id in between)
+        assert second.submission_id == first.submission_id + 2
+        # grievance sequence increments only for grievances
+        assert (first.grievance_year, first.grievance_sequence) == (year, 1)
+        assert (second.grievance_year, second.grievance_sequence) == (year, 2)
+        assert first.public_reference == f"GRV-{first.submission_id}-{year}-0001"
+        assert second.public_reference == f"GRV-{second.submission_id}-{year}-0002"
+        assert re.fullmatch(r"GRV-\d+-\d{4}-\d{4}", first.public_reference)
+
+
+def test_legacy_references_are_not_renamed_and_stay_searchable(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Old-style.", "name": "Legacy Guest"})
+    legacy_ref = None
+    with app.app_context():
+        db = app.dbs()
+        case = db.query(GrievanceCase).one()
+        # simulate a pre-v0.3 case
+        legacy_ref = f"GRV-{case.submission_id}-2026-1783189360"
+        case.public_reference = legacy_ref
+        case.grievance_year = None
+        case.grievance_sequence = None
+        db.commit()
+    client = _admin_client(app)
+    body = client.get(f"/admin/grievances/?view=all&q={legacy_ref}").data
+    assert legacy_ref.encode() in body
+    body = client.get("/admin/grievances/?view=all&q=1783189360").data
+    assert legacy_ref.encode() in body
+
+
+def test_search_by_grievance_sequence(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "First.", "name": "A"})
+        guest.post("/submit/grievance", data={"description": "Second.", "name": "B"})
+    with app.app_context():
+        refs = [c.public_reference for c in
+                app.dbs().query(GrievanceCase).order_by(GrievanceCase.id).all()]
+    client = _admin_client(app)
+    body = client.get("/admin/grievances/?view=all&q=0002").data
+    assert refs[1].encode() in body and refs[0].encode() not in body
+    body = client.get("/admin/grievances/?view=all&q=2").data
+    assert refs[1].encode() in body
 
 
 # ---- v0.3: grievance search ----

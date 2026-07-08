@@ -333,6 +333,10 @@ class GrievanceCase(Base):
     id = Column(Integer, primary_key=True)
     submission_id = Column(Integer, ForeignKey('submissions.id', ondelete="CASCADE"), nullable=False, unique=True, index=True)
     public_reference = Column(String(64), nullable=False, unique=True, index=True)
+    # Yearly grievance counter behind new-format references (GRV-<sid>-<year>-<seq>).
+    # Null on pre-v0.3 cases, whose references keep the legacy timestamp format.
+    grievance_year = Column(Integer, nullable=True, index=True)
+    grievance_sequence = Column(Integer, nullable=True)
     # guest_digital | paper | verbal | staff_assisted
     source = Column(String(32), nullable=False, default='guest_digital')
     # When the grievance was originally received (may predate data entry for paper/verbal)

@@ -91,8 +91,8 @@ NOTE_TYPES = {
 }
 
 
-def ensure_archive_columns(engine) -> None:
-    """Add the archive columns to grievance_cases on databases that predate them.
+def ensure_case_columns(engine) -> None:
+    """Add grievance_cases columns to databases that predate them.
 
     create_all() only creates missing tables, so column additions need this
     lightweight migration (same pattern as the users/services migrations).
@@ -101,17 +101,41 @@ def ensure_archive_columns(engine) -> None:
         cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(grievance_cases)').all()]
         if not cols:
             return  # table doesn't exist yet; create_all will make it complete
-        if 'archived_at' not in cols:
-            conn.exec_driver_sql('ALTER TABLE grievance_cases ADD COLUMN archived_at DATETIME')
-        if 'archived_by_user_id' not in cols:
-            conn.exec_driver_sql('ALTER TABLE grievance_cases ADD COLUMN archived_by_user_id INTEGER')
+        for col, ddl in [
+            ('archived_at', 'DATETIME'),
+            ('archived_by_user_id', 'INTEGER'),
+            ('grievance_year', 'INTEGER'),
+            ('grievance_sequence', 'INTEGER'),
+        ]:
+            if col not in cols:
+                conn.exec_driver_sql(f'ALTER TABLE grievance_cases ADD COLUMN {col} {ddl}')
+
+
+# Backwards-compatible alias (pre-v0.3 name)
+ensure_archive_columns = ensure_case_columns
 
 
 def build_grievance_case_id(submission_id: int, created_at: datetime | None) -> str:
-    """Generate a stable grievance case identifier."""
+    """Legacy timestamp-based reference; kept for pre-v0.3 fallbacks only."""
     created = created_at or datetime.utcnow()
     created_utc = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
     return f"GRV-{submission_id}-{created_utc.strftime('%Y')}-{int(created_utc.timestamp())}"
+
+
+def next_grievance_sequence_for_year(db, year: int) -> int:
+    """Next value of the grievance-only yearly counter."""
+    from sqlalchemy import func
+    max_sequence = (
+        db.query(func.max(GrievanceCase.grievance_sequence))
+        .filter(GrievanceCase.grievance_year == year)
+        .scalar()
+    )
+    return (max_sequence or 0) + 1
+
+
+def build_public_reference(submission_id: int, year: int, sequence: int) -> str:
+    """Readable reference: global submission id + year + grievance sequence."""
+    return f"GRV-{submission_id}-{year}-{sequence:04d}"
 
 
 def add_business_days(start: datetime, days: int) -> datetime:
@@ -164,9 +188,13 @@ def create_case_for_submission(db, submission: Submission, *,
     form = form or {}
     received = original_received_at or submission.created_at or datetime.utcnow()
     other_text = (form.get('involves_other') or form.get('involves_other_txt') or '').strip() or None
+    year = received.year
+    sequence = next_grievance_sequence_for_year(db, year)
     case = GrievanceCase(
         submission_id=submission.id,
-        public_reference=build_grievance_case_id(submission.id, submission.created_at),
+        public_reference=build_public_reference(submission.id, year, sequence),
+        grievance_year=year,
+        grievance_sequence=sequence,
         source=source if source in SOURCES else 'guest_digital',
         original_received_at=received,
         entered_by_user_id=entered_by_user_id,
@@ -538,6 +566,8 @@ def dashboard():
         ]
         if q.isdigit():
             conditions.append(GrievanceCase.submission_id == int(q))
+            # sequence lookup tolerates the zero padding ("0030" or "30")
+            conditions.append(GrievanceCase.grievance_sequence == int(q))
         query = query.filter(or_(*conditions))
     cases = (
         query

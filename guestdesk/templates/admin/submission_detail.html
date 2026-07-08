@@ -2,12 +2,12 @@
 {% import '_macros.html' as m %}
 
 {% block content %}
-<h4 class="mb-2">Submission {% if s.kind == 'grievance' %}{{ grievance_case_id(s.id, s.created_at) }}{% else %}#{{ s.id }}{% endif %} — {{ s.kind }}</h4>
+<h4 class="mb-2">Submission {% if s.kind == 'grievance' %}{{ grievance_case.public_reference if grievance_case else grievance_case_id(s.id, s.created_at) }}{% else %}#{{ s.id }}{% endif %} — {{ s.kind }}</h4>
 <div class="card mb-3">
   <div class="card-body">
     {% if s.kind == 'grievance' %}
     <div class="mb-2 d-flex align-items-center gap-2">
-      <strong>Case ID:</strong> {{ grievance_case_id(s.id, s.created_at) }}
+      <strong>Case ID:</strong> {{ grievance_case.public_reference if grievance_case else grievance_case_id(s.id, s.created_at) }}
       {% if grievance_case %}
       <a class="btn btn-sm btn-primary" href="{{ url_for('grievances.detail', case_id=grievance_case.id) }}">Open Grievance Case</a>
       {% endif %}
