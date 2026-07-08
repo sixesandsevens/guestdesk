@@ -112,7 +112,7 @@
         <label class="form-label">Attachment type</label>
         <select name="attachment_type" class="form-select">
           <option value="">(automatic based on source)</option>
-          {% for key, label in attachment_types.items() if key != 'generated_guestdesk_pdf' %}
+          {% for key, label in attachment_types.items() if key != 'system_generated_pdf' %}
           <option value="{{ key }}" {% if form.get('attachment_type') == key %}selected{% endif %}>{{ label }}</option>
           {% endfor %}
         </select>

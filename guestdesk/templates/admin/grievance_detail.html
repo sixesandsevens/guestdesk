@@ -203,6 +203,7 @@
         <div class="d-flex justify-content-between align-items-center border-bottom pb-1 mb-1">
           <div>
             <a href="{{ url_for('grievances.download_attachment', case_id=case.id, attachment_id=att.id) }}" target="_blank">{{ att.original_filename }}</a>
+            {% if att.attachment_type == 'system_generated_pdf' %}<span class="badge bg-primary">Generated grievance PDF</span>{% endif %}
             <div class="small text-muted">{{ attachment_types.get(att.attachment_type, att.attachment_type) }} · {{ att.uploaded_at|dt }}</div>
           </div>
         </div>
@@ -214,7 +215,7 @@
           <div class="input-group input-group-sm">
             <input name="attachment" type="file" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
             <select name="attachment_type" class="form-select" style="max-width: 45%;">
-              {% for key, label in attachment_types.items() if key != 'generated_guestdesk_pdf' %}
+              {% for key, label in attachment_types.items() if key != 'system_generated_pdf' %}
               <option value="{{ key }}" {% if key == 'supporting_documentation' %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>

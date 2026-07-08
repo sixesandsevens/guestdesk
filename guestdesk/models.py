@@ -372,7 +372,7 @@ class GrievanceAttachment(Base):
     id = Column(Integer, primary_key=True)
     case_id = Column(Integer, ForeignKey('grievance_cases.id', ondelete="CASCADE"), nullable=False, index=True)
     # original_handwritten_grievance | verbal_grievance_documentation |
-    # supporting_documentation | photo | generated_guestdesk_pdf | other
+    # supporting_documentation | photo | system_generated_pdf | other
     attachment_type = Column(String(48), nullable=False, default='supporting_documentation')
     original_filename = Column(String(255), nullable=False)
     stored_filename = Column(String(255), nullable=False)

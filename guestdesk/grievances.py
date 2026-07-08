@@ -11,6 +11,7 @@ attachments, and the case timeline.
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
 from __future__ import annotations
 
+import io
 import json
 import os
 from datetime import datetime, timedelta, timezone
@@ -24,9 +25,11 @@ from flask import (
 from werkzeug.utils import secure_filename
 
 from .audit import log as audit_log
+from .mailer import queue_mail, _recipient_for
 from .models import (
     Submission,
     User,
+    FormPDFConfig,
     GrievanceCase,
     GrievanceAttachment,
     GrievanceNote,
@@ -64,12 +67,16 @@ STATUSES = {
 # response_provided stays open: the case still needs closure (and may go to additional review)
 OPEN_STATUSES = ('received', 'acknowledged', 'in_review', 'response_provided', 'additional_review')
 
+# Reserved for the PDF GuestDesk renders itself; the only kind that may be emailed
+GENERATED_PDF_TYPE = 'system_generated_pdf'
+GENERATED_PDF_FILENAME = 'generated-grievance.pdf'
+
 ATTACHMENT_TYPES = {
     'original_handwritten_grievance': 'Original handwritten grievance',
     'verbal_grievance_documentation': 'Verbal grievance documentation',
     'supporting_documentation': 'Supporting documentation',
     'photo': 'Photo',
-    'generated_guestdesk_pdf': 'Generated GuestDesk PDF',
+    GENERATED_PDF_TYPE: 'Generated grievance PDF',
     'other': 'Other',
 }
 ATTACHMENT_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png'}
@@ -176,10 +183,13 @@ def save_case_attachment(db, case: GrievanceCase, file_storage, *,
                          attachment_type: str = 'supporting_documentation',
                          uploaded_by_user_id: int | None = None,
                          actor_label: str = 'staff') -> GrievanceAttachment:
-    """Validate and store an uploaded file for a case (does not commit).
+    """Validate and store a human-uploaded file for a case (does not commit).
 
     Raises ``ValueError`` with a user-facing message when the file is unusable.
+    The system_generated_pdf type is reserved for attach_generated_pdf().
     """
+    if attachment_type == GENERATED_PDF_TYPE:
+        raise ValueError('That attachment type is reserved for the system-generated PDF.')
     filename = secure_filename(file_storage.filename or '')
     ext = Path(filename).suffix.lower()
     if ext not in ATTACHMENT_EXTENSIONS:
@@ -214,6 +224,205 @@ def save_case_attachment(db, case: GrievanceCase, file_storage, *,
                    new_value=attachment.original_filename,
                    meta={'attachment_type': attachment.attachment_type})
     return attachment
+
+
+# ---------- Generated case PDF ----------
+
+def _split_contact_info(contact_info: str | None) -> tuple[str, str]:
+    """Split Submission.contact_info ('phone, email') back into (phone, email)."""
+    parts = [p.strip() for p in (contact_info or '').split(',') if p.strip()]
+    email = next((p for p in parts if '@' in p), '')
+    phone = ', '.join(p for p in parts if p != email)
+    return phone, email
+
+
+def _format_received(received: datetime | None) -> str:
+    """Format the received timestamp the way it appears on the intake header."""
+    if not received:
+        return ''
+    return f"{received.strftime('%m/%d/%Y')} {received.strftime('%I:%M %p').lstrip('0')}"
+
+
+def _entered_by_label(case: GrievanceCase) -> str | None:
+    """Best available name for who entered the grievance into GuestDesk."""
+    if case.entered_by:
+        return case.entered_by.username
+    created = next((e for e in case.events if e.event_type == 'case_created'), None)
+    if created and created.actor_label not in ('guest', 'system', 'backfill'):
+        return created.actor_label
+    return None
+
+
+def build_case_pdf_payload(case: GrievanceCase, submission: Submission) -> dict:
+    """Build the grievance PDF field map from the stored case record.
+
+    Mirrors the public form's payload so staff-entered and backfilled cases
+    render through the same template and layout as guest submissions.
+    """
+    phone, email = _split_contact_info(submission.contact_info)
+    return {
+        'id': case.public_reference,
+        'case_id': case.public_reference,
+        'submission_id': submission.id,
+        'todays_date': datetime.utcnow().strftime('%Y-%m-%d'),
+        'submitted_date': case.original_received_at.strftime('%Y-%m-%d') if case.original_received_at else '',
+        'submitted_time': case.original_received_at.strftime('%I:%M %p').lstrip('0') if case.original_received_at else '',
+        'staff_involved': case.staff_involved or '',
+        'name': submission.contact_name or '',
+        'contact_name': submission.contact_name or '',
+        'phone': phone,
+        'email': email,
+        'involves_staff': case.involves_grace_staff,
+        'involves_grace_staff': case.involves_grace_staff,
+        'involves_policies': case.involves_policies,
+        'involves_volunteer': case.involves_volunteer,
+        'involves_other': case.involves_other,
+        'involves_other_txt': case.involves_other_text or '',
+        'other': case.involves_other_text or '',
+        'incident_date': case.incident_date or '',
+        'incident_time': case.incident_time or '',
+        'description': submission.body or '',
+    }
+
+
+def intake_header_lines(case: GrievanceCase) -> list[str]:
+    """Reference/source lines stamped in the PDF's upper-right header area."""
+    lines = [
+        f"Reference: {case.public_reference}",
+        f"Source: {SOURCES.get(case.source, case.source)}",
+        f"Received: {_format_received(case.original_received_at)}",
+    ]
+    entered_by = _entered_by_label(case)
+    if entered_by:
+        lines.append(f"Entered by: {entered_by}")
+    return lines
+
+
+def _stamp_intake_header(pdf_bytes: bytes, lines: list[str]) -> bytes:
+    """Overlay the intake header block on the top-right of page 1."""
+    from reportlab.pdfgen import canvas
+    from PyPDF2 import PdfReader, PdfWriter
+
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    for index, page in enumerate(reader.pages):
+        if index == 0:
+            box = page.mediabox
+            width = float(box.right - box.left)
+            height = float(box.top - box.bottom)
+            buf = io.BytesIO()
+            c = canvas.Canvas(buf, pagesize=(width, height))
+            c.setFont('Helvetica', 7)
+            y = height - 16
+            for line in lines:
+                c.drawRightString(width - 20, y, line)
+                y -= 9
+            c.showPage()
+            c.save()
+            overlay = PdfReader(io.BytesIO(buf.getvalue()))
+            page.merge_page(overlay.pages[0])
+        writer.add_page(page)
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
+
+
+def grievance_pdf_config(db) -> FormPDFConfig | None:
+    """Return the grievance PDF config when a usable template is bound."""
+    cfg = db.query(FormPDFConfig).filter(FormPDFConfig.form_key == 'grievance').first()
+    if cfg and cfg.template_path and cfg.layout_json:
+        return cfg
+    return None
+
+
+def render_case_pdf(db, case: GrievanceCase, submission: Submission) -> bytes | None:
+    """Render the standard grievance PDF for a case, or None when unconfigured.
+
+    Uses the same template/layout as the public form; the only difference is
+    the intake header stamped in the top-right corner.
+    """
+    cfg = grievance_pdf_config(db)
+    if not cfg:
+        return None
+    from .pdf_render import render_pdf
+    data = build_case_pdf_payload(case, submission)
+    pdf_bytes = render_pdf(cfg.template_path, cfg.layout_json, data,
+                           pad=float(cfg.baseline_pad or 3), debug=False)
+    return _stamp_intake_header(pdf_bytes, intake_header_lines(case))
+
+
+def case_generated_pdf(case: GrievanceCase) -> GrievanceAttachment | None:
+    """Return the case's system-generated PDF attachment, if present."""
+    return next((a for a in case.attachments if a.attachment_type == GENERATED_PDF_TYPE), None)
+
+
+def attach_generated_pdf(db, case: GrievanceCase, pdf_bytes: bytes, *,
+                         actor_label: str = 'system',
+                         actor_user_id: int | None = None) -> GrievanceAttachment:
+    """Store the generated PDF in the trusted upload root as a system attachment.
+
+    Idempotent: an existing system_generated_pdf attachment is returned as-is.
+    Does not commit.
+    """
+    existing = case_generated_pdf(case)
+    if existing:
+        return existing
+    root = case_upload_root(case)
+    root.mkdir(parents=True, exist_ok=True)
+    path = root / GENERATED_PDF_FILENAME
+    with open(path, 'wb') as fh:
+        fh.write(pdf_bytes)
+    attachment = GrievanceAttachment(
+        case_id=case.id,
+        attachment_type=GENERATED_PDF_TYPE,
+        original_filename=f"{case.public_reference}.pdf",
+        stored_filename=GENERATED_PDF_FILENAME,
+        storage_path=str(path),
+        uploaded_by_user_id=None,
+    )
+    db.add(attachment)
+    log_case_event(db, case, 'pdf_generated', actor_label=actor_label,
+                   actor_user_id=actor_user_id, new_value=attachment.original_filename)
+    return attachment
+
+
+def send_staff_intake_notification(case: GrievanceCase, submission: Submission,
+                                   generated_pdf: bytes | None) -> bool:
+    """Notify grievance reviewers that staff entered a grievance.
+
+    Deliberately takes only the generated PDF bytes — never the case's
+    attachment list — so human-uploaded files can never be emailed.
+    """
+    recipients = _recipient_for('grievance')
+    if not recipients:
+        return False
+    entered_by = _entered_by_label(case) or 'staff'
+    lines = [
+        'A grievance was entered into GuestDesk by staff.',
+        '',
+        f'Reference: {case.public_reference}',
+        f'Source: {SOURCES.get(case.source, case.source)}',
+        f'Received: {_format_received(case.original_received_at)}',
+        f'Entered by: {entered_by}',
+        '',
+    ]
+    if generated_pdf:
+        lines.append('The generated grievance PDF is attached.')
+    else:
+        lines.append('No grievance PDF template is configured; view the case in GuestDesk.')
+    lines.append('')
+    lines.append('Uploaded documentation and original handwritten grievance files are '
+                 'stored in the GuestDesk case file and are not attached to this email.')
+    attachments = None
+    if generated_pdf:
+        attachments = [('application/pdf', f'{case.public_reference}.pdf', generated_pdf)]
+    queue_mail(
+        subject=f'[GuestDesk] Grievance (staff-entered) {case.public_reference}',
+        body='\n'.join(lines),
+        to=recipients,
+        attachments=attachments,
+    )
+    return True
 
 
 # ---------- Admin blueprint ----------
@@ -402,6 +611,29 @@ def new_case():
         db.commit()
         audit_log('grievance.case.staff_entered', actor=actor_label, obj=case.public_reference,
                   extra={'submission_id': submission.id, 'source': source})
+        # Generate and attach the standard grievance PDF (same layout as the
+        # public form); failures must not lose the already-committed case.
+        pdf_bytes = None
+        try:
+            pdf_bytes = render_case_pdf(db, case, submission)
+            if pdf_bytes:
+                attach_generated_pdf(db, case, pdf_bytes,
+                                     actor_label=actor_label, actor_user_id=actor_user_id)
+                db.commit()
+        except Exception:
+            db.rollback()
+            pdf_bytes = None
+            current_app.logger.exception('Failed to generate PDF for case %s', case.public_reference)
+        try:
+            cfg = grievance_pdf_config(db)
+            email_pdf = pdf_bytes if (pdf_bytes and cfg and cfg.attach_to_email) else None
+            if send_staff_intake_notification(case, submission, email_pdf):
+                log_case_event(db, case, 'intake_notification_queued', actor_label='system',
+                               meta={'pdf_attached': bool(email_pdf)})
+                db.commit()
+        except Exception:
+            db.rollback()
+            current_app.logger.exception('Failed to queue intake notification for case %s', case.public_reference)
         flash(f'Grievance case {case.public_reference} created.', 'success')
         return redirect(url_for('grievances.detail', case_id=case.id))
     return render_template('admin/grievance_new.html', form={},

@@ -65,7 +65,12 @@ from .services_calendar import expand_between
 from .mailer import send_category_notification, queue_mail, _recipient_for
 from .antispam import seen as idemp_seen, remember as remember_idemp, fetch as fetch_idemp_result
 from .audit import log as audit_log
-from .grievances import build_grievance_case_id, create_case_for_submission
+from .grievances import (
+    build_grievance_case_id,
+    create_case_for_submission,
+    render_case_pdf,
+    attach_generated_pdf,
+)
 
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
@@ -884,12 +889,14 @@ def create_app():
             db.commit()
             # Create the tracker case in its own transaction so a tracker fault
             # can never break guest intake; the backfill script covers any gap.
+            grievance_case = None
             if kind == 'grievance':
                 try:
-                    create_case_for_submission(db, sub, source='guest_digital', form=request.form)
+                    grievance_case = create_case_for_submission(db, sub, source='guest_digital', form=request.form)
                     db.commit()
                 except Exception:
                     db.rollback()
+                    grievance_case = None
                     app.logger.exception('Failed to create grievance case for submission #%s', sub.id)
             remote_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
             if kind == 'grievance':
@@ -938,7 +945,25 @@ def create_app():
                 attach_info = f"Photo: {photo_plan['display_path'] or photo_plan['path']}"
             try:
                 cfg = db.query(FormPDFConfig).filter(FormPDFConfig.form_key == kind).first()
-                if cfg and cfg.attach_to_email and cfg.template_path and cfg.layout_json:
+                if kind == 'grievance' and grievance_case is not None:
+                    # Case-based render: same template/layout, plus the intake
+                    # header stamp; stored on the case even when email is off.
+                    pdf_bytes = render_case_pdf(db, grievance_case, sub)
+                    if pdf_bytes:
+                        attach_generated_pdf(db, grievance_case, pdf_bytes, actor_label='system')
+                        db.commit()
+                        # Archival copy in the pre-tracker output location
+                        out_dir = os.path.join(pdf_config.output_root(), kind, str(sub.id))
+                        os.makedirs(out_dir, exist_ok=True)
+                        out_path = os.path.join(out_dir, f"{kind}-{sub.id}.pdf")
+                        with open(out_path, 'wb') as fh:
+                            fh.write(pdf_bytes)
+                        if cfg and cfg.attach_to_email:
+                            fname = f"{kind}-{sub.id}.pdf"
+                            attachments.append(("application/pdf", fname, pdf_bytes))
+                            note = f"Form: {kind} • File: {out_path}"
+                            attach_info = f"{attach_info} • {note}" if attach_info else note
+                elif cfg and cfg.attach_to_email and cfg.template_path and cfg.layout_json:
                     import os
                     from .pdf_render import render_pdf
                     # Map submission to renderer payload
