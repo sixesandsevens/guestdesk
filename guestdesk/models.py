@@ -302,6 +302,124 @@ class PDFBinding(Base):
     )
 
 
+# ---- Grievance tracker ----
+class GrievanceCase(Base):
+    """Operational case record tracking a grievance from receipt to closure.
+
+    Every grievance Submission gets exactly one case. The case carries the
+    workflow state (assignment, status, due dates, findings, closure) plus the
+    intake fields that are not persisted on the flat Submission row.
+    """
+    __tablename__ = 'grievance_cases'
+
+    id = Column(Integer, primary_key=True)
+    submission_id = Column(Integer, ForeignKey('submissions.id', ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    public_reference = Column(String(64), nullable=False, unique=True, index=True)
+    # guest_digital | paper | verbal | staff_assisted
+    source = Column(String(32), nullable=False, default='guest_digital')
+    # When the grievance was originally received (may predate data entry for paper/verbal)
+    original_received_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    entered_by_user_id = Column(Integer, ForeignKey('users.id', ondelete="SET NULL"), nullable=True)
+    assigned_reviewer_id = Column(Integer, ForeignKey('users.id', ondelete="SET NULL"), nullable=True, index=True)
+    # received | acknowledged | in_review | response_provided | additional_review | closed
+    status = Column(String(32), nullable=False, default='received', index=True)
+
+    # Intake fields captured from the grievance form (not stored on Submission)
+    staff_involved = Column(String(200), nullable=True)
+    involves_grace_staff = Column(Boolean, nullable=False, default=False)
+    involves_policies = Column(Boolean, nullable=False, default=False)
+    involves_volunteer = Column(Boolean, nullable=False, default=False)
+    involves_other = Column(Boolean, nullable=False, default=False)
+    involves_other_text = Column(String(200), nullable=True)
+    # Kept as form-supplied strings (YYYY-MM-DD / HH:MM); display data, not filtered on
+    incident_date = Column(String(10), nullable=True)
+    incident_time = Column(String(8), nullable=True)
+    intake_notes = Column(Text, nullable=True)  # private staff notes from intake, never guest-facing
+
+    # Deadline tracking (business days from original_received_at)
+    acknowledgement_due_at = Column(DateTime, nullable=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    response_due_at = Column(DateTime, nullable=True)
+    response_provided_at = Column(DateTime, nullable=True)
+    response_method = Column(String(64), nullable=True)
+
+    # Outcome fields — findings/resolution are internal; guest_facing_response is
+    # the only field whose content may be shared with the complainant
+    findings = Column(Text, nullable=True)
+    resolution = Column(Text, nullable=True)
+    guest_facing_response = Column(Text, nullable=True)
+    closure_notes = Column(Text, nullable=True)
+    closed_at = Column(DateTime, nullable=True)
+    closed_by_user_id = Column(Integer, ForeignKey('users.id', ondelete="SET NULL"), nullable=True)
+
+    additional_review_requested_at = Column(DateTime, nullable=True)
+    additional_review_due_at = Column(DateTime, nullable=True)
+    additional_review_status = Column(String(32), nullable=True)
+
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    submission = relationship("Submission", backref=backref("grievance_case", uselist=False, cascade="all, delete-orphan"))
+    entered_by = relationship("User", foreign_keys=[entered_by_user_id])
+    assigned_reviewer = relationship("User", foreign_keys=[assigned_reviewer_id])
+    closed_by = relationship("User", foreign_keys=[closed_by_user_id])
+
+
+class GrievanceAttachment(Base):
+    """File attached to a grievance case (scanned originals, supporting docs)."""
+    __tablename__ = 'grievance_attachments'
+
+    id = Column(Integer, primary_key=True)
+    case_id = Column(Integer, ForeignKey('grievance_cases.id', ondelete="CASCADE"), nullable=False, index=True)
+    # original_handwritten_grievance | verbal_grievance_documentation |
+    # supporting_documentation | photo | generated_guestdesk_pdf | other
+    attachment_type = Column(String(48), nullable=False, default='supporting_documentation')
+    original_filename = Column(String(255), nullable=False)
+    stored_filename = Column(String(255), nullable=False)
+    storage_path = Column(Text, nullable=False)
+    uploaded_by_user_id = Column(Integer, ForeignKey('users.id', ondelete="SET NULL"), nullable=True)
+    uploaded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    case = relationship("GrievanceCase", backref=backref("attachments", cascade="all, delete-orphan", order_by="GrievanceAttachment.uploaded_at"))
+    uploaded_by = relationship("User")
+
+
+class GrievanceNote(Base):
+    """Staff note attached to a grievance case."""
+    __tablename__ = 'grievance_notes'
+
+    id = Column(Integer, primary_key=True)
+    case_id = Column(Integer, ForeignKey('grievance_cases.id', ondelete="CASCADE"), nullable=False, index=True)
+    author_user_id = Column(Integer, ForeignKey('users.id', ondelete="SET NULL"), nullable=True)
+    author_label = Column(String(64), nullable=False, default='staff')
+    # internal | investigation | guest_contact | supervisor_review | closure
+    note_type = Column(String(32), nullable=False, default='internal')
+    body = Column(Text, nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    case = relationship("GrievanceCase", backref=backref("notes", cascade="all, delete-orphan", order_by="GrievanceNote.created_at"))
+    author = relationship("User")
+
+
+class GrievanceEvent(Base):
+    """Timeline entry recording an action taken on a grievance case."""
+    __tablename__ = 'grievance_events'
+
+    id = Column(Integer, primary_key=True)
+    case_id = Column(Integer, ForeignKey('grievance_cases.id', ondelete="CASCADE"), nullable=False, index=True)
+    actor_user_id = Column(Integer, ForeignKey('users.id', ondelete="SET NULL"), nullable=True)
+    # Stable display label ('guest', 'admin-session', username) — survives user deletion
+    actor_label = Column(String(64), nullable=False, default='system')
+    event_type = Column(String(48), nullable=False)
+    old_value = Column(Text, nullable=True)
+    new_value = Column(Text, nullable=True)
+    meta_json = Column(Text, nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    case = relationship("GrievanceCase", backref=backref("events", cascade="all, delete-orphan", order_by="GrievanceEvent.created_at"))
+    actor = relationship("User")
+
+
 # ---- Simplified per-form PDF config ----
 class FormPDFConfig(Base):
     """Simplified per-form PDF binding used by the streamlined renderer."""

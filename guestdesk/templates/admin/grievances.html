@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% import '_macros.html' as m %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Grievance Tracker</h4>
+  <a class="btn btn-primary" href="{{ url_for('grievances.new_case') }}">+ Enter Grievance</a>
+</div>
+
+<div class="mb-3">
+  {% for key, label in [
+    ('open', 'Open'), ('unassigned', 'Unassigned'), ('needs_ack', 'Needs acknowledgement'),
+    ('due_soon', 'Due soon'), ('overdue', 'Overdue'),
+    ('additional_review', 'Additional review'), ('closed', 'Closed'), ('all', 'All')
+  ] %}
+  <a class="btn btn-sm {% if view == key %}btn-secondary{% else %}btn-outline-secondary{% endif %} me-1 mb-1"
+     href="{{ url_for('grievances.dashboard', view=key) }}">{{ label }} ({{ counts[key] }})</a>
+  {% endfor %}
+</div>
+
+<div class="table-responsive">
+  <table class="table table-hover align-middle">
+    <thead>
+      <tr>
+        <th>Reference</th>
+        <th>Received</th>
+        <th>Complainant</th>
+        <th>Source</th>
+        <th>Reviewer</th>
+        <th>Status</th>
+        <th>Ack due</th>
+        <th>Response due</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for r in rows %}
+      {% set c = r.case %}
+      <tr>
+        <td><a href="{{ url_for('grievances.detail', case_id=c.id) }}">{{ c.public_reference }}</a></td>
+        <td class="small">{{ c.original_received_at|dt }}</td>
+        <td>{{ c.submission.contact_name or 'anonymous' }}</td>
+        <td class="small">{{ sources.get(c.source, c.source) }}</td>
+        <td>
+          {% if c.assigned_reviewer %}{{ c.assigned_reviewer.username }}
+          {% else %}<span class="text-muted">unassigned</span>{% endif %}
+        </td>
+        <td>
+          <span class="badge {% if c.status == 'closed' %}bg-secondary{% elif r.flags.overdue %}bg-danger{% elif c.status == 'received' %}bg-warning text-dark{% else %}bg-info text-dark{% endif %}">
+            {{ statuses.get(c.status, c.status) }}
+          </span>
+        </td>
+        <td class="small {% if r.flags.ack_overdue %}text-danger fw-bold{% endif %}">
+          {% if c.acknowledged_at %}✓ {{ c.acknowledged_at|dt }}
+          {% elif c.acknowledgement_due_at %}{{ c.acknowledgement_due_at|dt }}
+          {% else %}—{% endif %}
+        </td>
+        <td class="small {% if r.flags.overdue %}text-danger fw-bold{% elif r.flags.due_soon %}text-warning fw-bold{% endif %}">
+          {% if c.response_provided_at %}✓ {{ c.response_provided_at|dt }}
+          {% elif c.response_due_at %}{{ c.response_due_at|dt }}
+          {% else %}—{% endif %}
+        </td>
+      </tr>
+      {% else %}
+      <tr><td colspan="8" class="text-muted">No grievance cases in this view.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

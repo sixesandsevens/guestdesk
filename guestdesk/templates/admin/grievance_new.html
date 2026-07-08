@@ -1,0 +1,143 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+
+{% block content %}
+<h4 class="mb-3">Enter Grievance (Staff)</h4>
+<p class="text-muted">For grievances received on paper, verbally, or entered on a guest's behalf. Guests submitting online should use the public form.</p>
+
+<form method="post" enctype="multipart/form-data" class="col-lg-8">
+  {{ csrf() }}
+
+  <div class="card mb-3">
+    <div class="card-header">Receipt</div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">How was this grievance received? *</label>
+        <select name="source" class="form-select" required id="source-select">
+          <option value="">Choose…</option>
+          <option value="paper" {% if form.get('source') == 'paper' %}selected{% endif %}>Paper / handwritten grievance</option>
+          <option value="verbal" {% if form.get('source') == 'verbal' %}selected{% endif %}>Verbal grievance</option>
+          <option value="staff_assisted" {% if form.get('source') == 'staff_assisted' %}selected{% endif %}>Staff-assisted digital grievance</option>
+        </select>
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Original received date *</label>
+          <input name="received_date" type="date" class="form-control" required value="{{ form.get('received_date') or '' }}">
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Original received time</label>
+          <input name="received_time" type="time" class="form-control" value="{{ form.get('received_time') or '' }}">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header">Complainant</div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">Name *</label>
+        <input name="name" type="text" class="form-control" required value="{{ form.get('name') or '' }}">
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Phone</label>
+          <input name="phone" type="text" class="form-control" value="{{ form.get('phone') or '' }}">
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Email</label>
+          <input name="email" type="email" class="form-control" value="{{ form.get('email') or '' }}">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header">Grievance</div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">Staff involved</label>
+        <input name="staff_involved" type="text" class="form-control" value="{{ form.get('staff_involved') or '' }}">
+      </div>
+      <div class="mb-3">
+        <label class="form-label d-block">This grievance involves:</label>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" name="involves_grace_staff" id="gn-staff" {% if form.get('involves_grace_staff') %}checked{% endif %}>
+          <label class="form-check-label" for="gn-staff">GRACE Staff</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" name="involves_policies" id="gn-policies" {% if form.get('involves_policies') %}checked{% endif %}>
+          <label class="form-check-label" for="gn-policies">Policies &amp; Procedures</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" name="involves_volunteer" id="gn-volunteer" {% if form.get('involves_volunteer') %}checked{% endif %}>
+          <label class="form-check-label" for="gn-volunteer">Volunteer</label>
+        </div>
+        <div class="form-check form-check-inline">
+          <input class="form-check-input" type="checkbox" name="involves_other_chk" id="gn-other" {% if form.get('involves_other_chk') %}checked{% endif %}>
+          <label class="form-check-label" for="gn-other">Other</label>
+        </div>
+        <input name="involves_other" type="text" class="form-control mt-2" placeholder="Other (describe)" value="{{ form.get('involves_other') or '' }}">
+      </div>
+      <div class="row">
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Incident date</label>
+          <input name="incident_date" type="date" class="form-control" value="{{ form.get('incident_date') or '' }}">
+        </div>
+        <div class="col-md-6 mb-3">
+          <label class="form-label">Incident time</label>
+          <input name="incident_time" type="time" class="form-control" value="{{ form.get('incident_time') or '' }}">
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Grievance text (as received) *</label>
+        <textarea name="description" class="form-control" rows="6" required>{{ form.get('description') or '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="card mb-3">
+    <div class="card-header">Documentation</div>
+    <div class="card-body">
+      <div class="mb-3">
+        <label class="form-label">Attachment <span id="attachment-required-note" class="text-danger d-none">* required for this source</span></label>
+        <input name="attachment" type="file" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+        <div class="form-text">
+          Paper grievance: attach the scanned or photographed original.
+          Verbal grievance: attach the staff-written documentation. PDF, JPG, or PNG.
+        </div>
+      </div>
+      <div class="mb-3">
+        <label class="form-label">Attachment type</label>
+        <select name="attachment_type" class="form-select">
+          <option value="">(automatic based on source)</option>
+          {% for key, label in attachment_types.items() if key != 'generated_guestdesk_pdf' %}
+          <option value="{{ key }}" {% if form.get('attachment_type') == key %}selected{% endif %}>{{ label }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="mb-0">
+        <label class="form-label">Private intake notes</label>
+        <textarea name="intake_notes" class="form-control" rows="3" placeholder="Staff-only context about how this was received. Never shown to the guest.">{{ form.get('intake_notes') or '' }}</textarea>
+      </div>
+    </div>
+  </div>
+
+  <button class="btn btn-primary">Create Grievance Case</button>
+  <a class="btn btn-secondary" href="{{ url_for('grievances.dashboard') }}">Cancel</a>
+</form>
+
+<script>
+  (function () {
+    var sourceSelect = document.getElementById('source-select');
+    var note = document.getElementById('attachment-required-note');
+    function updateNote() {
+      var required = sourceSelect.value === 'paper' || sourceSelect.value === 'verbal';
+      note.classList.toggle('d-none', !required);
+    }
+    sourceSelect.addEventListener('change', updateNote);
+    updateNote();
+  })();
+</script>
+{% endblock %}

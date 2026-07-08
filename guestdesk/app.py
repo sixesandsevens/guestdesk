@@ -57,6 +57,7 @@ from .models import (
     GameScore,
     UserContact,
     PasswordResetToken,
+    GrievanceCase,
 )
 from . import pdf_config
 from .analytics import init_analytics
@@ -64,6 +65,7 @@ from .services_calendar import expand_between
 from .mailer import send_category_notification, queue_mail, _recipient_for
 from .antispam import seen as idemp_seen, remember as remember_idemp, fetch as fetch_idemp_result
 from .audit import log as audit_log
+from .grievances import build_grievance_case_id, create_case_for_submission
 
 DEFAULT_ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
 SECRET_KEY = os.environ.get("SECRET_KEY", "dev-secret")
@@ -81,12 +83,6 @@ limiter = Limiter(
     default_limits=[],
     storage_uri=os.getenv("RATELIMIT_STORAGE_URI", "memory://"),
 )
-
-def build_grievance_case_id(submission_id: int, created_at: datetime | None) -> str:
-    """Generate a stable grievance case identifier."""
-    created = created_at or datetime.utcnow()
-    created_utc = created if created.tzinfo else created.replace(tzinfo=timezone.utc)
-    return f"GRV-{submission_id}-{created_utc.strftime('%Y')}-{int(created_utc.timestamp())}"
 
 def format_time_12(dt_obj: datetime) -> str:
     """Return 12-hour time with AM/PM from a datetime."""
@@ -360,6 +356,12 @@ def create_app():
         app.register_blueprint(display_bp)
     except Exception as exc:
         app.logger.warning('Failed to register display blueprint: %s', exc)
+
+    try:
+        from .grievances import bp as grievances_bp
+        app.register_blueprint(grievances_bp)
+    except Exception as exc:
+        app.logger.warning('Failed to register grievances blueprint: %s', exc)
 
     @app.teardown_appcontext
     def shutdown_session(_exc=None):
@@ -880,6 +882,15 @@ def create_app():
                     flash(_('Could not save the uploaded photo. Please try again.'), 'danger')
                     return render_template('submit_kind.html', kind=kind, form=request.form)
             db.commit()
+            # Create the tracker case in its own transaction so a tracker fault
+            # can never break guest intake; the backfill script covers any gap.
+            if kind == 'grievance':
+                try:
+                    create_case_for_submission(db, sub, source='guest_digital', form=request.form)
+                    db.commit()
+                except Exception:
+                    db.rollback()
+                    app.logger.exception('Failed to create grievance case for submission #%s', sub.id)
             remote_addr = request.headers.get('X-Forwarded-For', request.remote_addr)
             if kind == 'grievance':
                 stored_case_id = build_grievance_case_id(sub.id, sub.created_at)
@@ -2633,7 +2644,10 @@ def create_app():
                         })
                     except Exception:
                         continue
-        return render_template('admin/submission_detail.html', s=s, attachments=attachments)
+        gcase = None
+        if s.kind == 'grievance':
+            gcase = db.query(GrievanceCase).filter(GrievanceCase.submission_id == s.id).first()
+        return render_template('admin/submission_detail.html', s=s, attachments=attachments, grievance_case=gcase)
 
     @app.route('/admin/submissions/<int:sid>/attachments/<path:filename>')
     @roles_required('admin', 'editor')
