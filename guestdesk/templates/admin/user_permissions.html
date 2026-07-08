@@ -1,0 +1,64 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+
+{% block content %}
+<h4 class="mb-1">Permissions — {{ u.username }}</h4>
+<p class="text-muted">Role: <strong>{{ u.role }}</strong></p>
+
+{% if u.role == 'admin' %}
+<div class="alert alert-info col-lg-8">
+  Admin accounts automatically pass every permission check. Checkboxes below are
+  kept for reference but have no effect while the role is <strong>admin</strong>.
+</div>
+{% endif %}
+
+<div class="mb-3">
+  <span class="me-2 text-muted">Presets:</span>
+  {% for name, keys in presets.items() %}
+  <button type="button" class="btn btn-sm btn-outline-secondary me-1 mb-1 preset-btn"
+          data-keys="{{ keys|join(',') }}">{{ name }}</button>
+  {% endfor %}
+  <div class="form-text">Presets just set the checkboxes below — review before saving. The checkboxes are the actual truth.</div>
+</div>
+
+<form method="post" class="col-lg-8">
+  {{ csrf() }}
+  <div class="row g-3">
+    {% for group, perms in groups %}
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header">{{ group }}</div>
+        <div class="card-body">
+          {% for key, label in perms %}
+          <div class="form-check">
+            <input class="form-check-input perm-box" type="checkbox" name="permissions"
+                   value="{{ key }}" id="perm-{{ key|replace('.', '-') }}"
+                   {% if key in granted %}checked{% endif %}>
+            <label class="form-check-label" for="perm-{{ key|replace('.', '-') }}">
+              {{ label }}
+              <span class="small text-muted d-block">{{ key }}</span>
+            </label>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="mt-3">
+    <button class="btn btn-primary">Save Permissions</button>
+    <a class="btn btn-secondary" href="{{ url_for('admin_users') }}">Cancel</a>
+  </div>
+</form>
+
+<script>
+  document.querySelectorAll('.preset-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var keys = btn.dataset.keys ? btn.dataset.keys.split(',') : [];
+      document.querySelectorAll('.perm-box').forEach(function (box) {
+        box.checked = keys.indexOf(box.value) !== -1;
+      });
+    });
+  });
+</script>
+{% endblock %}

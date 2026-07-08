@@ -107,6 +107,24 @@ class User(Base):
     approved = Column(Boolean, nullable=False, default=True)
 
 
+class UserPermission(Base):
+    """Single granted permission key for a user (checkbox permission model).
+
+    Admin-role users bypass permission checks entirely; rows here are the
+    explicit grants for everyone else.
+    """
+    __tablename__ = "user_permissions"
+    id = Column(Integer, primary_key=True)
+    user_id = Column(Integer, ForeignKey('users.id', ondelete="CASCADE"), nullable=False, index=True)
+    permission = Column(String(64), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+
+    user = relationship("User", backref=backref("permissions", cascade="all, delete-orphan"))
+    __table_args__ = (
+        UniqueConstraint('user_id', 'permission', name='uix_user_permission'),
+    )
+
+
 class UserContact(Base):
     """Optional staff contact information tied to a user account."""
     __tablename__ = "user_contacts"

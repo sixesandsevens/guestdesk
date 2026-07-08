@@ -11,6 +11,8 @@ from flask import (
 )
 from werkzeug.utils import secure_filename
 
+from .permissions import permission_required_rw
+
 bp = Blueprint("display", __name__)
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -169,17 +171,6 @@ def normalize_orders(slides: list[dict]):
         slide["order"] = idx
 
 
-def admin_required(fn):
-    @wraps(fn)
-    def _wrap(*args, **kwargs):
-        if session.get("is_admin") or session.get("admin"):
-            return fn(*args, **kwargs)
-        if getattr(g, "user", None):
-            return fn(*args, **kwargs)
-        return redirect(url_for("login", next=request.path))
-    return _wrap
-
-
 # ---------- Public API ----------
 
 @bp.route("/api/display-slides/<display_slug>")
@@ -310,7 +301,7 @@ def slideshow_preview(ss_slug):
 # ---------- Admin: Displays ----------
 
 @bp.route("/admin/displays", methods=["GET", "POST"])
-@admin_required
+@permission_required_rw('displays.view', 'displays.edit')
 def admin_displays():
     cfg = load_config()
     displays = cfg["displays"]
@@ -397,7 +388,7 @@ def admin_displays():
 # ---------- Admin: Slideshows ----------
 
 @bp.route("/admin/slideshows", methods=["GET", "POST"])
-@admin_required
+@permission_required_rw('displays.view', 'displays.edit')
 def admin_slideshows():
     cfg = load_config()
     slideshows = cfg["slideshows"]
@@ -469,7 +460,7 @@ def admin_slideshows():
 
 
 @bp.route("/admin/slideshows/<ss_slug>", methods=["GET", "POST"])
-@admin_required
+@permission_required_rw('displays.view', 'displays.edit')
 def admin_slideshow_edit(ss_slug):
     cfg = load_config()
     slideshow = get_slideshow(cfg, ss_slug)

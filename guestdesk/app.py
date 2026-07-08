@@ -65,6 +65,14 @@ from .services_calendar import expand_between
 from .mailer import send_category_notification, queue_mail, _recipient_for
 from .antispam import seen as idemp_seen, remember as remember_idemp, fetch as fetch_idemp_result
 from .audit import log as audit_log
+from .permissions import (
+    PERMISSION_GROUPS,
+    PRESETS,
+    permission_required,
+    has_permission,
+    get_permissions,
+    set_permissions,
+)
 from .grievances import (
     build_grievance_case_id,
     create_case_for_submission,
@@ -219,6 +227,7 @@ def create_app():
     app.jinja_env.globals.update(
         MAX_GRIEVANCE_DESCRIPTION_LENGTH=MAX_GRIEVANCE_DESCRIPTION_LENGTH,
         grievance_case_id=build_grievance_case_id,
+        has_permission=has_permission,
         uuid4=uuid4,
         _=_ ,
         format_datetime=format_datetime,
@@ -1727,7 +1736,7 @@ def create_app():
 
     # --- Admin landing ---
     @app.route('/admin')
-    @roles_required('admin', 'editor')
+    @login_required
     def admin_index():
         """Landing page for administrators with recent submission highlights."""
         # Admin/editor dashboard
@@ -1752,7 +1761,7 @@ def create_app():
 
     # --- Email settings (admin) ---
     @app.route('/admin/email-settings', methods=['GET', 'POST'])
-    @roles_required('admin')
+    @permission_required('settings.grievance_email.edit')
     def admin_email_settings():
         """Manage category-specific notification email settings."""
         db = dbs()
@@ -2102,7 +2111,7 @@ def create_app():
     # PDF calibrator removed
 
     @app.route('/admin/services')
-    @roles_required('admin', 'editor')
+    @permission_required('services.view')
     def admin_services():
         """List services for editing within the admin console."""
         db = dbs()
@@ -2135,7 +2144,7 @@ def create_app():
 
     # ---- Services Calendar ----
     @app.get('/admin/services/options')
-    @roles_required('admin', 'editor')
+    @permission_required('services.view')
     def admin_services_options():
         """Return lightweight id/name pairs for service selectors."""
         db = dbs()
@@ -2150,19 +2159,19 @@ def create_app():
             db.close()
 
     @app.route('/admin/services/calendar')
-    @roles_required('admin', 'editor')
+    @permission_required('services.view')
     def admin_services_calendar():
         """Render the calendar management view spanning all services."""
         return render_template('admin/services_calendar.html', sid=None)
 
     @app.route('/admin/services/<int:sid>/calendar')
-    @roles_required('admin', 'editor')
+    @permission_required('services.view')
     def admin_services_calendar_one(sid:int):
         """Render the calendar management view scoped to a single service."""
         return render_template('admin/services_calendar.html', sid=sid)
 
     @app.get('/admin/services/feed')
-    @roles_required('admin', 'editor')
+    @permission_required('services.view')
     def admin_services_feed():
         """Return merged service occurrences for FullCalendar in the admin UI."""
         from dateutil.parser import isoparse
@@ -2183,7 +2192,7 @@ def create_app():
             db.close()
 
     @app.get('/admin/services/preview')
-    @roles_required('admin', 'editor')
+    @permission_required('services.view')
     def admin_services_preview():
         """Return the next N occurrence datetimes for a prospective schedule."""
         rrule_str = (request.args.get('rrule') or '').strip()
@@ -2227,7 +2236,7 @@ def create_app():
         return jsonify({'ok': True, 'dates': [d.isoformat() for d in dates]})
 
     @app.get('/admin/services/series')
-    @roles_required('admin', 'editor')
+    @permission_required('services.view')
     def admin_series_list():
         """List series optionally filtered by service_id for table display."""
         svc_id = request.args.get('service_id', type=int)
@@ -2255,7 +2264,7 @@ def create_app():
             db.close()
 
     @app.get('/admin/services/series/<int:series_id>')
-    @roles_required('admin', 'editor')
+    @permission_required('services.view')
     def admin_series_detail(series_id: int):
         """Return a single series for editing."""
         db = dbs()
@@ -2278,7 +2287,7 @@ def create_app():
             db.close()
 
     @app.post('/admin/services/series')
-    @roles_required('admin', 'editor')
+    @permission_required('services.edit')
     def admin_series_create():
         """Create a new recurring service series definition."""
         data = request.get_json(force=True) or {}
@@ -2413,7 +2422,7 @@ def create_app():
             db.close()
 
     @app.post('/admin/services/override')
-    @roles_required('admin', 'editor')
+    @permission_required('services.edit')
     def admin_series_override():
         """Persist one-off overrides or cancellations for a service instance."""
         data = request.get_json(force=True)
@@ -2443,7 +2452,7 @@ def create_app():
         return _isoparse(s)
 
     @app.route('/admin/services/new', methods=['GET', 'POST'])
-    @roles_required('admin', 'editor')
+    @permission_required('services.edit')
     def admin_services_new():
         """Create a new service entry from the admin form."""
         if request.method == 'POST':
@@ -2509,7 +2518,7 @@ def create_app():
         return render_template('admin/services_new.html', next_url=next_url)
 
     @app.route('/admin/services/<int:sid>/edit', methods=['GET', 'POST'])
-    @roles_required('admin', 'editor')
+    @permission_required('services.edit')
     def admin_services_edit(sid: int):
         """Edit an existing service including localized fields and metadata."""
         db = dbs()
@@ -2573,7 +2582,7 @@ def create_app():
         return render_template('admin/service_edit.html', service=s)
 
     @app.route('/admin/services/<int:sid>/delete', methods=['POST'])
-    @roles_required('admin')
+    @permission_required('services.edit')
     def admin_services_delete(sid: int):
         """Delete a service and emit an audit log entry."""
         db = dbs()
@@ -2596,7 +2605,7 @@ def create_app():
 
     # announcements
     @app.route('/admin/announcements')
-    @roles_required('admin', 'editor')
+    @permission_required('services.view')
     def admin_announcements():
         """List announcements for review in the admin console."""
         db = dbs()
@@ -2604,7 +2613,7 @@ def create_app():
         return render_template('admin/announcements.html', rows=rows)
 
     @app.route('/admin/announcements/new', methods=['GET', 'POST'])
-    @roles_required('admin', 'editor')
+    @permission_required('services.edit')
     def admin_announcements_new():
         """Create a new time-bound announcement."""
         if request.method == 'POST':
@@ -2628,7 +2637,7 @@ def create_app():
         return render_template('admin/announcements_new.html')
 
     @app.route('/admin/announcements/<int:aid>/delete', methods=['POST'])
-    @roles_required('admin', 'editor')
+    @permission_required('services.edit')
     def admin_announcements_delete(aid: int):
         """Delete an announcement from the schedule."""
         db = dbs()
@@ -2641,7 +2650,7 @@ def create_app():
 
     # submissions
     @app.route('/admin/submissions')
-    @roles_required('admin', 'editor')
+    @permission_required('submissions.view')
     def admin_submissions():
         """List recent submissions with optional filtering by kind."""
         db = dbs()
@@ -2653,7 +2662,7 @@ def create_app():
         return render_template('admin/submissions.html', rows=rows, kind=kind)
 
     @app.route('/admin/submissions/<int:sid>')
-    @roles_required('admin', 'editor')
+    @permission_required('submissions.view')
     def admin_submission_detail(sid: int):
         """Show submission details plus any uploaded attachments."""
         db = dbs()
@@ -2680,7 +2689,7 @@ def create_app():
         return render_template('admin/submission_detail.html', s=s, attachments=attachments, grievance_case=gcase)
 
     @app.route('/admin/submissions/<int:sid>/attachments/<path:filename>')
-    @roles_required('admin', 'editor')
+    @permission_required('submissions.view')
     def admin_submission_attachment(sid: int, filename: str):
         """Send back a stored attachment for a submission."""
         db = dbs()
@@ -2806,7 +2815,7 @@ def create_app():
 
     # user management
     @app.route('/admin/users')
-    @roles_required('admin')
+    @permission_required('admin.users.manage')
     def admin_users():
         """List user accounts for approval or role management."""
         db = dbs()
@@ -2814,7 +2823,7 @@ def create_app():
         return render_template('admin/users.html', users=users)
 
     @app.route('/admin/users/new', methods=['GET', 'POST'])
-    @roles_required('admin')
+    @permission_required('admin.users.manage')
     def admin_users_new():
         """Create a new staff account from the admin interface."""
         if request.method == 'POST':
@@ -2850,7 +2859,7 @@ def create_app():
         return render_template('admin/user_new.html', form={})
 
     @app.route('/admin/users/<int:uid>/delete', methods=['POST'])
-    @roles_required('admin')
+    @permission_required('admin.users.manage')
     def admin_users_delete(uid: int):
         """Remove a user account and audit the action."""
         db = dbs()
@@ -2873,7 +2882,7 @@ def create_app():
         return redirect(url_for('admin_users'))
 
     @app.route('/admin/users/<int:uid>/update', methods=['POST'])
-    @roles_required('admin')
+    @permission_required('admin.users.manage')
     def admin_users_update(uid: int):
         """Update user role/approval status and optionally reset the password."""
         db = dbs()
@@ -2910,6 +2919,35 @@ def create_app():
         flash(_('User updated.'), 'success')
         return redirect(url_for('admin_users'))
 
+    @app.route('/admin/users/<int:uid>/permissions', methods=['GET', 'POST'])
+    @permission_required('admin.users.manage')
+    def admin_user_permissions(uid: int):
+        """Edit a user's checkbox permissions (admins bypass all checks)."""
+        db = dbs()
+        u = db.get(User, uid)
+        if not u:
+            abort(404)
+        if request.method == 'POST':
+            before = sorted(get_permissions(db, u.id))
+            granted = set_permissions(db, u.id, request.form.getlist('permissions'))
+            db.commit()
+            audit_log(
+                "user.permissions.update",
+                actor=audit_actor(),
+                obj=u.id,
+                before={"permissions": before},
+                after={"permissions": sorted(granted)},
+            )
+            flash(_('Permissions updated for %(name)s.', name=u.username), 'success')
+            return redirect(url_for('admin_users'))
+        return render_template(
+            'admin/user_permissions.html',
+            u=u,
+            groups=PERMISSION_GROUPS,
+            presets=PRESETS,
+            granted=get_permissions(db, u.id),
+        )
+
     @app.template_filter('dt')
     def fmt_dt(v):
         """Format datetimes for templates, tolerating ISO strings."""
@@ -2931,7 +2969,7 @@ def create_app():
 
     # ---- Per-form PDF Editor (simplified) ----
     @app.get('/admin/forms/<form_key>/pdf')
-    @roles_required('admin', 'editor')
+    @permission_required('pdf_forms.view')
     def admin_form_pdf(form_key: str):
         """Render the PDF editor for a particular submission form."""
         key = (form_key or '').strip().lower()
@@ -2991,7 +3029,7 @@ def create_app():
                                editor_layout_json=json.dumps(editor_layout))
 
     @app.get('/admin/forms/<form_key>/pdf/file')
-    @roles_required('admin', 'editor')
+    @permission_required('pdf_forms.view')
     def admin_form_pdf_file(form_key: str):
         """Download the current template PDF for the form."""
         key = (form_key or '').strip().lower()
@@ -3006,7 +3044,7 @@ def create_app():
         return send_file(file_path, mimetype='application/pdf')
 
     @app.post('/admin/forms/<form_key>/pdf/upload')
-    @roles_required('admin', 'editor')
+    @permission_required('pdf_forms.edit')
     def admin_form_pdf_upload(form_key: str):
         """Upload or replace the base PDF used for rendering a form."""
         key = (form_key or '').strip().lower()
@@ -3042,7 +3080,7 @@ def create_app():
         return redirect(url_for('admin_form_pdf', form_key=key))
 
     @app.post('/admin/forms/<form_key>/pdf/save')
-    @roles_required('admin', 'editor')
+    @permission_required('pdf_forms.edit')
     def admin_form_pdf_save(form_key: str):
         """Persist layout coordinates and email attachment preferences."""
         key = (form_key or '').strip().lower()
@@ -3100,7 +3138,7 @@ def create_app():
         return redirect(url_for('admin_form_pdf', form_key=key))
 
     @app.get('/admin/forms/<form_key>/pdf/preview')
-    @roles_required('admin', 'editor')
+    @permission_required('pdf_forms.view')
     def admin_form_pdf_preview(form_key: str):
         """Generate a temporary PDF preview using either sample or real data."""
         key = (form_key or '').strip().lower()
@@ -3181,7 +3219,7 @@ def create_app():
         return send_file(io.BytesIO(pdf_bytes), mimetype='application/pdf', as_attachment=False, download_name=f'preview-{key}.pdf')
 
     @app.get('/admin/forms/pdf')
-    @roles_required('admin', 'editor')
+    @permission_required('pdf_forms.view')
     def admin_forms_pdf_index():
         """List available forms with PDF configuration for quick navigation."""
         db = dbs()

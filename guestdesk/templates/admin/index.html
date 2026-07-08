@@ -4,22 +4,38 @@
 {% block content %}
 <h4 class="mb-3">Admin</h4>
 <div class="row g-3 mb-4">
+  {% if has_permission('services.view') %}
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_services') }}">Manage Services ({{ svc_count }})</a></div>
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_services_calendar') }}">Services Calendar</a></div>
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_announcements') }}">Manage Announcements ({{ ann_count }})</a></div>
+  {% endif %}
+  {% if has_permission('displays.view') %}
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('display.admin_displays') }}">Displays</a></div>
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('display.admin_slideshows') }}">Slideshows</a></div>
+  {% endif %}
+  {% if has_permission('submissions.view') %}
+  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_submissions') }}">Submissions</a></div>
+  {% endif %}
+  {% if has_permission('grievances.view') %}
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('grievances.dashboard') }}">Grievances</a></div>
-  {% if user_role == 'admin' %}
-  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_users') }}">Manage Users</a></div>
-  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_analytics') }}">Analytics</a></div>
-  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_email_settings') }}">Email Settings</a></div>
+  {% elif has_permission('grievances.create') %}
+  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('grievances.new_case') }}">Enter Grievance</a></div>
+  {% endif %}
+  {% if has_permission('pdf_forms.view') %}
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="/admin/forms/pdf">Form PDFs</a></div>
+  {% endif %}
+  {% if has_permission('settings.grievance_email.edit') %}
+  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_email_settings') }}">Email Settings</a></div>
+  {% endif %}
+  {% if has_permission('admin.users.manage') %}
+  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_users') }}">Manage Users</a></div>
+  {% endif %}
+  {% if user_role == 'admin' %}
+  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_analytics') }}">Analytics</a></div>
   <div class="col-md-3"><a class="btn btn-outline-danger w-100" href="{{ url_for('admin_data_tools') }}">Data Tools</a></div>
   {% if audit_log_available %}
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_audit') }}">Audit Log</a></div>
   {% endif %}
-
   {% endif %}
 </div>
 {% endblock %}

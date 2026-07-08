@@ -26,6 +26,7 @@ from werkzeug.utils import secure_filename
 
 from .audit import log as audit_log
 from .mailer import queue_mail, _recipient_for
+from .permissions import permission_required, has_permission
 from .models import (
     Submission,
     User,
@@ -487,19 +488,6 @@ def _actor():
     return 'anonymous', None
 
 
-def roles_required(*required_roles):
-    """Role gate matching the app-level decorator (one-password admin bypasses)."""
-    def deco(fn):
-        @wraps(fn)
-        def _wrap(*a, **kw):
-            if session.get('is_admin') or session.get('admin'):
-                return fn(*a, **kw)
-            u = getattr(g, 'user', None)
-            if u and ((getattr(u, 'role', '') or '').lower() in [r.lower() for r in required_roles]):
-                return fn(*a, **kw)
-            return abort(403)
-        return _wrap
-    return deco
 
 
 def _get_case(db, case_id: int) -> GrievanceCase:
@@ -531,7 +519,7 @@ def _case_flags(case: GrievanceCase, now: datetime) -> dict:
 
 
 @bp.route('/')
-@roles_required('admin', 'editor')
+@permission_required('grievances.view')
 def dashboard():
     """Grievance work queue: open cases, deadlines, and filters."""
     db = _dbs()
@@ -577,7 +565,7 @@ def dashboard():
 
 
 @bp.route('/new', methods=['GET', 'POST'])
-@roles_required('admin', 'editor')
+@permission_required('grievances.create')
 def new_case():
     """Staff data entry for paper, verbal, and staff-assisted grievances."""
     db = _dbs()
@@ -681,13 +669,16 @@ def new_case():
             db.rollback()
             current_app.logger.exception('Failed to queue intake notification for case %s', case.public_reference)
         flash(f'Grievance case {case.public_reference} created.', 'success')
-        return redirect(url_for('grievances.detail', case_id=case.id))
+        if has_permission('grievances.view'):
+            return redirect(url_for('grievances.detail', case_id=case.id))
+        # Intake-only staff can't open the case page; back to a fresh form
+        return redirect(url_for('grievances.new_case'))
     return render_template('admin/grievance_new.html', form={},
                            sources=SOURCES, attachment_types=ATTACHMENT_TYPES)
 
 
 @bp.route('/<int:case_id>')
-@roles_required('admin', 'editor')
+@permission_required('grievances.view')
 def detail(case_id: int):
     """Case working page: intake data, workflow, notes, attachments, timeline."""
     db = _dbs()
@@ -712,7 +703,7 @@ def detail(case_id: int):
 
 
 @bp.route('/<int:case_id>/status', methods=['POST'])
-@roles_required('admin', 'editor')
+@permission_required('grievances.review')
 def update_status(case_id: int):
     """Change case status, stamping the matching lifecycle timestamps."""
     db = _dbs()
@@ -726,6 +717,9 @@ def update_status(case_id: int):
     if new_status == old_status:
         flash('Status unchanged.', 'info')
         return redirect(url_for('grievances.detail', case_id=case.id))
+    # Closing and reopening carry their own permission on top of review
+    if (new_status == 'closed' or old_status == 'closed') and not has_permission('grievances.close'):
+        return abort(403)
     now = datetime.utcnow()
     case.status = new_status
     if new_status == 'acknowledged' and not case.acknowledged_at:
@@ -755,7 +749,7 @@ def update_status(case_id: int):
 
 
 @bp.route('/<int:case_id>/assign', methods=['POST'])
-@roles_required('admin', 'editor')
+@permission_required('grievances.assign')
 def assign(case_id: int):
     """Assign or unassign the reviewing staff member."""
     db = _dbs()
@@ -784,7 +778,7 @@ def assign(case_id: int):
 
 
 @bp.route('/<int:case_id>/notes', methods=['POST'])
-@roles_required('admin', 'editor')
+@permission_required('grievances.review')
 def add_note(case_id: int):
     """Attach a staff note to the case."""
     db = _dbs()
@@ -811,7 +805,7 @@ def add_note(case_id: int):
 
 
 @bp.route('/<int:case_id>/review', methods=['POST'])
-@roles_required('admin', 'editor')
+@permission_required('grievances.review')
 def save_review(case_id: int):
     """Save findings, resolution, guest-facing response, and closure notes."""
     db = _dbs()
@@ -835,7 +829,7 @@ def save_review(case_id: int):
 
 
 @bp.route('/<int:case_id>/archive', methods=['POST'])
-@roles_required('admin', 'editor')
+@permission_required('grievances.close')
 def archive(case_id: int):
     """Archive a case: hidden from the tracker's working views, never deleted."""
     db = _dbs()
@@ -854,7 +848,7 @@ def archive(case_id: int):
 
 
 @bp.route('/<int:case_id>/restore', methods=['POST'])
-@roles_required('admin', 'editor')
+@permission_required('grievances.close')
 def restore(case_id: int):
     """Bring an archived case back into the tracker."""
     db = _dbs()
@@ -873,7 +867,7 @@ def restore(case_id: int):
 
 
 @bp.route('/<int:case_id>/attachments', methods=['POST'])
-@roles_required('admin', 'editor')
+@permission_required('grievances.attach')
 def upload_attachment(case_id: int):
     """Add a supporting document to an existing case."""
     db = _dbs()
@@ -899,7 +893,7 @@ def upload_attachment(case_id: int):
 
 
 @bp.route('/<int:case_id>/attachments/<int:attachment_id>')
-@roles_required('admin', 'editor')
+@permission_required('grievances.view')
 def download_attachment(case_id: int, attachment_id: int):
     """Serve a stored case attachment."""
     db = _dbs()
