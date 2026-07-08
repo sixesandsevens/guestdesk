@@ -323,6 +323,11 @@ def create_app():
     db_path = os.path.join(DATA_DIR, "guestdesk.db")
     engine = create_engine(f"sqlite:///{db_path}", future=True, connect_args={"check_same_thread": False})
     Base.metadata.create_all(engine)
+    try:
+        from .grievances import ensure_archive_columns
+        ensure_archive_columns(engine)
+    except Exception:
+        app.logger.exception('Grievance archive column migration failed')
     Session = scoped_session(sessionmaker(bind=engine, autoflush=False, expire_on_commit=False))
     # Initialize analytics blueprint (and ensure table exists)
     try:

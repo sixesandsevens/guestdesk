@@ -356,6 +356,10 @@ class GrievanceCase(Base):
     additional_review_due_at = Column(DateTime, nullable=True)
     additional_review_status = Column(String(32), nullable=True)
 
+    # Soft delete: archived cases are hidden from the tracker but never removed
+    archived_at = Column(DateTime, nullable=True, index=True)
+    archived_by_user_id = Column(Integer, ForeignKey('users.id', ondelete="SET NULL"), nullable=True)
+
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -363,6 +367,7 @@ class GrievanceCase(Base):
     entered_by = relationship("User", foreign_keys=[entered_by_user_id])
     assigned_reviewer = relationship("User", foreign_keys=[assigned_reviewer_id])
     closed_by = relationship("User", foreign_keys=[closed_by_user_id])
+    archived_by = relationship("User", foreign_keys=[archived_by_user_id])
 
 
 class GrievanceAttachment(Base):

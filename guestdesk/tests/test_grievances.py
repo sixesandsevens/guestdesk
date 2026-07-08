@@ -253,6 +253,60 @@ def test_tracker_requires_staff_role(monkeypatch, tmp_path):
         assert client.get("/admin/grievances/new").status_code == 403
 
 
+def test_archive_and_restore_case(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Test grievance.", "name": "G"})
+    with app.app_context():
+        case = app.dbs().query(GrievanceCase).one()
+        case_id, reference = case.id, case.public_reference
+
+    resp = client.post(f"/admin/grievances/{case_id}/archive", follow_redirects=True)
+    assert resp.status_code == 200
+    with app.app_context():
+        case = app.dbs().get(GrievanceCase, case_id)
+        assert case.archived_at is not None
+    # hidden from working views, visible in the Archived view
+    for view in ("open", "all"):
+        assert reference.encode() not in client.get(f"/admin/grievances/?view={view}").data
+    assert reference.encode() in client.get("/admin/grievances/?view=archived").data
+    # archiving twice is a no-op
+    resp = client.post(f"/admin/grievances/{case_id}/archive", follow_redirects=True)
+    assert b"already archived" in resp.data
+
+    resp = client.post(f"/admin/grievances/{case_id}/restore", follow_redirects=True)
+    assert resp.status_code == 200
+    with app.app_context():
+        db = app.dbs()
+        case = db.get(GrievanceCase, case_id)
+        assert case.archived_at is None and case.archived_by_user_id is None
+        types = [e.event_type for e in db.query(GrievanceEvent).filter_by(case_id=case_id).all()]
+        assert "archived" in types and "restored" in types
+    assert reference.encode() in client.get("/admin/grievances/?view=open").data
+
+
+def test_ensure_archive_columns_migrates_old_schema(tmp_path):
+    import sqlite3
+
+    from sqlalchemy import create_engine
+
+    from guestdesk.grievances import ensure_archive_columns
+
+    db_path = tmp_path / "old.db"
+    conn = sqlite3.connect(db_path)
+    conn.execute("CREATE TABLE grievance_cases (id INTEGER PRIMARY KEY, status TEXT)")
+    conn.commit()
+    conn.close()
+    engine = create_engine(f"sqlite:///{db_path}", future=True)
+    ensure_archive_columns(engine)
+    ensure_archive_columns(engine)  # idempotent
+    conn = sqlite3.connect(db_path)
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(grievance_cases)").fetchall()]
+    conn.close()
+    assert "archived_at" in cols and "archived_by_user_id" in cols
+
+
 # ---- v0.2: generated PDFs and intake notification safety ----
 
 def test_public_grievance_attaches_generated_pdf(monkeypatch, tmp_path):

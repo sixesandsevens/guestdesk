@@ -5,12 +5,26 @@
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h4 class="mb-0">{{ case.public_reference }}</h4>
   <div>
+    {% if case.archived_at %}<span class="badge bg-dark fs-6">Archived</span>{% endif %}
     <span class="badge {% if case.status == 'closed' %}bg-secondary{% elif flags.overdue %}bg-danger{% elif case.status == 'received' %}bg-warning text-dark{% else %}bg-info text-dark{% endif %} fs-6">
       {{ statuses.get(case.status, case.status) }}
     </span>
     {% if flags.overdue and case.status != 'closed' %}<span class="badge bg-danger fs-6">Overdue</span>{% endif %}
   </div>
 </div>
+
+{% if case.archived_at %}
+<div class="alert alert-secondary d-flex justify-content-between align-items-center">
+  <div>
+    This case is archived and hidden from the tracker's working views.
+    <span class="small text-muted">Archived {{ case.archived_at|dt }}{% if case.archived_by %} by {{ case.archived_by.username }}{% endif %}</span>
+  </div>
+  <form method="post" action="{{ url_for('grievances.restore', case_id=case.id) }}">
+    {{ csrf() }}
+    <button class="btn btn-sm btn-outline-primary">Restore Case</button>
+  </form>
+</div>
+{% endif %}
 
 <div class="row g-3">
   <div class="col-lg-7">
@@ -245,5 +259,14 @@
   </div>
 </div>
 
-<a class="btn btn-secondary" href="{{ url_for('grievances.dashboard') }}">Back to Tracker</a>
+<div class="d-flex justify-content-between align-items-center">
+  <a class="btn btn-secondary" href="{{ url_for('grievances.dashboard') }}">Back to Tracker</a>
+  {% if not case.archived_at %}
+  <form method="post" action="{{ url_for('grievances.archive', case_id=case.id) }}"
+        onsubmit="return confirm('Archive case {{ case.public_reference }}? It will be hidden from the tracker but kept on record and can be restored from the Archived view.');">
+    {{ csrf() }}
+    <button class="btn btn-outline-danger">Archive Case</button>
+  </form>
+  {% endif %}
+</div>
 {% endblock %}

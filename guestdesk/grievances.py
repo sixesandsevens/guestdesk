@@ -90,6 +90,22 @@ NOTE_TYPES = {
 }
 
 
+def ensure_archive_columns(engine) -> None:
+    """Add the archive columns to grievance_cases on databases that predate them.
+
+    create_all() only creates missing tables, so column additions need this
+    lightweight migration (same pattern as the users/services migrations).
+    """
+    with engine.begin() as conn:
+        cols = [r[1] for r in conn.exec_driver_sql('PRAGMA table_info(grievance_cases)').all()]
+        if not cols:
+            return  # table doesn't exist yet; create_all will make it complete
+        if 'archived_at' not in cols:
+            conn.exec_driver_sql('ALTER TABLE grievance_cases ADD COLUMN archived_at DATETIME')
+        if 'archived_by_user_id' not in cols:
+            conn.exec_driver_sql('ALTER TABLE grievance_cases ADD COLUMN archived_by_user_id INTEGER')
+
+
 def build_grievance_case_id(submission_id: int, created_at: datetime | None) -> str:
     """Generate a stable grievance case identifier."""
     created = created_at or datetime.utcnow()
@@ -495,7 +511,7 @@ def _get_case(db, case_id: int) -> GrievanceCase:
 
 def _case_flags(case: GrievanceCase, now: datetime) -> dict:
     """Compute display flags for dashboard rows."""
-    open_case = case.status in OPEN_STATUSES
+    open_case = case.status in OPEN_STATUSES and not case.archived_at
     needs_ack = open_case and not case.acknowledged_at
     ack_overdue = needs_ack and case.acknowledgement_due_at and case.acknowledgement_due_at < now
     response_pending = open_case and not case.response_provided_at
@@ -527,7 +543,8 @@ def dashboard():
         .limit(1000)
         .all()
     )
-    rows = [{'case': c, 'flags': _case_flags(c, now)} for c in cases]
+    archived = [{'case': c, 'flags': _case_flags(c, now)} for c in cases if c.archived_at]
+    rows = [{'case': c, 'flags': _case_flags(c, now)} for c in cases if not c.archived_at]
     counts = {
         'open': sum(1 for r in rows if r['flags']['open']),
         'unassigned': sum(1 for r in rows if r['flags']['unassigned']),
@@ -537,8 +554,11 @@ def dashboard():
         'additional_review': sum(1 for r in rows if r['case'].status == 'additional_review'),
         'closed': sum(1 for r in rows if r['case'].status == 'closed'),
         'all': len(rows),
+        'archived': len(archived),
     }
-    if view == 'all':
+    if view == 'archived':
+        visible = archived
+    elif view == 'all':
         visible = rows
     elif view == 'closed':
         visible = [r for r in rows if r['case'].status == 'closed']
@@ -811,6 +831,44 @@ def save_review(case_id: int):
                    actor_user_id=actor_user_id, meta={'fields': changed})
     db.commit()
     flash('Review details saved.', 'success')
+    return redirect(url_for('grievances.detail', case_id=case.id))
+
+
+@bp.route('/<int:case_id>/archive', methods=['POST'])
+@roles_required('admin', 'editor')
+def archive(case_id: int):
+    """Archive a case: hidden from the tracker's working views, never deleted."""
+    db = _dbs()
+    case = _get_case(db, case_id)
+    if case.archived_at:
+        flash('Case is already archived.', 'info')
+        return redirect(url_for('grievances.detail', case_id=case.id))
+    actor_label, actor_user_id = _actor()
+    case.archived_at = datetime.utcnow()
+    case.archived_by_user_id = actor_user_id
+    log_case_event(db, case, 'archived', actor_label=actor_label, actor_user_id=actor_user_id)
+    db.commit()
+    audit_log('grievance.case.archived', actor=actor_label, obj=case.public_reference)
+    flash(f'Case {case.public_reference} archived.', 'success')
+    return redirect(url_for('grievances.dashboard'))
+
+
+@bp.route('/<int:case_id>/restore', methods=['POST'])
+@roles_required('admin', 'editor')
+def restore(case_id: int):
+    """Bring an archived case back into the tracker."""
+    db = _dbs()
+    case = _get_case(db, case_id)
+    if not case.archived_at:
+        flash('Case is not archived.', 'info')
+        return redirect(url_for('grievances.detail', case_id=case.id))
+    actor_label, actor_user_id = _actor()
+    case.archived_at = None
+    case.archived_by_user_id = None
+    log_case_event(db, case, 'restored', actor_label=actor_label, actor_user_id=actor_user_id)
+    db.commit()
+    audit_log('grievance.case.restored', actor=actor_label, obj=case.public_reference)
+    flash(f'Case {case.public_reference} restored.', 'success')
     return redirect(url_for('grievances.detail', case_id=case.id))
 
 

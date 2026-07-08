@@ -21,7 +21,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from guestdesk.models import Base, Submission, GrievanceCase
-from guestdesk.grievances import create_case_for_submission
+from guestdesk.grievances import create_case_for_submission, ensure_archive_columns
 
 
 def default_db_path() -> Path:
@@ -52,6 +52,7 @@ def main() -> int:
         return 1
     engine = create_engine(f"sqlite:///{args.db}", future=True)
     Base.metadata.create_all(engine)
+    ensure_archive_columns(engine)
     Session = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
     db = Session()
     try:
