@@ -15,7 +15,8 @@
         <span class="small text-muted text-nowrap">{{ a.starts_at|dt }}{% if a.ends_at %} → {{ a.ends_at|dt }}{% endif %}</span>
       </div>
       <div class="mb-2">{{ a.body|safe }}</div>
-      <form method="post" action="{{ url_for('admin_announcements_delete', aid=a.id) }}" onsubmit="return confirm('Delete this announcement?')">
+      {{ m.announcement_images(a) }}
+      <form method="post" class="mt-2" action="{{ url_for('admin_announcements_delete', aid=a.id) }}" onsubmit="return confirm('Delete this announcement?')">
         {{ csrf() }}
         <button class="btn btn-sm btn-outline-danger">Delete</button>
       </form>

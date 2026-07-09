@@ -41,7 +41,7 @@
 
 {% block content %}
 <h4 class="mb-3">New Announcement</h4>
-<form method="post">
+<form method="post" enctype="multipart/form-data">
   {{ csrf() }}
   <div class="mb-2">
     <label class="form-label" for="announcementTitle">Title</label>
@@ -90,6 +90,12 @@
     </div>
     <div class="invalid-feedback d-none" data-rte-feedback="announcementBody">Announcement body is required.</div>
     <div class="form-text text-muted">Use the toolbar to highlight key details, add bullet lists, or link to resources.</div>
+  </div>
+  <div class="mb-2">
+    <label class="form-label" for="announcementImages">Images (optional)</label>
+    <input type="file" name="images" id="announcementImages" class="form-control"
+           accept=".jpg,.jpeg,.png,.gif,.webp" multiple>
+    <div class="form-text text-muted">Shown below the announcement text on the guest site. JPG, PNG, GIF, or WEBP.</div>
   </div>
   <div class="row g-2">
     <div class="col-md-6">

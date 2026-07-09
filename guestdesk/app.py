@@ -18,7 +18,7 @@ from email.utils import parseaddr
 from urllib import request as urlreq, error as urlerr
 from urllib.parse import urlparse, parse_qs, urlencode, urlunparse
 from uuid import uuid4
-from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g, jsonify, current_app
+from flask import Flask, render_template, request, redirect, url_for, flash, session, abort, g, jsonify, current_app, send_file
 from dateutil import parser as dtparser
 from dateutil.rrule import rrulestr
 from flask_wtf.csrf import CSRFProtect, generate_csrf
@@ -48,6 +48,7 @@ from .models import (
     Base,
     Service,
     Announcement,
+    AnnouncementImage,
     Submission,
     User,
     ServiceSeries,
@@ -88,6 +89,14 @@ DATA_DIR = (
     or os.environ.get("GUESTD_DATA_DIR")
     or "/var/lib/guestdesk"
 )
+
+ANNOUNCEMENT_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
+
+
+def announcement_upload_dir(announcement_id: int) -> Path:
+    """Directory where an announcement's images are stored."""
+    return Path(DATA_DIR) / 'uploads' / 'announcements' / str(announcement_id)
+
 
 csrf = CSRFProtect()
 babel = Babel()
@@ -2619,6 +2628,13 @@ def create_app():
     def admin_announcements_new():
         """Create a new time-bound announcement."""
         if request.method == 'POST':
+            files = [f for f in request.files.getlist('images') if f and f.filename]
+            bad = [f.filename for f in files
+                   if Path(f.filename).suffix.lower() not in ANNOUNCEMENT_IMAGE_EXTENSIONS]
+            if bad:
+                flash(_('Images must be one of: %(exts)s',
+                        exts=', '.join(sorted(ANNOUNCEMENT_IMAGE_EXTENSIONS))), 'danger')
+                return render_template('admin/announcements_new.html')
             db = dbs()
             start = datetime.strptime(
                 request.form.get('starts_at'), '%Y-%m-%dT%H:%M'
@@ -2633,10 +2649,44 @@ def create_app():
                 ends_at=end,
             )
             db.add(a)
+            db.flush()
+            if files:
+                dest = announcement_upload_dir(a.id)
+                dest.mkdir(parents=True, exist_ok=True)
+                for f in files:
+                    ext = Path(f.filename).suffix.lower()
+                    stored = secure_filename(f.filename) or f'image{ext}'
+                    base, counter = Path(stored).stem, 1
+                    while (dest / stored).exists():
+                        stored = f'{base}_{counter}{ext}'
+                        counter += 1
+                    f.save(dest / stored)
+                    db.add(AnnouncementImage(
+                        announcement_id=a.id,
+                        original_filename=f.filename,
+                        stored_filename=stored,
+                    ))
             db.commit()
             flash(_('Announcement posted.'), 'success')
             return redirect(url_for('admin_announcements'))
         return render_template('admin/announcements_new.html')
+
+    @app.route('/announcements/image/<int:image_id>')
+    def announcement_image(image_id: int):
+        """Serve an announcement image on the public site."""
+        db = dbs()
+        img = db.get(AnnouncementImage, image_id)
+        if not img:
+            abort(404)
+        root = announcement_upload_dir(img.announcement_id).resolve()
+        target = (root / img.stored_filename).resolve()
+        try:
+            target.relative_to(root)
+        except ValueError:
+            abort(404)
+        if not target.is_file():
+            abort(404)
+        return send_file(target)
 
     @app.route('/admin/announcements/<int:aid>/delete', methods=['POST'])
     @permission_required('services.edit')
@@ -2647,6 +2697,7 @@ def create_app():
         if a:
             db.delete(a)
             db.commit()
+            shutil.rmtree(announcement_upload_dir(aid), ignore_errors=True)
             flash(_('Announcement deleted.'), 'info')
         return redirect(url_for('admin_announcements'))
 

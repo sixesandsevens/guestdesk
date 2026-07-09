@@ -32,6 +32,7 @@
         <span class="small text-muted text-nowrap">{{ a.starts_at|dt }}</span>
       </div>
       <div>{{ a.body|safe }}</div>
+      {{ m.announcement_images(a) }}
     </div>
   {% else %}
     <div class="text-muted">{{ _('Nothing here yet. Check back soon.') }}</div>

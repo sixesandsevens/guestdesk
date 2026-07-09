@@ -81,6 +81,19 @@ class Announcement(Base):
     starts_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     ends_at = Column(DateTime, nullable=True)
 
+class AnnouncementImage(Base):
+    """Image shown alongside an announcement on the guest portal."""
+    __tablename__ = 'announcement_images'
+    id = Column(Integer, primary_key=True)
+    announcement_id = Column(Integer, ForeignKey('announcements.id', ondelete="CASCADE"), nullable=False, index=True)
+    original_filename = Column(String(255), nullable=False)
+    stored_filename = Column(String(255), nullable=False)
+    uploaded_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    announcement = relationship(
+        "Announcement",
+        backref=backref("images", cascade="all, delete-orphan", order_by="AnnouncementImage.id"),
+    )
+
 class Submission(Base):
     """Feedback or request submitted through the public forms."""
     __tablename__ = 'submissions'

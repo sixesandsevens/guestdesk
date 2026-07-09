@@ -8,3 +8,17 @@
     {{ hh ~ m ~ ' ' ~ ampm }}
   {% endif %}
 {%- endmacro %}
+
+{# Thumbnail strip of an announcement's images; each opens full-size in a new tab. #}
+{% macro announcement_images(a) -%}
+  {% if a.images %}
+  <div class="d-flex flex-wrap gap-2 mt-2">
+    {% for img in a.images %}
+    <a href="{{ url_for('announcement_image', image_id=img.id) }}" target="_blank" rel="noopener">
+      <img src="{{ url_for('announcement_image', image_id=img.id) }}" alt=""
+           class="rounded border" style="max-height: 200px; max-width: 100%;" loading="lazy">
+    </a>
+    {% endfor %}
+  </div>
+  {% endif %}
+{%- endmacro %}
