@@ -40,12 +40,13 @@
 {% endblock %}
 
 {% block content %}
-<h4 class="mb-3">New Announcement</h4>
-<form method="post" enctype="multipart/form-data">
+<h4 class="mb-3">{{ 'Edit Announcement' if a else 'New Announcement' }}</h4>
+<form method="post" enctype="multipart/form-data"
+      action="{{ url_for('admin_announcements_edit', aid=a.id) if a else url_for('admin_announcements_new') }}">
   {{ csrf() }}
   <div class="mb-2">
     <label class="form-label" for="announcementTitle">Title</label>
-    <textarea name="title" id="announcementTitle" class="form-control" rows="2" required>{{ request.form.get('title', '') | e }}</textarea>
+    <textarea name="title" id="announcementTitle" class="form-control" rows="2" required>{{ (request.form.get('title') or (a.title if a else '')) | e }}</textarea>
     <div class="rich-text-editor d-none mt-2" data-rte="announcementTitle">
       <div class="rich-text-toolbar">
         <button type="button" class="btn btn-sm btn-outline-secondary" data-command="bold" title="Bold"><strong>B</strong></button>
@@ -69,7 +70,7 @@
   </div>
   <div class="mb-2">
     <label class="form-label" for="announcementBody">Body</label>
-    <textarea name="body" id="announcementBody" class="form-control" rows="5" required>{{ request.form.get('body', '') | e }}</textarea>
+    <textarea name="body" id="announcementBody" class="form-control" rows="5" required>{{ (request.form.get('body') or (a.body if a else '')) | e }}</textarea>
     <div class="rich-text-editor d-none mt-2" data-rte="announcementBody">
       <div class="rich-text-toolbar">
         <button type="button" class="btn btn-sm btn-outline-secondary" data-command="bold" title="Bold"><strong>B</strong></button>
@@ -92,7 +93,7 @@
     <div class="form-text text-muted">Use the toolbar to highlight key details, add bullet lists, or link to resources.</div>
   </div>
   <div class="mb-2">
-    <label class="form-label" for="announcementImages">Images (optional)</label>
+    <label class="form-label" for="announcementImages">{{ 'Add images (optional)' if a else 'Images (optional)' }}</label>
     <input type="file" name="images" id="announcementImages" class="form-control"
            accept=".jpg,.jpeg,.png,.gif,.webp" multiple>
     <div class="form-text text-muted">Shown below the announcement text on the guest site. JPG, PNG, GIF, or WEBP.</div>
@@ -100,15 +101,36 @@
   <div class="row g-2">
     <div class="col-md-6">
       <label class="form-label">Starts</label>
-      <input type="datetime-local" name="starts_at" class="form-control" value="{{ request.form.get('starts_at', '') | e }}">
+      <input type="datetime-local" name="starts_at" class="form-control"
+             value="{{ (request.form.get('starts_at') or (a.starts_at.strftime('%Y-%m-%dT%H:%M') if a else '')) | e }}">
     </div>
     <div class="col-md-6">
       <label class="form-label">Ends (optional)</label>
-      <input type="datetime-local" name="ends_at" class="form-control" value="{{ request.form.get('ends_at', '') | e }}">
+      <input type="datetime-local" name="ends_at" class="form-control"
+             value="{{ (request.form.get('ends_at') or (a.ends_at.strftime('%Y-%m-%dT%H:%M') if a and a.ends_at else '')) | e }}">
     </div>
   </div>
-  <div class="mt-2"><button class="btn btn-primary">Post</button></div>
+  <div class="mt-2"><button class="btn btn-primary">{{ 'Save changes' if a else 'Post' }}</button></div>
 </form>
+
+{% if a and a.images %}
+<h6 class="mt-4">Current images</h6>
+<div class="d-flex flex-wrap gap-3">
+  {% for img in a.images %}
+  <div class="text-center">
+    <a href="{{ url_for('announcement_image', image_id=img.id) }}" target="_blank" rel="noopener">
+      <img src="{{ url_for('announcement_image', image_id=img.id) }}" alt=""
+           class="rounded border d-block mb-1" style="max-height: 150px; max-width: 100%;">
+    </a>
+    <form method="post" action="{{ url_for('admin_announcements_image_delete', aid=a.id, image_id=img.id) }}"
+          onsubmit="return confirm('Remove this image?')">
+      {{ csrf() }}
+      <button class="btn btn-sm btn-outline-danger">Remove</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
 {% endblock %}
 
 {% block scripts %}

@@ -16,10 +16,13 @@
       </div>
       <div class="mb-2">{{ a.body|safe }}</div>
       {{ m.announcement_images(a) }}
-      <form method="post" class="mt-2" action="{{ url_for('admin_announcements_delete', aid=a.id) }}" onsubmit="return confirm('Delete this announcement?')">
-        {{ csrf() }}
-        <button class="btn btn-sm btn-outline-danger">Delete</button>
-      </form>
+      <div class="d-flex gap-2 mt-2">
+        <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('admin_announcements_edit', aid=a.id) }}">Edit</a>
+        <form method="post" action="{{ url_for('admin_announcements_delete', aid=a.id) }}" onsubmit="return confirm('Delete this announcement?')">
+          {{ csrf() }}
+          <button class="btn btn-sm btn-outline-danger">Delete</button>
+        </form>
+      </div>
     </div>
   {% else %}
     <div class="text-muted">No announcements yet.</div>

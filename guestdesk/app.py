@@ -98,6 +98,25 @@ def announcement_upload_dir(announcement_id: int) -> Path:
     return Path(DATA_DIR) / 'uploads' / 'announcements' / str(announcement_id)
 
 
+def save_announcement_images(db, announcement_id: int, files) -> None:
+    """Store uploaded image files and register them on the announcement."""
+    dest = announcement_upload_dir(announcement_id)
+    dest.mkdir(parents=True, exist_ok=True)
+    for f in files:
+        ext = Path(f.filename).suffix.lower()
+        stored = secure_filename(f.filename) or f'image{ext}'
+        base, counter = Path(stored).stem, 1
+        while (dest / stored).exists():
+            stored = f'{base}_{counter}{ext}'
+            counter += 1
+        f.save(dest / stored)
+        db.add(AnnouncementImage(
+            announcement_id=announcement_id,
+            original_filename=f.filename,
+            stored_filename=stored,
+        ))
+
+
 csrf = CSRFProtect()
 babel = Babel()
 limiter = Limiter(
@@ -2634,7 +2653,7 @@ def create_app():
             if bad:
                 flash(_('Images must be one of: %(exts)s',
                         exts=', '.join(sorted(ANNOUNCEMENT_IMAGE_EXTENSIONS))), 'danger')
-                return render_template('admin/announcements_new.html')
+                return render_template('admin/announcements_form.html', a=None)
             db = dbs()
             start = datetime.strptime(
                 request.form.get('starts_at'), '%Y-%m-%dT%H:%M'
@@ -2650,26 +2669,78 @@ def create_app():
             )
             db.add(a)
             db.flush()
+            image_failed = False
             if files:
-                dest = announcement_upload_dir(a.id)
-                dest.mkdir(parents=True, exist_ok=True)
-                for f in files:
-                    ext = Path(f.filename).suffix.lower()
-                    stored = secure_filename(f.filename) or f'image{ext}'
-                    base, counter = Path(stored).stem, 1
-                    while (dest / stored).exists():
-                        stored = f'{base}_{counter}{ext}'
-                        counter += 1
-                    f.save(dest / stored)
-                    db.add(AnnouncementImage(
-                        announcement_id=a.id,
-                        original_filename=f.filename,
-                        stored_filename=stored,
-                    ))
+                try:
+                    save_announcement_images(db, a.id, files)
+                except OSError:
+                    current_app.logger.exception('Failed to store announcement images')
+                    image_failed = True
             db.commit()
-            flash(_('Announcement posted.'), 'success')
+            if image_failed:
+                flash(_('Announcement posted, but its images could not be saved. Check the server logs.'), 'warning')
+            else:
+                flash(_('Announcement posted.'), 'success')
             return redirect(url_for('admin_announcements'))
-        return render_template('admin/announcements_new.html')
+        return render_template('admin/announcements_form.html', a=None)
+
+    @app.route('/admin/announcements/<int:aid>/edit', methods=['GET', 'POST'])
+    @permission_required('services.edit')
+    def admin_announcements_edit(aid: int):
+        """Edit an announcement's text, schedule, and images."""
+        db = dbs()
+        a = db.get(Announcement, aid)
+        if not a:
+            abort(404)
+        if request.method == 'POST':
+            files = [f for f in request.files.getlist('images') if f and f.filename]
+            bad = [f.filename for f in files
+                   if Path(f.filename).suffix.lower() not in ANNOUNCEMENT_IMAGE_EXTENSIONS]
+            if bad:
+                flash(_('Images must be one of: %(exts)s',
+                        exts=', '.join(sorted(ANNOUNCEMENT_IMAGE_EXTENSIONS))), 'danger')
+                return render_template('admin/announcements_form.html', a=a)
+            a.title = request.form.get('title') or a.title
+            a.body = request.form.get('body') or a.body
+            if request.form.get('starts_at'):
+                a.starts_at = datetime.strptime(request.form.get('starts_at'), '%Y-%m-%dT%H:%M')
+            a.ends_at = datetime.strptime(
+                request.form.get('ends_at'), '%Y-%m-%dT%H:%M'
+            ) if request.form.get('ends_at') else None
+            image_failed = False
+            if files:
+                try:
+                    save_announcement_images(db, a.id, files)
+                except OSError:
+                    current_app.logger.exception('Failed to store announcement images')
+                    image_failed = True
+            db.commit()
+            if image_failed:
+                flash(_('Announcement updated, but its images could not be saved. Check the server logs.'), 'warning')
+            else:
+                flash(_('Announcement updated.'), 'success')
+            return redirect(url_for('admin_announcements'))
+        return render_template('admin/announcements_form.html', a=a)
+
+    @app.route('/admin/announcements/<int:aid>/images/<int:image_id>/delete', methods=['POST'])
+    @permission_required('services.edit')
+    def admin_announcements_image_delete(aid: int, image_id: int):
+        """Remove a single image from an announcement."""
+        db = dbs()
+        img = db.get(AnnouncementImage, image_id)
+        if not img or img.announcement_id != aid:
+            abort(404)
+        root = announcement_upload_dir(aid).resolve()
+        target = (root / img.stored_filename).resolve()
+        db.delete(img)
+        db.commit()
+        try:
+            target.relative_to(root)
+            target.unlink(missing_ok=True)
+        except (ValueError, OSError):
+            current_app.logger.exception('Failed to delete announcement image file')
+        flash(_('Image removed.'), 'info')
+        return redirect(url_for('admin_announcements_edit', aid=aid))
 
     @app.route('/announcements/image/<int:image_id>')
     def announcement_image(image_id: int):
