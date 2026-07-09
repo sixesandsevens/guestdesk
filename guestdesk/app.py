@@ -2346,7 +2346,7 @@ def create_app():
 
     @app.put('/admin/services/series/<int:series_id>')
     @app.patch('/admin/services/series/<int:series_id>')
-    @roles_required('admin', 'editor')
+    @permission_required('services.edit')
     def admin_series_update(series_id:int):
         """Update an existing series with changes from the calendar editor."""
         data = request.get_json(force=True) or {}
@@ -2409,7 +2409,7 @@ def create_app():
             db.close()
 
     @app.delete('/admin/services/series/<int:series_id>')
-    @roles_required('admin', 'editor')
+    @permission_required('services.edit')
     def admin_series_delete(series_id: int):
         """Delete a recurring series definition."""
         db = dbs()

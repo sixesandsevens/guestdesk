@@ -150,6 +150,22 @@ def test_closing_requires_close_permission(monkeypatch, tmp_path):
     assert client.post(f"/admin/grievances/{case_id}/archive").status_code == 403
 
 
+def test_series_write_endpoints_require_services_edit(monkeypatch, tmp_path):
+    # The JSON series routes must honor permission rows, not the legacy editor role
+    app = _make_app(monkeypatch, tmp_path)
+    editor = _user(app, "editor3", role="editor")
+    client = _login(app, editor)
+    assert client.put("/admin/services/series/1", json={}).status_code == 403
+    assert client.patch("/admin/services/series/1", json={}).status_code == 403
+    assert client.delete("/admin/services/series/1").status_code == 403
+
+    granted = _user(app, "scheduler", perms=["services.edit"])
+    client = _login(app, granted)
+    # 404 (no such series), not 403: the permission gate let them through
+    assert client.put("/admin/services/series/1", json={}).status_code == 404
+    assert client.delete("/admin/services/series/1").status_code == 404
+
+
 def test_pdf_manager_cannot_edit_email_recipients(monkeypatch, tmp_path):
     app = _make_app(monkeypatch, tmp_path)
     uid = _user(app, "pdfmgr", perms=["pdf_forms.view", "pdf_forms.edit"])
