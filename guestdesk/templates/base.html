@@ -52,6 +52,9 @@
               {% if has_permission('services.view') %}
               <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_services') }}">{{ _('Services Admin') }}</a></li>
               {% endif %}
+              {% if has_permission('services.edit') %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_services_calendar') }}">{{ _('Services Calendar') }}</a></li>
+              {% endif %}
               {% if has_permission('displays.view') %}
               <li class="nav-item"><a class="nav-link" href="{{ url_for('display.admin_displays') }}">{{ _('Displays') }}</a></li>
               {% endif %}
