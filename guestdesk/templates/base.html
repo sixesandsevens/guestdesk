@@ -17,16 +17,10 @@
       <div class="d-flex align-items-center gap-2 gap-md-3">
         <strong>GRACE Marketplace</strong>
         <span class="d-none d-md-inline">352-792-0800</span>
-        <span class="d-none d-lg-inline">3055 NE 28th Drive, Gainesville, FL</span>
-        <a class="ms-2 d-none d-sm-inline" href="https://www.gracemarketplace.org/contact" target="_blank" rel="noopener">Contact</a>
+        <span class="d-none d-lg-inline">Gainesville, FL</span>
       </div>
       <div class="d-flex align-items-center gap-3 ms-auto">
-        <div class="d-flex align-items-center gap-2 gap-md-3">
-          <a href="/">{{ _('Get Help') }}</a>
-          <a href="/services">{{ _('Services') }}</a>
-          <a href="/announcements">{{ _('Announcements') }}</a>
-          <a href="/report">{{ _('Report an Issue') }}</a>
-        </div>
+        <a href="https://www.gracemarketplace.org/contact" target="_blank" rel="noopener">{{ _('Contact') }}</a>
         <div class="form-check mb-0 d-flex align-items-center gap-1">
           <input class="form-check-input" type="checkbox" id="langToggle" {% if lang == 'es' %}checked{% endif %}
                  onchange="window.location.href = this.checked ? '{{ url_for('set_lang', code='es') }}' : '{{ url_for('set_lang', code='en') }}';"
@@ -51,17 +45,33 @@
       </button>
       <div class="collapse navbar-collapse" id="navMain">
         <ul class="navbar-nav ms-auto mb-2 mb-lg-0">
-          <li class="nav-item"><a class="nav-link" href="/services">{{ _('Services') }}</a></li>
-          <li class="nav-item"><a class="nav-link" href="/schedule">{{ _('Service Schedule') }}</a></li>
-          <li class="nav-item"><a class="nav-link" href="/report">{{ _('Report an Issue') }}</a></li>
-          <li class="nav-item"><a class="nav-link" href="/fun">{{ _('Fun Zone') }}</a></li>
-          {% if user_role in ['admin', 'editor'] %}
-          <li class="nav-item"><a class="nav-link" href="/admin">{{ _('Admin') }}</a></li>
-          {% endif %}
           {% if user_name %}
-            <li class="nav-item"><a class="nav-link" href="{{ url_for('account_security') }}">{{ _('Account Settings') }}</a></li>
-            <li class="nav-item"><span class="nav-link disabled">{{ _('Hi, %(name)s', name=user_name) }}</span></li>
-            <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">{{ _('Logout') }}</a></li>
+            {% if user_role == 'admin' %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_index') }}">{{ _('Admin') }}</a></li>
+            {% else %}
+              {% if has_permission('services.view') %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_services') }}">{{ _('Services Admin') }}</a></li>
+              {% endif %}
+              {% if has_permission('displays.view') %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('display.admin_displays') }}">{{ _('Displays') }}</a></li>
+              {% endif %}
+              {% if has_permission('submissions.view') %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_submissions') }}">{{ _('Submissions') }}</a></li>
+              {% endif %}
+              {% if has_permission('grievances.view') or has_permission('grievances.create') %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('grievances.dashboard') }}">{{ _('Grievances') }}</a></li>
+              {% endif %}
+              {% if has_permission('admin.users.manage') or has_permission('pdf_forms.view') or has_permission('settings.grievance_email.edit') %}
+              <li class="nav-item"><a class="nav-link" href="{{ url_for('admin_index') }}">{{ _('Admin') }}</a></li>
+              {% endif %}
+            {% endif %}
+            <li class="nav-item dropdown">
+              <a class="nav-link dropdown-toggle" href="#" id="accountMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false">{{ user_name }}</a>
+              <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="accountMenu">
+                <li><a class="dropdown-item" href="{{ url_for('account_security') }}">{{ _('Account Settings') }}</a></li>
+                <li><a class="dropdown-item" href="{{ url_for('logout') }}">{{ _('Logout') }}</a></li>
+              </ul>
+            </li>
           {% else %}
             <li class="nav-item"><a class="nav-link" href="{{ url_for('login', next=request.path) }}">{{ _('Staff Login') }}</a></li>
           {% endif %}
