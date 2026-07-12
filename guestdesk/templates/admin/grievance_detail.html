@@ -26,6 +26,15 @@
 </div>
 {% endif %}
 
+{% if case.status == 'closed' %}
+<div class="alert alert-secondary">
+  This grievance is <strong>closed</strong> and read-only.
+  {% if case.closed_at %}Closed {{ case.closed_at|dt }}{% if case.closed_by %} by {{ case.closed_by.username }}{% endif %}.{% endif %}
+  <a href="{{ url_for('grievances.closure_report', case_id=case.id) }}" target="_blank">View Printable Report</a>
+  {% if can_close %}— reopen below to make changes.{% endif %}
+</div>
+{% endif %}
+
 <div class="row g-3">
   <div class="col-lg-7">
 
@@ -71,6 +80,24 @@
     <div class="card mb-3">
       <div class="card-header">Review &amp; Outcome <span class="badge bg-dark">internal except guest-facing response</span></div>
       <div class="card-body">
+        {% if case.status == 'closed' %}
+          <div class="mb-3">
+            <div class="fw-bold">Findings <span class="badge bg-dark">internal</span></div>
+            <div style="white-space: pre-wrap;">{{ case.findings or '—' }}</div>
+          </div>
+          <div class="mb-3">
+            <div class="fw-bold">Resolution <span class="badge bg-dark">internal</span></div>
+            <div style="white-space: pre-wrap;">{{ case.resolution or '—' }}</div>
+          </div>
+          <div class="mb-3">
+            <div class="fw-bold">Guest-facing response <span class="badge bg-success">may be shared</span></div>
+            <div style="white-space: pre-wrap;">{{ case.guest_facing_response or '—' }}</div>
+          </div>
+          <div class="mb-3">
+            <div class="fw-bold">Closure notes <span class="badge bg-dark">internal</span></div>
+            <div style="white-space: pre-wrap;">{{ case.closure_notes or '—' }}</div>
+          </div>
+        {% elif can_review %}
         <form method="post" action="{{ url_for('grievances.save_review', case_id=case.id) }}">
           {{ csrf() }}
           <div class="mb-3">
@@ -91,12 +118,19 @@
           </div>
           <button class="btn btn-primary btn-sm">Save Review Details</button>
         </form>
+        {% else %}
+          <div class="text-muted">Findings: {{ case.findings or '—' }}</div>
+          <div class="text-muted">Resolution: {{ case.resolution or '—' }}</div>
+          <div class="text-muted">Guest-facing response: {{ case.guest_facing_response or '—' }}</div>
+          <div class="text-muted">Closure notes: {{ case.closure_notes or '—' }}</div>
+        {% endif %}
       </div>
     </div>
 
     <div class="card mb-3">
       <div class="card-header">Notes</div>
       <div class="card-body">
+        {% if case.status != 'closed' and can_review %}
         <form method="post" action="{{ url_for('grievances.add_note', case_id=case.id) }}" class="mb-3">
           {{ csrf() }}
           <div class="row g-2">
@@ -115,6 +149,7 @@
             </div>
           </div>
         </form>
+        {% endif %}
         {% for note in notes %}
         <div class="border-bottom pb-2 mb-2">
           <div class="small text-muted">
@@ -135,34 +170,62 @@
     <div class="card mb-3">
       <div class="card-header">Workflow</div>
       <div class="card-body">
-        <form method="post" action="{{ url_for('grievances.update_status', case_id=case.id) }}" class="mb-3">
-          {{ csrf() }}
-          <label class="form-label"><strong>Status</strong></label>
-          <div class="input-group">
-            <select name="status" class="form-select">
-              {% for key, label in statuses.items() %}
-              <option value="{{ key }}" {% if case.status == key %}selected{% endif %}>{{ label }}</option>
-              {% endfor %}
-            </select>
-            <button class="btn btn-primary">Update</button>
-          </div>
-          <input name="response_method" type="text" class="form-control form-control-sm mt-2"
-                 placeholder="Response method (in person, phone, email…) — used when marking Response provided"
-                 value="{{ case.response_method or '' }}">
-        </form>
-        <form method="post" action="{{ url_for('grievances.assign', case_id=case.id) }}">
-          {{ csrf() }}
-          <label class="form-label"><strong>Assigned reviewer</strong></label>
-          <div class="input-group">
-            <select name="assigned_reviewer_id" class="form-select">
-              <option value="">(unassigned)</option>
-              {% for u in reviewers %}
-              <option value="{{ u.id }}" {% if case.assigned_reviewer_id == u.id %}selected{% endif %}>{{ u.username }} ({{ u.role }})</option>
-              {% endfor %}
-            </select>
-            <button class="btn btn-primary">Assign</button>
-          </div>
-        </form>
+        {% if case.status == 'closed' %}
+          <div class="mb-2"><strong>Status:</strong> Closed</div>
+          {% if case.closed_at %}<div class="mb-2"><strong>Closed:</strong> {{ case.closed_at|dt }}{% if case.closed_by %} by {{ case.closed_by.username }}{% endif %}</div>{% endif %}
+          <div class="mb-2"><strong>Assigned reviewer:</strong> {{ case.assigned_reviewer.username if case.assigned_reviewer else '—' }}</div>
+          <div class="mb-3"><strong>Response method:</strong> {{ case.response_method or '—' }}</div>
+          {% if can_close %}
+          <form method="post" action="{{ url_for('grievances.update_status', case_id=case.id) }}"
+                onsubmit="return confirm('Reopen case {{ case.public_reference }}? It will move out of closed/read-only status.');">
+            {{ csrf() }}
+            <label class="form-label"><strong>Reopen Case</strong></label>
+            <div class="input-group">
+              <select name="status" class="form-select">
+                {% for key, label in statuses.items() if key != 'closed' %}
+                <option value="{{ key }}">{{ label }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-warning">Reopen Case</button>
+            </div>
+          </form>
+          {% endif %}
+        {% else %}
+          {% if can_review %}
+          <form method="post" action="{{ url_for('grievances.update_status', case_id=case.id) }}" class="mb-3">
+            {{ csrf() }}
+            <label class="form-label"><strong>Status</strong></label>
+            <div class="input-group">
+              <select name="status" class="form-select">
+                {% for key, label in statuses.items() %}
+                <option value="{{ key }}" {% if case.status == key %}selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-primary">Update</button>
+            </div>
+            <input name="response_method" type="text" class="form-control form-control-sm mt-2"
+                   placeholder="Response method (in person, phone, email…) — used when marking Response provided"
+                   value="{{ case.response_method or '' }}">
+          </form>
+          {% endif %}
+          {% if can_assign %}
+          <form method="post" action="{{ url_for('grievances.assign', case_id=case.id) }}">
+            {{ csrf() }}
+            <label class="form-label"><strong>Assigned reviewer</strong></label>
+            <div class="input-group">
+              <select name="assigned_reviewer_id" class="form-select">
+                <option value="">(unassigned)</option>
+                {% for u in reviewers %}
+                <option value="{{ u.id }}" {% if case.assigned_reviewer_id == u.id %}selected{% endif %}>{{ u.username }} ({{ u.role }})</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-primary">Assign</button>
+            </div>
+          </form>
+          {% else %}
+          <div><strong>Assigned reviewer:</strong> {{ case.assigned_reviewer.username if case.assigned_reviewer else '—' }}</div>
+          {% endif %}
+        {% endif %}
       </div>
     </div>
 
@@ -211,6 +274,28 @@
     </div>
 
     <div class="card mb-3">
+      <div class="card-header">Case Report</div>
+      <div class="card-body">
+        <a class="btn btn-outline-primary btn-sm mb-2" href="{{ url_for('grievances.closure_report', case_id=case.id) }}" target="_blank">
+          View Printable Report{% if case.status != 'closed' %} (Preview){% endif %}
+        </a>
+        {% if closure_reports %}
+        <div class="small">
+          <div class="text-muted mb-1">Final closure reports:</div>
+          {% for att in closure_reports %}
+          <div>
+            <a href="{{ url_for('grievances.download_attachment', case_id=case.id, attachment_id=att.id) }}" target="_blank">
+              {{ att.original_filename }}
+            </a>
+            <span class="text-muted">· {{ att.uploaded_at|dt }}</span>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="card mb-3">
       <div class="card-header">Attachments</div>
       <div class="card-body">
         {% for att in case.attachments %}
@@ -218,24 +303,27 @@
           <div>
             <a href="{{ url_for('grievances.download_attachment', case_id=case.id, attachment_id=att.id) }}" target="_blank">{{ att.original_filename }}</a>
             {% if att.attachment_type == 'system_generated_pdf' %}<span class="badge bg-primary">Generated grievance PDF</span>{% endif %}
+            {% if att.attachment_type == closure_report_type %}<span class="badge bg-success">Final closure report</span>{% endif %}
             <div class="small text-muted">{{ attachment_types.get(att.attachment_type, att.attachment_type) }} · {{ att.uploaded_at|dt }}</div>
           </div>
         </div>
         {% else %}
         <div class="text-muted mb-2">No attachments.</div>
         {% endfor %}
+        {% if case.status != 'closed' and can_attach %}
         <form method="post" action="{{ url_for('grievances.upload_attachment', case_id=case.id) }}" enctype="multipart/form-data" class="mt-2">
           {{ csrf() }}
           <div class="input-group input-group-sm">
             <input name="attachment" type="file" class="form-control" accept=".pdf,.jpg,.jpeg,.png" required>
             <select name="attachment_type" class="form-select" style="max-width: 45%;">
-              {% for key, label in attachment_types.items() if key != 'system_generated_pdf' %}
+              {% for key, label in attachment_types.items() if key not in reserved_attachment_types %}
               <option value="{{ key }}" {% if key == 'supporting_documentation' %}selected{% endif %}>{{ label }}</option>
               {% endfor %}
             </select>
             <button class="btn btn-primary">Upload</button>
           </div>
         </form>
+        {% endif %}
       </div>
     </div>
 
@@ -261,7 +349,7 @@
 
 <div class="d-flex justify-content-between align-items-center">
   <a class="btn btn-secondary" href="{{ url_for('grievances.dashboard') }}">Back to Tracker</a>
-  {% if not case.archived_at %}
+  {% if not case.archived_at and can_close %}
   <form method="post" action="{{ url_for('grievances.archive', case_id=case.id) }}"
         onsubmit="return confirm('Archive case {{ case.public_reference }}? It will be hidden from the tracker but kept on record and can be restored from the Archived view.');">
     {{ csrf() }}

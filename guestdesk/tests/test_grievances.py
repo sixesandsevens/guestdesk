@@ -9,7 +9,11 @@ from guestdesk.models import (
     GrievanceEvent,
     Submission,
 )
-from guestdesk.grievances import GENERATED_PDF_TYPE, add_business_days
+from guestdesk.grievances import (
+    CLOSURE_REPORT_TYPE,
+    GENERATED_PDF_TYPE,
+    add_business_days,
+)
 
 PNG_BYTES = b"\x89PNG\r\n\x1a\n" + b"fakepixels"
 PDF_BYTES = b"%PDF-1.4 fake staff documentation"
@@ -169,6 +173,16 @@ def test_status_lifecycle_stamps_timestamps(monkeypatch, tmp_path):
         f"/admin/grievances/{case_id}/status",
         data={"status": "response_provided", "response_method": "phone"},
     )
+    # Closure now requires a reviewer and completed review fields.
+    reviewer_id = _make_reviewer(app, case_id)
+    client.post(f"/admin/grievances/{case_id}/assign",
+               data={"assigned_reviewer_id": str(reviewer_id)})
+    client.post(f"/admin/grievances/{case_id}/review", data={
+        "findings": "Findings text.",
+        "resolution": "Resolution text.",
+        "guest_facing_response": "Guest response text.",
+        "closure_notes": "Closure notes text.",
+    })
     client.post(f"/admin/grievances/{case_id}/status", data={"status": "closed"})
     with app.app_context():
         case = app.dbs().get(GrievanceCase, case_id)
@@ -192,10 +206,11 @@ def test_response_provided_stays_in_open_queue(monkeypatch, tmp_path):
     with app.app_context():
         case = app.dbs().query(GrievanceCase).one()
         case_id, reference = case.id, case.public_reference
-    client.post(f"/admin/grievances/{case_id}/status", data={"status": "response_provided"})
+    _prepare_case_for_closure(app, client, case_id)
     resp = client.get("/admin/grievances/?view=open")
     assert reference.encode() in resp.data
     client.post(f"/admin/grievances/{case_id}/status", data={"status": "closed"})
+    client.get(f"/admin/grievances/{case_id}")  # drain the "Case ... closed" flash message
     resp = client.get("/admin/grievances/?view=open")
     assert reference.encode() not in resp.data
 
@@ -422,7 +437,9 @@ def test_search_combines_with_status_filters(monkeypatch, tmp_path):
     app = _make_app(monkeypatch, tmp_path)
     (id1, ref1, _), (id2, ref2, _) = _search_fixture(app)
     client = _admin_client(app)
+    _prepare_case_for_closure(app, client, id1)
     client.post(f"/admin/grievances/{id1}/status", data={"status": "closed"})
+    client.get(f"/admin/grievances/{id1}")  # drain the "Case ... closed" flash message
     # Alice's case is closed: name search in open view finds nothing
     body = client.get("/admin/grievances/?view=open&q=smith").data
     assert ref1.encode() not in body
@@ -612,3 +629,319 @@ def test_pdf_backfill_script_idempotent(monkeypatch, tmp_path):
             case_id=case_id, attachment_type=GENERATED_PDF_TYPE).one()
         text = _pdf_text(pdf.storage_path)
         assert "Guest Old" in text and "Source: Guest digital form" in text
+
+
+# ---------- Closure workflow ----------
+
+def _make_reviewer(app, suffix):
+    from werkzeug.security import generate_password_hash
+
+    from guestdesk.models import User
+
+    with app.app_context():
+        db = app.dbs()
+        reviewer = User(username=f"reviewer_{suffix}", role="editor",
+                        password_hash=generate_password_hash("x"), approved=True)
+        db.add(reviewer)
+        db.commit()
+        return reviewer.id
+
+
+def _prepare_case_for_closure(app, client, case_id, **field_overrides):
+    """Assign a reviewer, record response, and fill in all closure fields
+    (but do not close). Returns the reviewer's user id."""
+    reviewer_id = _make_reviewer(app, case_id)
+    client.post(f"/admin/grievances/{case_id}/assign",
+               data={"assigned_reviewer_id": str(reviewer_id)})
+    client.post(f"/admin/grievances/{case_id}/status",
+               data={"status": "response_provided", "response_method": "in person"})
+    fields = {
+        "findings": "Investigated the claim thoroughly.",
+        "resolution": "Corrected the underlying issue.",
+        "guest_facing_response": "We addressed your concern and apologize for the inconvenience.",
+        "closure_notes": "Closed after supervisor review.",
+    }
+    fields.update(field_overrides)
+    client.post(f"/admin/grievances/{case_id}/review", data=fields)
+    return reviewer_id
+
+
+def test_response_provided_backfills_acknowledgement(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        case_id = app.dbs().query(GrievanceCase).one().id
+    client.post(f"/admin/grievances/{case_id}/status",
+               data={"status": "response_provided", "response_method": "in person"})
+    with app.app_context():
+        case = app.dbs().get(GrievanceCase, case_id)
+        assert case.status == "response_provided"
+        assert case.acknowledged_at is not None
+        assert case.response_provided_at is not None
+        assert case.acknowledged_at == case.response_provided_at
+        assert case.response_method == "in person"
+
+
+def test_additional_review_backfills_earlier_milestones(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        case_id = app.dbs().query(GrievanceCase).one().id
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "additional_review"})
+    with app.app_context():
+        case = app.dbs().get(GrievanceCase, case_id)
+        assert case.status == "additional_review"
+        assert case.acknowledged_at is not None
+        assert case.response_provided_at is not None
+
+
+def test_closure_blocked_when_required_fields_missing(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        case_id = app.dbs().query(GrievanceCase).one().id
+    # No reviewer, no review fields, no response yet.
+    resp = client.post(f"/admin/grievances/{case_id}/status",
+                       data={"status": "closed"}, follow_redirects=True)
+    assert b"cannot be closed yet" in resp.data
+    assert b"Assigned reviewer is required" in resp.data
+    assert b"Response method is required" in resp.data
+    assert b"Findings are required" in resp.data
+    assert b"Resolution is required" in resp.data
+    assert b"Guest-facing response is required" in resp.data
+    assert b"Closure notes are required" in resp.data
+    with app.app_context():
+        case = app.dbs().get(GrievanceCase, case_id)
+        assert case.status != "closed"
+        assert case.closed_at is None
+        assert app.dbs().query(GrievanceAttachment).filter_by(
+            case_id=case_id, attachment_type=CLOSURE_REPORT_TYPE).count() == 0
+        assert not any(e.event_type == "closure_report_generated"
+                       for e in app.dbs().query(GrievanceEvent).filter_by(case_id=case_id).all())
+    root = Path(tmp_path) / "uploads" / "grievance"
+    assert not any(p.name.startswith("closure-report-") for p in root.rglob("*.pdf")) if root.exists() else True
+
+
+def test_closure_blocked_missing_single_fields(monkeypatch, tmp_path):
+    """Each individually-required field, left blank, blocks closure on its own."""
+    required = [
+        ("findings", "Findings are required."),
+        ("resolution", "Resolution is required."),
+        ("guest_facing_response", "Guest-facing response is required."),
+        ("closure_notes", "Closure notes are required."),
+    ]
+    for missing_field, message in required:
+        app = _make_app(monkeypatch, tmp_path / missing_field)
+        client = _admin_client(app)
+        with app.test_client() as guest:
+            guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+        with app.app_context():
+            case_id = app.dbs().query(GrievanceCase).one().id
+        _prepare_case_for_closure(app, client, case_id, **{missing_field: "   "})
+        resp = client.post(f"/admin/grievances/{case_id}/status",
+                           data={"status": "closed"}, follow_redirects=True)
+        assert message.encode() in resp.data, missing_field
+        with app.app_context():
+            assert app.dbs().get(GrievanceCase, case_id).status != "closed", missing_field
+
+
+def test_successful_closure_creates_versioned_attachment_and_events(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        case = app.dbs().query(GrievanceCase).one()
+        case_id, reference = case.id, case.public_reference
+    reviewer_id = _prepare_case_for_closure(app, client, case_id)
+    resp = client.post(f"/admin/grievances/{case_id}/status",
+                       data={"status": "closed"}, follow_redirects=True)
+    assert resp.status_code == 200
+    with app.app_context():
+        db = app.dbs()
+        case = db.get(GrievanceCase, case_id)
+        assert case.status == "closed"
+        assert case.closed_at is not None
+        assert case.acknowledged_at is not None
+        assert case.response_provided_at is not None
+        attachments = db.query(GrievanceAttachment).filter_by(
+            case_id=case_id, attachment_type=CLOSURE_REPORT_TYPE).all()
+        assert len(attachments) == 1
+        att = attachments[0]
+        assert reference in att.original_filename and "closure-1" in att.original_filename
+        assert Path(att.storage_path).is_file()
+        assert Path(att.storage_path).read_bytes().startswith(b"%PDF")
+        events = db.query(GrievanceEvent).filter_by(case_id=case_id).all()
+        assert any(e.event_type == "status_changed" and e.new_value == "closed" for e in events)
+        assert any(e.event_type == "closure_report_generated" for e in events)
+
+
+def test_closure_report_pdf_content(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={
+            "description": "The lounge was locked during posted hours.",
+            "name": "Reporter One",
+        })
+    with app.app_context():
+        case = app.dbs().query(GrievanceCase).one()
+        case_id, reference = case.id, case.public_reference
+    _prepare_case_for_closure(app, client, case_id)
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "closed"})
+    with app.app_context():
+        db = app.dbs()
+        att = db.query(GrievanceAttachment).filter_by(
+            case_id=case_id, attachment_type=CLOSURE_REPORT_TYPE).one()
+        case = db.get(GrievanceCase, case_id)
+        closer = case.closed_by.username if case.closed_by else None
+    text = _pdf_text(att.storage_path)
+    assert reference in text
+    assert "The lounge was locked during posted hours." in text
+    assert "Investigated the claim thoroughly." in text
+    assert "Corrected the underlying issue." in text
+    assert "We addressed your concern and apologize for the inconvenience." in text
+    assert "Closed after supervisor review." in text
+    assert "Final Grievance" in text and "Case Report" in text
+    if closer:
+        assert closer in text
+
+
+def test_closed_case_is_read_only(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        case_id = app.dbs().query(GrievanceCase).one().id
+    _prepare_case_for_closure(app, client, case_id)
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "closed"})
+    with app.app_context():
+        db = app.dbs()
+        case = db.get(GrievanceCase, case_id)
+        findings_before = case.findings
+        notes_before = len(case.notes)
+        attachments_before = len(case.attachments)
+        reviewer_before = case.assigned_reviewer_id
+
+    client.post(f"/admin/grievances/{case_id}/review", data={"findings": "Tampered findings."})
+    client.post(f"/admin/grievances/{case_id}/notes", data={"body": "Should not be added."})
+    client.post(f"/admin/grievances/{case_id}/assign", data={"assigned_reviewer_id": ""})
+    client.post(f"/admin/grievances/{case_id}/attachments",
+               data={"attachment": (io.BytesIO(PDF_BYTES), "sneaky.pdf")},
+               content_type="multipart/form-data")
+
+    with app.app_context():
+        db = app.dbs()
+        case = db.get(GrievanceCase, case_id)
+        assert case.findings == findings_before
+        assert len(case.notes) == notes_before
+        assert len(case.attachments) == attachments_before
+        assert case.assigned_reviewer_id == reviewer_before
+
+    resp = client.get(f"/admin/grievances/{case_id}")
+    assert b"Save Review Details" not in resp.data
+    assert b"Reopen Case" in resp.data
+    assert b"View Printable Report" in resp.data
+
+
+def test_reopen_and_reclose_creates_new_version(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        case_id = app.dbs().query(GrievanceCase).one().id
+    _prepare_case_for_closure(app, client, case_id, resolution="Original resolution text.")
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "closed"})
+    with app.app_context():
+        db = app.dbs()
+        first = db.query(GrievanceAttachment).filter_by(
+            case_id=case_id, attachment_type=CLOSURE_REPORT_TYPE).one()
+        first_path = first.storage_path
+
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "in_review"})
+    with app.app_context():
+        case = app.dbs().get(GrievanceCase, case_id)
+        assert case.status == "in_review"
+        assert case.closed_at is None
+        # prior closure report and outcome fields survive reopening
+        assert case.resolution == "Original resolution text."
+    client.post(f"/admin/grievances/{case_id}/review", data={"resolution": "Revised resolution text."})
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "closed"})
+
+    with app.app_context():
+        db = app.dbs()
+        reports = db.query(GrievanceAttachment).filter_by(
+            case_id=case_id, attachment_type=CLOSURE_REPORT_TYPE).order_by(GrievanceAttachment.id).all()
+        assert len(reports) == 2
+        assert "closure-1" in reports[0].original_filename
+        assert "closure-2" in reports[1].original_filename
+        assert Path(reports[0].storage_path).is_file()
+        assert Path(reports[1].storage_path).is_file()
+        assert reports[0].storage_path == first_path
+
+    text_1 = _pdf_text(reports[0].storage_path)
+    text_2 = _pdf_text(reports[1].storage_path)
+    assert "Original resolution text." in text_1
+    assert "Revised resolution text." not in text_1
+    assert "Revised resolution text." in text_2
+
+
+def test_closure_generation_failure_rolls_back(monkeypatch, tmp_path):
+    import guestdesk.grievances as grievances_module
+
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        case_id = app.dbs().query(GrievanceCase).one().id
+    _prepare_case_for_closure(app, client, case_id)
+
+    def _boom(case, *, report_version):
+        raise RuntimeError("rendering exploded")
+
+    monkeypatch.setattr(grievances_module, "render_closure_report_pdf", _boom)
+    resp = client.post(f"/admin/grievances/{case_id}/status",
+                       data={"status": "closed"}, follow_redirects=True)
+    assert b"could not be closed" in resp.data
+    with app.app_context():
+        db = app.dbs()
+        case = db.get(GrievanceCase, case_id)
+        assert case.status != "closed"
+        assert case.closed_at is None
+        assert db.query(GrievanceAttachment).filter_by(
+            case_id=case_id, attachment_type=CLOSURE_REPORT_TYPE).count() == 0
+        assert not any(e.event_type == "closure_report_generated"
+                       for e in db.query(GrievanceEvent).filter_by(case_id=case_id).all())
+    root = Path(tmp_path) / "uploads" / "grievance"
+    assert not any(p.name.startswith("closure-report-") for p in root.rglob("*")) if root.exists() else True
+
+
+def test_reserved_types_rejected_including_closure_report(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        case_id = app.dbs().query(GrievanceCase).one().id
+    for reserved_type in (GENERATED_PDF_TYPE, CLOSURE_REPORT_TYPE):
+        resp = client.post(
+            f"/admin/grievances/{case_id}/attachments",
+            data={
+                "attachment": (io.BytesIO(PDF_BYTES), "fake-system.pdf"),
+                "attachment_type": reserved_type,
+            },
+            content_type="multipart/form-data",
+            follow_redirects=True,
+        )
+        assert b"reserved" in resp.data, reserved_type
+    with app.app_context():
+        assert app.dbs().query(GrievanceAttachment).count() == 0

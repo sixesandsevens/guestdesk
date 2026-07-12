@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{{ case.public_reference }} — Final Grievance Case Report</title>
+<style>
+  body {
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-size: 11pt;
+    color: #1a1a1a;
+    margin: 0;
+    padding: 24px;
+  }
+  .report-actions {
+    text-align: right;
+    margin-bottom: 16px;
+  }
+  .report-actions button {
+    font-size: 11pt;
+    padding: 6px 14px;
+    cursor: pointer;
+  }
+  .preview-banner {
+    background: #fff3cd;
+    border: 2px solid #d39e00;
+    color: #664d03;
+    font-weight: bold;
+    text-align: center;
+    padding: 8px;
+    margin-bottom: 16px;
+    letter-spacing: 0.03em;
+  }
+  header.report-header {
+    border-bottom: 2px solid #1a1a1a;
+    padding-bottom: 10px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+  }
+  header.report-header img { height: 48px; }
+  header.report-header h1 { font-size: 16pt; margin: 0 0 2px 0; }
+  header.report-header .org { font-size: 9pt; color: #555; }
+  .header-meta {
+    margin-left: auto;
+    text-align: right;
+    font-size: 9pt;
+    color: #333;
+  }
+  section { margin-bottom: 18px; page-break-inside: avoid; }
+  section h2 {
+    font-size: 12pt;
+    border-bottom: 1px solid #999;
+    padding-bottom: 3px;
+    margin-bottom: 8px;
+  }
+  .field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px 20px;
+    font-size: 10pt;
+  }
+  .field-grid .label { color: #555; }
+  .field { margin-bottom: 8px; }
+  .field .label { color: #555; font-size: 9.5pt; display: block; margin-bottom: 2px; }
+  .body-block {
+    white-space: pre-wrap;
+    border: 1px solid #ccc;
+    border-radius: 3px;
+    padding: 8px;
+    background: #fafafa;
+    font-size: 10pt;
+  }
+  .badge {
+    display: inline-block;
+    font-size: 8pt;
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: #333;
+    color: #fff;
+    margin-left: 4px;
+  }
+  .badge-share { background: #146c43; }
+  table { width: 100%; border-collapse: collapse; font-size: 9.5pt; }
+  table th, table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid #ddd; vertical-align: top; }
+  table th { color: #555; font-weight: 600; width: 30%; }
+  .note-item, .event-item {
+    border-bottom: 1px solid #e5e5e5;
+    padding: 6px 0;
+    font-size: 9.5pt;
+  }
+  .note-item .meta, .event-item .meta { color: #666; font-size: 8.5pt; }
+  .note-item .body { white-space: pre-wrap; margin-top: 2px; }
+  footer.report-footer {
+    margin-top: 24px;
+    font-size: 8pt;
+    color: #888;
+    border-top: 1px solid #ccc;
+    padding-top: 6px;
+  }
+  @media print {
+    .report-actions { display: none; }
+    body { padding: 0; }
+  }
+</style>
+</head>
+<body>
+
+{% if not preview %}
+<div class="report-actions no-print">
+  <button onclick="window.print()">Print / Save as PDF</button>
+</div>
+{% else %}
+<div class="report-actions no-print">
+  <button onclick="window.print()">Print Preview</button>
+</div>
+{% endif %}
+
+{% if preview %}
+<div class="preview-banner">PREVIEW — NOT A FINAL CLOSED RECORD</div>
+{% endif %}
+
+<header class="report-header">
+  {% if logo_data_uri %}<img src="{{ logo_data_uri }}" alt="GRACE Marketplace">{% endif %}
+  <div>
+    <h1>{% if preview %}Grievance Case Report (Preview){% else %}Final Grievance Case Report{% endif %}</h1>
+    <div class="org">GRACE Marketplace &middot; GuestDesk</div>
+  </div>
+  <div class="header-meta">
+    <div><strong>Reference:</strong> {{ case.public_reference }}</div>
+    <div><strong>Report version:</strong> {{ report_version }}</div>
+    <div><strong>Status:</strong> {{ statuses.get(case.status, case.status) }}</div>
+    {% if case.closed_at %}<div><strong>Closed:</strong> {{ case.closed_at|dt }}{% if case.closed_by %} by {{ case.closed_by.username }}{% endif %}</div>{% endif %}
+    <div>Generated {{ generated_at|dt }}</div>
+  </div>
+</header>
+
+<section>
+  <h2>Intake Information</h2>
+  <div class="field-grid">
+    <div><span class="label">Source</span>{{ sources.get(case.source, case.source) }}</div>
+    <div><span class="label">Originally received</span>{{ case.original_received_at|dt if case.original_received_at else '—' }}</div>
+    <div><span class="label">GuestDesk entry</span>{{ case.created_at|dt if case.created_at else '—' }}</div>
+    <div><span class="label">Entered by</span>{{ entered_by_label or '—' }}</div>
+    <div><span class="label">Submission #</span>{{ submission.id if submission else '—' }}</div>
+    <div><span class="label">Complainant</span>{{ complainant_name }}</div>
+    <div><span class="label">Contact</span>{{ (phone ~ ' / ' ~ email) if (phone and email) else (phone or email or '—') }}</div>
+    <div><span class="label">Incident date/time</span>{{ case.incident_date or '—' }} {{ case.incident_time or '' }}</div>
+    <div><span class="label">Staff involved</span>{{ case.staff_involved or '—' }}</div>
+    <div><span class="label">Categories</span>{{ categories|join(' · ') if categories else '—' }}</div>
+  </div>
+</section>
+
+<section>
+  <h2>Original Grievance</h2>
+  <div class="body-block">{{ submission.body if submission else '' }}</div>
+  {% if case.intake_notes %}
+  <div class="field" style="margin-top:10px;">
+    <span class="label">Private intake notes <span class="badge">internal</span></span>
+    <div class="body-block">{{ case.intake_notes }}</div>
+  </div>
+  {% endif %}
+</section>
+
+<section>
+  <h2>Lifecycle &amp; Deadlines</h2>
+  <table>
+    <tr><th>Acknowledgement due</th><td>{{ case.acknowledgement_due_at|dt if case.acknowledgement_due_at else '—' }}</td></tr>
+    <tr><th>Acknowledged</th><td>{{ case.acknowledged_at|dt if case.acknowledged_at else '—' }}</td></tr>
+    <tr><th>Response due</th><td>{{ case.response_due_at|dt if case.response_due_at else '—' }}</td></tr>
+    <tr><th>Response provided</th><td>{{ case.response_provided_at|dt if case.response_provided_at else '—' }}</td></tr>
+    <tr><th>Response method</th><td>{{ case.response_method or '—' }}</td></tr>
+    {% if case.additional_review_requested_at %}
+    <tr><th>Additional review requested</th><td>{{ case.additional_review_requested_at|dt }}</td></tr>
+    <tr><th>Additional review due</th><td>{{ case.additional_review_due_at|dt if case.additional_review_due_at else '—' }}</td></tr>
+    {% endif %}
+    <tr><th>Closed</th><td>{{ case.closed_at|dt if case.closed_at else '—' }}</td></tr>
+  </table>
+</section>
+
+<section>
+  <h2>Review &amp; Outcome</h2>
+  <div class="field">
+    <span class="label">Assigned reviewer</span>
+    {{ case.assigned_reviewer.username if case.assigned_reviewer else '—' }}
+  </div>
+  <div class="field">
+    <span class="label">Findings <span class="badge">internal</span></span>
+    <div class="body-block">{{ case.findings or '—' }}</div>
+  </div>
+  <div class="field">
+    <span class="label">Resolution <span class="badge">internal</span></span>
+    <div class="body-block">{{ case.resolution or '—' }}</div>
+  </div>
+  <div class="field">
+    <span class="label">Guest-facing response <span class="badge badge-share">may be shared</span></span>
+    <div class="body-block">{{ case.guest_facing_response or '—' }}</div>
+  </div>
+  <div class="field">
+    <span class="label">Closure notes <span class="badge">internal</span></span>
+    <div class="body-block">{{ case.closure_notes or '—' }}</div>
+  </div>
+</section>
+
+<section>
+  <h2>Case Notes</h2>
+  {% for note in notes %}
+  <div class="note-item">
+    <div class="meta">{{ note_types.get(note.note_type, note.note_type) }} &middot; {{ note.author_label }} &middot; {{ note.created_at|dt if note.created_at else '' }}</div>
+    <div class="body">{{ note.body }}</div>
+  </div>
+  {% else %}
+  <div>No notes recorded.</div>
+  {% endfor %}
+</section>
+
+<section>
+  <h2>Attachment Inventory</h2>
+  <table>
+    <thead><tr><th style="width:40%;">Filename</th><th>Type</th><th>Uploaded</th><th>Uploaded by</th></tr></thead>
+    <tbody>
+      {% for att in attachments %}
+      <tr>
+        <td>{{ att.original_filename }}</td>
+        <td>{{ attachment_types.get(att.attachment_type, att.attachment_type) }}</td>
+        <td>{{ att.uploaded_at|dt if att.uploaded_at else '—' }}</td>
+        <td>{{ att.uploaded_by.username if att.uploaded_by else '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="4">No attachments on file.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section>
+  <h2>Event Timeline</h2>
+  {% for e in events %}
+  <div class="event-item">
+    <strong>{{ e.event_type.replace('_', ' ')|capitalize }}</strong>
+    {% if e.old_value or e.new_value %}
+    — {% if e.old_value %}{{ e.old_value }} →{% endif %} {{ e.new_value or '' }}
+    {% endif %}
+    <div class="meta">{{ e.actor_label }} &middot; {{ e.created_at|dt if e.created_at else '' }}</div>
+  </div>
+  {% else %}
+  <div>No events recorded.</div>
+  {% endfor %}
+</section>
+
+<footer class="report-footer">
+  {% if preview %}
+  This is a live preview of case {{ case.public_reference }} as of {{ generated_at|dt }}. It is not an official closed record.
+  {% else %}
+  This is the final closure report for case {{ case.public_reference }}, version {{ report_version }}, generated at closure on {{ case.closed_at|dt if case.closed_at else generated_at|dt }}.
+  {% endif %}
+</footer>
+
+</body>
+</html>

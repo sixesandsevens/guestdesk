@@ -150,6 +150,43 @@ def test_closing_requires_close_permission(monkeypatch, tmp_path):
     assert client.post(f"/admin/grievances/{case_id}/archive").status_code == 403
 
 
+def test_reopen_requires_close_permission_and_is_hidden_without_it(monkeypatch, tmp_path):
+    from werkzeug.security import generate_password_hash
+
+    app = _make_app(monkeypatch, tmp_path)
+    admin_id = _user(app, "boss", role="admin")
+    case_id = _make_case(app)
+    admin = _login(app, admin_id)
+    with app.app_context():
+        db = app.dbs()
+        rev = User(username="rev1", role="editor",
+                  password_hash=generate_password_hash("x"), approved=True)
+        db.add(rev)
+        db.commit()
+        rev_id = rev.id
+    admin.post(f"/admin/grievances/{case_id}/assign", data={"assigned_reviewer_id": str(rev_id)})
+    admin.post(f"/admin/grievances/{case_id}/status",
+              data={"status": "response_provided", "response_method": "phone"})
+    admin.post(f"/admin/grievances/{case_id}/review", data={
+        "findings": "f", "resolution": "r",
+        "guest_facing_response": "g", "closure_notes": "c",
+    })
+    assert admin.post(f"/admin/grievances/{case_id}/status",
+                      data={"status": "closed"}).status_code == 302
+    with app.app_context():
+        assert app.dbs().get(GrievanceCase, case_id).status == "closed"
+
+    uid = _user(app, "viewer_only", perms=["grievances.view", "grievances.review"])
+    client = _login(app, uid)
+    resp = client.get(f"/admin/grievances/{case_id}")
+    assert resp.status_code == 200
+    assert b"Reopen Case" not in resp.data
+    assert client.post(f"/admin/grievances/{case_id}/status",
+                       data={"status": "in_review"}).status_code == 403
+    with app.app_context():
+        assert app.dbs().get(GrievanceCase, case_id).status == "closed"
+
+
 def test_series_write_endpoints_require_services_edit(monkeypatch, tmp_path):
     # The JSON series routes must honor permission rows, not the legacy editor role
     app = _make_app(monkeypatch, tmp_path)

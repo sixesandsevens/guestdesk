@@ -11,9 +11,11 @@ attachments, and the case timeline.
 # SPDX-License-Identifier: LicenseRef-GDCL-1.1
 from __future__ import annotations
 
+import base64
 import io
 import json
 import os
+import tempfile
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
@@ -72,15 +74,45 @@ OPEN_STATUSES = ('received', 'acknowledged', 'in_review', 'response_provided', '
 GENERATED_PDF_TYPE = 'system_generated_pdf'
 GENERATED_PDF_FILENAME = 'generated-grievance.pdf'
 
+# Reserved for the frozen closure-report snapshot generated at case close
+CLOSURE_REPORT_TYPE = 'system_generated_closure_report'
+
 ATTACHMENT_TYPES = {
     'original_handwritten_grievance': 'Original handwritten grievance',
     'verbal_grievance_documentation': 'Verbal grievance documentation',
     'supporting_documentation': 'Supporting documentation',
     'photo': 'Photo',
     GENERATED_PDF_TYPE: 'Generated grievance PDF',
+    CLOSURE_REPORT_TYPE: 'Final closure report',
     'other': 'Other',
 }
 ATTACHMENT_EXTENSIONS = {'.pdf', '.jpg', '.jpeg', '.png'}
+
+# System-generated attachment types that human upload paths must never accept
+RESERVED_ATTACHMENT_TYPES = {GENERATED_PDF_TYPE, CLOSURE_REPORT_TYPE}
+
+# Required fields before a case may be closed: (attribute, message, is_text).
+# Text fields reject whitespace-only values; the rest are plain truthy checks.
+CLOSURE_REQUIRED_FIELDS = [
+    ('assigned_reviewer_id', 'Assigned reviewer is required.', False),
+    ('acknowledged_at', 'Acknowledgement is required.', False),
+    ('response_provided_at', 'Response is required.', False),
+    ('response_method', 'Response method is required.', True),
+    ('findings', 'Findings are required.', True),
+    ('resolution', 'Resolution is required.', True),
+    ('guest_facing_response', 'Guest-facing response is required.', True),
+    ('closure_notes', 'Closure notes are required.', True),
+]
+
+# Status groups: reaching any of these later statuses backfills the earlier
+# milestone timestamp, so a case can skip straight to a later stage without
+# leaving lifecycle obligations unrecorded.
+ACKNOWLEDGEMENT_COMPLETE_STATUSES = {
+    'acknowledged', 'in_review', 'response_provided', 'additional_review', 'closed',
+}
+RESPONSE_COMPLETE_STATUSES = {
+    'response_provided', 'additional_review', 'closed',
+}
 
 NOTE_TYPES = {
     'internal': 'Internal',
@@ -233,8 +265,8 @@ def save_case_attachment(db, case: GrievanceCase, file_storage, *,
     Raises ``ValueError`` with a user-facing message when the file is unusable.
     The system_generated_pdf type is reserved for attach_generated_pdf().
     """
-    if attachment_type == GENERATED_PDF_TYPE:
-        raise ValueError('That attachment type is reserved for the system-generated PDF.')
+    if attachment_type in RESERVED_ATTACHMENT_TYPES:
+        raise ValueError('That attachment type is reserved for system-generated documents.')
     filename = secure_filename(file_storage.filename or '')
     ext = Path(filename).suffix.lower()
     if ext not in ATTACHMENT_EXTENSIONS:
@@ -269,6 +301,240 @@ def save_case_attachment(db, case: GrievanceCase, file_storage, *,
                    new_value=attachment.original_filename,
                    meta={'attachment_type': attachment.attachment_type})
     return attachment
+
+
+# ---------- Closure ----------
+
+class ClosureValidationError(ValueError):
+    """Raised when a case is missing required closure information."""
+
+    def __init__(self, errors: list[str]):
+        super().__init__('; '.join(errors))
+        self.errors = errors
+
+
+def validate_case_for_closure(case: GrievanceCase) -> list[str]:
+    """Return user-facing validation errors; empty list means closure may proceed."""
+    errors = []
+    for attr, message, is_text in CLOSURE_REQUIRED_FIELDS:
+        value = getattr(case, attr)
+        if is_text:
+            if not (value or '').strip():
+                errors.append(message)
+        elif not value:
+            errors.append(message)
+    return errors
+
+
+def ensure_case_editable(case: GrievanceCase) -> bool:
+    """Flash a warning and return False when a closed case must stay read-only."""
+    if case.status == 'closed':
+        flash('This grievance is closed and read-only. Reopen it before making changes.', 'warning')
+        return False
+    return True
+
+
+def case_closure_reports(case: GrievanceCase) -> list[GrievanceAttachment]:
+    """All final closure-report attachments, in generation order."""
+    return [a for a in case.attachments if a.attachment_type == CLOSURE_REPORT_TYPE]
+
+
+def next_closure_report_version(case: GrievanceCase) -> int:
+    """The version number the next closure would produce."""
+    return len(case_closure_reports(case)) + 1
+
+
+def _sorted_case_events(db, case: GrievanceCase) -> list[GrievanceEvent]:
+    """Case events sorted oldest-first, re-queried so flushed-but-uncommitted
+    rows from the current transaction are included (not just a possibly stale
+    in-memory relationship collection)."""
+    rows = db.query(GrievanceEvent).filter(GrievanceEvent.case_id == case.id).all()
+    rows.sort(key=lambda e: (e.created_at or datetime.min, e.id or 0))
+    return rows
+
+
+def _logo_data_uri() -> str:
+    """Embed the header logo as a data URI so the PDF renderer never fetches it."""
+    path = Path(current_app.static_folder or '') / 'img' / 'brand' / 'logo-mission.png'
+    try:
+        data = path.read_bytes()
+    except OSError:
+        return ''
+    return 'data:image/png;base64,' + base64.b64encode(data).decode('ascii')
+
+
+def build_closure_report_context(db, case: GrievanceCase, *,
+                                 report_version: int, preview: bool) -> dict:
+    """Assemble the template context shared by the printable report and PDF."""
+    submission = case.submission
+    phone, email = _split_contact_info(submission.contact_info if submission else None)
+    categories = []
+    if case.involves_grace_staff:
+        categories.append('GRACE Staff')
+    if case.involves_policies:
+        categories.append('Policies & Procedures')
+    if case.involves_volunteer:
+        categories.append('Volunteer')
+    if case.involves_other:
+        label = 'Other'
+        if case.involves_other_text:
+            label += f': {case.involves_other_text}'
+        categories.append(label)
+    return {
+        'case': case,
+        'submission': submission,
+        'report_version': report_version,
+        'preview': preview,
+        'generated_at': datetime.utcnow(),
+        'sources': SOURCES,
+        'statuses': STATUSES,
+        'attachment_types': ATTACHMENT_TYPES,
+        'note_types': NOTE_TYPES,
+        'closure_report_type': CLOSURE_REPORT_TYPE,
+        'entered_by_label': _entered_by_label(case),
+        'complainant_name': (submission.contact_name if submission and submission.contact_name else None) or 'Anonymous',
+        'phone': phone,
+        'email': email,
+        'categories': categories,
+        'notes': sorted(case.notes, key=lambda n: (n.created_at or datetime.min)),
+        'attachments': case.attachments,
+        'events': _sorted_case_events(db, case),
+        'logo_data_uri': _logo_data_uri(),
+    }
+
+
+def render_closure_report_pdf(case: GrievanceCase, *, report_version: int) -> bytes:
+    """Render the frozen closure-report PDF from the case's current state.
+
+    Uses the same Jinja template as the printable HTML report so the two never
+    drift apart. Renders entirely from local/inline data (no network fetches)
+    for deterministic output.
+    """
+    from weasyprint import HTML
+
+    db = _dbs()
+    context = build_closure_report_context(db, case, report_version=report_version, preview=False)
+    html = render_template('admin/grievance_closure_report.html', **context)
+    return HTML(string=html, base_url=None).write_pdf()
+
+
+def _stage_closure_report_file(case: GrievanceCase, pdf_bytes: bytes,
+                               version: int) -> tuple[GrievanceAttachment, Path]:
+    """Write the closure PDF to its final path via a same-directory atomic rename.
+
+    Never overwrites an existing version. Returns the (unattached, uncommitted)
+    attachment row and the final path, so the caller can add/commit the row and
+    clean up the file if the surrounding transaction fails.
+    """
+    root = case_upload_root(case)
+    root.mkdir(parents=True, exist_ok=True)
+    stored_name = f'closure-report-{version}.pdf'
+    final_path = root / stored_name
+    if final_path.exists():
+        raise RuntimeError(f'Closure report file already exists: {stored_name}')
+    fd, tmp_name = tempfile.mkstemp(prefix='.closure-tmp-', suffix='.pdf', dir=str(root))
+    try:
+        with os.fdopen(fd, 'wb') as fh:
+            fh.write(pdf_bytes)
+        os.replace(tmp_name, final_path)
+    except Exception:
+        try:
+            os.unlink(tmp_name)
+        except OSError:
+            pass
+        raise
+    original_filename = f'{case.public_reference}-closure-{version}.pdf'
+    attachment = GrievanceAttachment(
+        case_id=case.id,
+        attachment_type=CLOSURE_REPORT_TYPE,
+        original_filename=original_filename,
+        stored_filename=stored_name,
+        storage_path=str(final_path),
+    )
+    return attachment, final_path
+
+
+def close_case(db, case: GrievanceCase, *, actor_label: str, actor_user_id: int | None,
+              response_method: str | None = None) -> GrievanceAttachment:
+    """Close a case atomically: validate, stamp timestamps, render and attach
+    the frozen closure-report PDF, and record the closure events.
+
+    Raises ``ClosureValidationError`` (case left untouched, in-memory changes
+    rolled back) when required closure information is missing, or the
+    underlying exception when PDF generation/storage fails (case rolled back
+    to its prior state; any staged file is removed).
+    """
+    if case.status == 'closed':
+        raise ValueError('Case is already closed.')
+
+    now = datetime.utcnow()
+    method = (response_method or '').strip()
+    if method:
+        case.response_method = method
+    if not case.acknowledged_at:
+        case.acknowledged_at = now
+    if not case.response_provided_at:
+        case.response_provided_at = now
+
+    errors = validate_case_for_closure(case)
+    if errors:
+        db.rollback()
+        raise ClosureValidationError(errors)
+
+    old_status = case.status
+    version = next_closure_report_version(case)
+    case.status = 'closed'
+    case.closed_at = now
+    case.closed_by_user_id = actor_user_id
+    log_case_event(db, case, 'status_changed', actor_label=actor_label,
+                   actor_user_id=actor_user_id, old_value=old_status, new_value='closed')
+    db.flush()
+
+    final_path = None
+    try:
+        pdf_bytes = render_closure_report_pdf(case, report_version=version)
+        if not pdf_bytes or not pdf_bytes.startswith(b'%PDF'):
+            raise RuntimeError('Closure report PDF generation produced no output.')
+        attachment, final_path = _stage_closure_report_file(case, pdf_bytes, version)
+        attachment.uploaded_by_user_id = actor_user_id
+        db.add(attachment)
+        log_case_event(db, case, 'closure_report_generated', actor_label=actor_label,
+                       actor_user_id=actor_user_id, new_value=attachment.original_filename,
+                       meta={'version': version, 'attachment_type': CLOSURE_REPORT_TYPE,
+                             'filename': attachment.original_filename})
+        db.commit()
+    except Exception:
+        db.rollback()
+        if final_path and final_path.exists():
+            try:
+                final_path.unlink()
+            except OSError:
+                pass
+        raise
+    return attachment
+
+
+def _stamp_additional_review(case: GrievanceCase, now: datetime) -> None:
+    """Set the additional-review request/due timestamps (does not commit)."""
+    case.additional_review_requested_at = case.additional_review_requested_at or now
+    base = case.response_provided_at or now
+    case.additional_review_due_at = case.additional_review_due_at or add_business_days(base, ADDITIONAL_REVIEW_DUE_DAYS)
+    case.additional_review_status = 'requested'
+
+
+def _reopen_case(db, case: GrievanceCase, new_status: str, actor_label: str,
+                 actor_user_id: int | None) -> None:
+    """Reopen a closed case (does not commit). Prior closure reports, events,
+    and outcome fields (findings/resolution/etc.) are preserved untouched."""
+    case.status = new_status
+    case.closed_at = None
+    case.closed_by_user_id = None
+    if new_status == 'additional_review':
+        _stamp_additional_review(case, datetime.utcnow())
+    log_case_event(db, case, 'status_changed', actor_label=actor_label,
+                   actor_user_id=actor_user_id, old_value='closed', new_value=new_status)
+    log_case_event(db, case, 'case_reopened', actor_label=actor_label,
+                   actor_user_id=actor_user_id, new_value=new_status)
 
 
 # ---------- Generated case PDF ----------
@@ -745,14 +1011,45 @@ def detail(case_id: int):
         events=events, notes=notes, now=datetime.utcnow(),
         statuses=STATUSES, sources=SOURCES,
         note_types=NOTE_TYPES, attachment_types=ATTACHMENT_TYPES,
+        reserved_attachment_types=RESERVED_ATTACHMENT_TYPES,
+        closure_report_type=CLOSURE_REPORT_TYPE,
+        closure_reports=case_closure_reports(case),
         flags=_case_flags(case, datetime.utcnow()),
+        can_close=has_permission('grievances.close'),
+        can_review=has_permission('grievances.review'),
+        can_assign=has_permission('grievances.assign'),
+        can_attach=has_permission('grievances.attach'),
     )
+
+
+@bp.route('/<int:case_id>/report')
+@permission_required('grievances.view')
+def closure_report(case_id: int):
+    """Printable case report: the frozen record when closed, a live preview
+    otherwise. Same template renders both the browser page and the PDF
+    attached at closure, so they can never drift apart."""
+    db = _dbs()
+    case = _get_case(db, case_id)
+    if case.status == 'closed':
+        version = len(case_closure_reports(case)) or 1
+        preview = False
+    else:
+        version = next_closure_report_version(case)
+        preview = True
+    context = build_closure_report_context(db, case, report_version=version, preview=preview)
+    return render_template('admin/grievance_closure_report.html', **context)
 
 
 @bp.route('/<int:case_id>/status', methods=['POST'])
 @permission_required('grievances.review')
 def update_status(case_id: int):
-    """Change case status, stamping the matching lifecycle timestamps."""
+    """Change case status, stamping the matching lifecycle timestamps.
+
+    Closing and reopening are not ordinary status assignments: closing
+    validates, generates and attaches the frozen closure report atomically
+    (see close_case()); reopening clears closure state while preserving
+    prior reports and outcome fields (see _reopen_case()).
+    """
     db = _dbs()
     case = _get_case(db, case_id)
     new_status = (request.form.get('status') or '').strip()
@@ -767,25 +1064,46 @@ def update_status(case_id: int):
     # Closing and reopening carry their own permission on top of review
     if (new_status == 'closed' or old_status == 'closed') and not has_permission('grievances.close'):
         return abort(403)
+
+    if new_status == 'closed':
+        try:
+            close_case(db, case, actor_label=actor_label, actor_user_id=actor_user_id,
+                      response_method=request.form.get('response_method'))
+        except ClosureValidationError as exc:
+            flash('This grievance cannot be closed yet:', 'danger')
+            for msg in exc.errors:
+                flash(f'• {msg}', 'danger')
+            return redirect(url_for('grievances.detail', case_id=case.id))
+        except Exception:
+            current_app.logger.exception('Failed to close case %s', case.public_reference)
+            flash('The grievance could not be closed because the final report could not be '
+                 'generated. No case changes were saved.', 'danger')
+            return redirect(url_for('grievances.detail', case_id=case.id))
+        audit_log('grievance.case.closed', actor=actor_label, obj=case.public_reference)
+        flash(f'Case {case.public_reference} closed. Final closure report generated.', 'success')
+        return redirect(url_for('grievances.detail', case_id=case.id))
+
+    if old_status == 'closed':
+        _reopen_case(db, case, new_status, actor_label, actor_user_id)
+        db.commit()
+        audit_log('grievance.case.reopened', actor=actor_label, obj=case.public_reference,
+                  extra={'to': new_status})
+        flash(f'Case reopened. Status set to {STATUSES[new_status]}.', 'success')
+        return redirect(url_for('grievances.detail', case_id=case.id))
+
+    # Ordinary non-closure transition: later statuses backfill earlier
+    # milestone timestamps so a case can skip straight to a later stage.
     now = datetime.utcnow()
     case.status = new_status
-    if new_status == 'acknowledged' and not case.acknowledged_at:
+    if new_status in ACKNOWLEDGEMENT_COMPLETE_STATUSES and not case.acknowledged_at:
         case.acknowledged_at = now
-    if new_status == 'response_provided' and not case.response_provided_at:
+    if new_status in RESPONSE_COMPLETE_STATUSES and not case.response_provided_at:
         case.response_provided_at = now
-        case.response_method = (request.form.get('response_method') or '').strip() or case.response_method
+    response_method = (request.form.get('response_method') or '').strip()
+    if response_method:
+        case.response_method = response_method
     if new_status == 'additional_review':
-        case.additional_review_requested_at = case.additional_review_requested_at or now
-        base = case.response_provided_at or now
-        case.additional_review_due_at = case.additional_review_due_at or add_business_days(base, ADDITIONAL_REVIEW_DUE_DAYS)
-        case.additional_review_status = 'requested'
-    if new_status == 'closed':
-        case.closed_at = case.closed_at or now
-        case.closed_by_user_id = actor_user_id
-    elif old_status == 'closed':
-        # Reopening
-        case.closed_at = None
-        case.closed_by_user_id = None
+        _stamp_additional_review(case, now)
     log_case_event(db, case, 'status_changed', actor_label=actor_label,
                    actor_user_id=actor_user_id, old_value=old_status, new_value=new_status)
     db.commit()
@@ -801,6 +1119,8 @@ def assign(case_id: int):
     """Assign or unassign the reviewing staff member."""
     db = _dbs()
     case = _get_case(db, case_id)
+    if not ensure_case_editable(case):
+        return redirect(url_for('grievances.detail', case_id=case.id))
     raw = (request.form.get('assigned_reviewer_id') or '').strip()
     reviewer = None
     if raw:
@@ -830,6 +1150,8 @@ def add_note(case_id: int):
     """Attach a staff note to the case."""
     db = _dbs()
     case = _get_case(db, case_id)
+    if not ensure_case_editable(case):
+        return redirect(url_for('grievances.detail', case_id=case.id))
     body = (request.form.get('body') or '').strip()
     if not body:
         flash('Note text is required.', 'danger')
@@ -857,6 +1179,8 @@ def save_review(case_id: int):
     """Save findings, resolution, guest-facing response, and closure notes."""
     db = _dbs()
     case = _get_case(db, case_id)
+    if not ensure_case_editable(case):
+        return redirect(url_for('grievances.detail', case_id=case.id))
     actor_label, actor_user_id = _actor()
     changed = []
     for field in ('findings', 'resolution', 'guest_facing_response', 'closure_notes'):
@@ -919,6 +1243,8 @@ def upload_attachment(case_id: int):
     """Add a supporting document to an existing case."""
     db = _dbs()
     case = _get_case(db, case_id)
+    if not ensure_case_editable(case):
+        return redirect(url_for('grievances.detail', case_id=case.id))
     file_storage = request.files.get('attachment')
     if not file_storage or not file_storage.filename:
         flash('Choose a file to upload.', 'danger')

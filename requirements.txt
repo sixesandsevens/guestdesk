@@ -13,4 +13,5 @@ redis>=5.0
 rq>=1.16
 reportlab>=4
 PyPDF2>=3
+WeasyPrint>=62
 icalendar>=5.0
