@@ -168,8 +168,7 @@ def test_reopen_requires_close_permission_and_is_hidden_without_it(monkeypatch, 
     admin.post(f"/admin/grievances/{case_id}/status",
               data={"status": "response_provided", "response_method": "phone"})
     admin.post(f"/admin/grievances/{case_id}/review", data={
-        "findings": "f", "resolution": "r",
-        "guest_facing_response": "g", "closure_notes": "c",
+        "findings": "f", "resolution": "r", "guest_facing_response": "g",
     })
     assert admin.post(f"/admin/grievances/{case_id}/status",
                       data={"status": "closed"}).status_code == 302

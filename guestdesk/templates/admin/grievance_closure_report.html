@@ -169,7 +169,7 @@
     <tr><th>Acknowledged</th><td>{{ case.acknowledged_at|dt if case.acknowledged_at else '—' }}</td></tr>
     <tr><th>Response due</th><td>{{ case.response_due_at|dt if case.response_due_at else '—' }}</td></tr>
     <tr><th>Response provided</th><td>{{ case.response_provided_at|dt if case.response_provided_at else '—' }}</td></tr>
-    <tr><th>Response method</th><td>{{ case.response_method or '—' }}</td></tr>
+    <tr><th>Response method</th><td>{{ response_method_display or '—' }}</td></tr>
     {% if case.additional_review_requested_at %}
     <tr><th>Additional review requested</th><td>{{ case.additional_review_requested_at|dt }}</td></tr>
     <tr><th>Additional review due</th><td>{{ case.additional_review_due_at|dt if case.additional_review_due_at else '—' }}</td></tr>
@@ -196,10 +196,12 @@
     <span class="label">Guest-facing response <span class="badge badge-share">may be shared</span></span>
     <div class="body-block">{{ case.guest_facing_response or '—' }}</div>
   </div>
+  {% if case.closure_notes %}
   <div class="field">
-    <span class="label">Closure notes <span class="badge">internal</span></span>
-    <div class="body-block">{{ case.closure_notes or '—' }}</div>
+    <span class="label">Legacy closure note <span class="badge">internal</span></span>
+    <div class="body-block">{{ case.closure_notes }}</div>
   </div>
+  {% endif %}
 </section>
 
 <section>

@@ -383,6 +383,7 @@ class GrievanceCase(Base):
     findings = Column(Text, nullable=True)
     resolution = Column(Text, nullable=True)
     guest_facing_response = Column(Text, nullable=True)
+    # Legacy (pre-v0.5): no longer collected; kept so historical notes still display
     closure_notes = Column(Text, nullable=True)
     closed_at = Column(DateTime, nullable=True)
     closed_by_user_id = Column(Integer, ForeignKey('users.id', ondelete="SET NULL"), nullable=True)

@@ -78,7 +78,10 @@
     </div>
 
     <div class="card mb-3">
-      <div class="card-header">Review &amp; Outcome <span class="badge bg-dark">internal except guest-facing response</span></div>
+      <div class="card-header d-flex justify-content-between align-items-center flex-wrap gap-1">
+        <span>Review &amp; Outcome <span class="badge bg-dark">internal except guest-facing response</span></span>
+        {% if case.status != 'closed' and can_review %}<span id="review-save-status" class="small text-muted" aria-live="polite"></span>{% endif %}
+      </div>
       <div class="card-body">
         {% if case.status == 'closed' %}
           <div class="mb-3">
@@ -93,12 +96,8 @@
             <div class="fw-bold">Guest-facing response <span class="badge bg-success">may be shared</span></div>
             <div style="white-space: pre-wrap;">{{ case.guest_facing_response or '—' }}</div>
           </div>
-          <div class="mb-3">
-            <div class="fw-bold">Closure notes <span class="badge bg-dark">internal</span></div>
-            <div style="white-space: pre-wrap;">{{ case.closure_notes or '—' }}</div>
-          </div>
         {% elif can_review %}
-        <form method="post" action="{{ url_for('grievances.save_review', case_id=case.id) }}">
+        <form method="post" action="{{ url_for('grievances.save_review', case_id=case.id) }}" id="review-form">
           {{ csrf() }}
           <div class="mb-3">
             <label class="form-label"><strong>Findings</strong> <span class="badge bg-dark">internal</span></label>
@@ -108,21 +107,16 @@
             <label class="form-label"><strong>Resolution</strong> <span class="badge bg-dark">internal</span></label>
             <textarea name="resolution" class="form-control" rows="3">{{ case.resolution or '' }}</textarea>
           </div>
-          <div class="mb-3">
+          <div class="mb-0">
             <label class="form-label"><strong>Guest-facing response</strong> <span class="badge bg-success">may be shared</span></label>
             <textarea name="guest_facing_response" class="form-control" rows="3" placeholder="Only content written here may be communicated to the complainant. Personnel and disciplinary details stay in Findings.">{{ case.guest_facing_response or '' }}</textarea>
           </div>
-          <div class="mb-3">
-            <label class="form-label"><strong>Closure notes</strong> <span class="badge bg-dark">internal</span></label>
-            <textarea name="closure_notes" class="form-control" rows="2">{{ case.closure_notes or '' }}</textarea>
-          </div>
-          <button class="btn btn-primary btn-sm">Save Review Details</button>
+          <noscript><button class="btn btn-primary btn-sm mt-3">Save Review Details</button></noscript>
         </form>
         {% else %}
           <div class="text-muted">Findings: {{ case.findings or '—' }}</div>
           <div class="text-muted">Resolution: {{ case.resolution or '—' }}</div>
           <div class="text-muted">Guest-facing response: {{ case.guest_facing_response or '—' }}</div>
-          <div class="text-muted">Closure notes: {{ case.closure_notes or '—' }}</div>
         {% endif %}
       </div>
     </div>
@@ -150,6 +144,14 @@
           </div>
         </form>
         {% endif %}
+        {% if case.closure_notes %}
+        <div class="border-bottom pb-2 mb-2">
+          <div class="small text-muted">
+            <span class="badge bg-secondary">Legacy closure note</span>
+          </div>
+          <div style="white-space: pre-wrap;">{{ case.closure_notes }}</div>
+        </div>
+        {% endif %}
         {% for note in notes %}
         <div class="border-bottom pb-2 mb-2">
           <div class="small text-muted">
@@ -159,7 +161,7 @@
           <div style="white-space: pre-wrap;">{{ note.body }}</div>
         </div>
         {% else %}
-        <div class="text-muted">No notes yet.</div>
+        {% if not case.closure_notes %}<div class="text-muted">No notes yet.</div>{% endif %}
         {% endfor %}
       </div>
     </div>
@@ -174,7 +176,7 @@
           <div class="mb-2"><strong>Status:</strong> Closed</div>
           {% if case.closed_at %}<div class="mb-2"><strong>Closed:</strong> {{ case.closed_at|dt }}{% if case.closed_by %} by {{ case.closed_by.username }}{% endif %}</div>{% endif %}
           <div class="mb-2"><strong>Assigned reviewer:</strong> {{ case.assigned_reviewer.username if case.assigned_reviewer else '—' }}</div>
-          <div class="mb-3"><strong>Response method:</strong> {{ case.response_method or '—' }}</div>
+          <div class="mb-3"><strong>Response method:</strong> {{ response_method_display or '—' }}</div>
           {% if can_close %}
           <form method="post" action="{{ url_for('grievances.update_status', case_id=case.id) }}"
                 onsubmit="return confirm('Reopen case {{ case.public_reference }}? It will move out of closed/read-only status.');">
@@ -192,7 +194,7 @@
           {% endif %}
         {% else %}
           {% if can_review %}
-          <form method="post" action="{{ url_for('grievances.update_status', case_id=case.id) }}" class="mb-3">
+          <form method="post" action="{{ url_for('grievances.update_status', case_id=case.id) }}" class="mb-3" id="status-form">
             {{ csrf() }}
             <label class="form-label"><strong>Status</strong></label>
             <div class="input-group">
@@ -203,9 +205,17 @@
               </select>
               <button class="btn btn-primary">Update</button>
             </div>
-            <input name="response_method" type="text" class="form-control form-control-sm mt-2"
-                   placeholder="Response method (in person, phone, email…) — used when marking Response provided"
-                   value="{{ case.response_method or '' }}">
+            <select name="response_method" id="response-method" class="form-select form-select-sm mt-2">
+              <option value="">Response method…</option>
+              {% for key, label in response_methods.items() %}
+              <option value="{{ key }}" {% if response_method_key == key %}selected{% endif %}>{{ label }}</option>
+              {% endfor %}
+            </select>
+            <input name="response_method_other" id="response-method-other" type="text"
+                   class="form-control form-control-sm mt-2{% if response_method_key != 'other' %} d-none{% endif %}"
+                   placeholder="Specify other response method"
+                   value="{{ response_method_other }}">
+            <div class="form-text">Required when marking Response provided, Additional review, or Closed.</div>
           </form>
           {% endif %}
           {% if can_assign %}
@@ -251,7 +261,7 @@
           </tr>
           <tr>
             <th>Response provided</th>
-            <td>{{ case.response_provided_at|dt if case.response_provided_at else '—' }}{% if case.response_method %} ({{ case.response_method }}){% endif %}</td>
+            <td>{{ case.response_provided_at|dt if case.response_provided_at else '—' }}{% if response_method_display %} ({{ response_method_display }}){% endif %}</td>
           </tr>
           {% if case.additional_review_requested_at %}
           <tr>
@@ -357,4 +367,83 @@
   </form>
   {% endif %}
 </div>
+
+<script>
+(function () {
+  // Show the "Specify other" field only when Other is selected
+  var methodSelect = document.getElementById('response-method');
+  var methodOther = document.getElementById('response-method-other');
+  if (methodSelect && methodOther) {
+    methodSelect.addEventListener('change', function () {
+      methodOther.classList.toggle('d-none', methodSelect.value !== 'other');
+    });
+  }
+
+  // Autosave for the review fields
+  var form = document.getElementById('review-form');
+  var statusForm = document.getElementById('status-form');
+  var indicator = document.getElementById('review-save-status');
+  if (form && indicator) {
+    var fields = Array.prototype.slice.call(form.querySelectorAll('textarea'));
+    var timer = null;
+    var dirty = false;
+
+    function setStatus(text, cls) {
+      indicator.textContent = text;
+      indicator.className = 'small ' + cls;
+    }
+
+    function save() {
+      clearTimeout(timer);
+      timer = null;
+      if (!dirty) { return; }
+      dirty = false;
+      setStatus('Saving…', 'text-muted');
+      fetch(form.action, {
+        method: 'POST',
+        body: new FormData(form),
+        headers: { 'Accept': 'application/json' }
+      }).then(function (resp) {
+        if (!resp.ok) { throw new Error('save failed'); }
+        return resp.json();
+      }).then(function (body) {
+        if (!body.ok) { throw new Error(body.error || 'save failed'); }
+        if (!dirty) { setStatus('Saved', 'text-success'); }
+      }).catch(function () {
+        dirty = true;
+        setStatus('Save failed — changes not saved', 'text-danger fw-bold');
+      });
+    }
+
+    fields.forEach(function (el) {
+      el.addEventListener('input', function () {
+        dirty = true;
+        setStatus('Unsaved changes', 'text-muted');
+        clearTimeout(timer);
+        timer = setTimeout(save, 900);
+      });
+      el.addEventListener('blur', function () { if (dirty) { save(); } });
+    });
+
+    // Status changes carry the current review text so a click right after
+    // typing can never lose it: the server applies these fields in the same
+    // request as the status change.
+    if (statusForm) {
+      statusForm.addEventListener('submit', function () {
+        clearTimeout(timer);
+        fields.forEach(function (el) {
+          var hidden = statusForm.querySelector('input[type="hidden"][name="' + el.name + '"]');
+          if (!hidden) {
+            hidden = document.createElement('input');
+            hidden.type = 'hidden';
+            hidden.name = el.name;
+            statusForm.appendChild(hidden);
+          }
+          hidden.value = el.value;
+        });
+      });
+    }
+  }
+})();
+</script>
 {% endblock %}

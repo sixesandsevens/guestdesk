@@ -70,6 +70,20 @@ STATUSES = {
 # response_provided stays open: the case still needs closure (and may go to additional review)
 OPEN_STATUSES = ('received', 'acknowledged', 'in_review', 'response_provided', 'additional_review')
 
+RESPONSE_METHODS = {
+    'email': 'Email',
+    'phone': 'Phone',
+    'in_person': 'In person',
+    'other': 'Other',
+}
+# Statuses that assert a response has been communicated to the complainant,
+# so they require the response method to be on record
+STATUSES_REQUIRING_RESPONSE_METHOD = ('response_provided', 'additional_review', 'closed')
+_OTHER_PREFIX = 'Other: '
+
+# The editable outcome fields; closure_notes is legacy (pre-v0.5) and read-only
+REVIEW_FIELDS = ('findings', 'resolution', 'guest_facing_response')
+
 # Reserved for the PDF GuestDesk renders itself; the only kind that may be emailed
 GENERATED_PDF_TYPE = 'system_generated_pdf'
 GENERATED_PDF_FILENAME = 'generated-grievance.pdf'
@@ -101,7 +115,6 @@ CLOSURE_REQUIRED_FIELDS = [
     ('findings', 'Findings are required.', True),
     ('resolution', 'Resolution is required.', True),
     ('guest_facing_response', 'Guest-facing response is required.', True),
-    ('closure_notes', 'Closure notes are required.', True),
 ]
 
 # Status groups: reaching any of these later statuses backfills the earlier
@@ -202,6 +215,52 @@ def log_case_event(db, case: GrievanceCase, event_type: str, *,
 def _form_checkbox(form, *names) -> bool:
     """Return True when any of the named form fields is truthy."""
     return any((form.get(name) or '').strip() for name in names)
+
+
+def normalize_response_method(stored: str | None) -> tuple[str, str]:
+    """Map a stored response_method onto (dropdown key, other-detail text).
+
+    Tolerates legacy free-text values ('in person', 'Phone') so older records
+    select the matching dropdown option; anything unrecognized falls back to
+    Other with the original text preserved as the detail.
+    """
+    raw = (stored or '').strip()
+    if not raw:
+        return '', ''
+    if raw.startswith(_OTHER_PREFIX):
+        return 'other', raw[len(_OTHER_PREFIX):].strip()
+    key = raw.lower().replace(' ', '_').replace('-', '_')
+    if key in RESPONSE_METHODS:
+        return key, ''
+    return 'other', raw
+
+
+def response_method_label(stored: str | None) -> str:
+    """Human-readable label for a stored response_method value."""
+    key, other = normalize_response_method(stored)
+    if not key:
+        return ''
+    if key == 'other':
+        return f'{_OTHER_PREFIX}{other}' if other else 'Other'
+    return RESPONSE_METHODS[key]
+
+
+def parse_response_method(form) -> str | None:
+    """Validate submitted response-method fields into the stored value.
+
+    Returns None when nothing was selected. The form is a fixed dropdown, so
+    any value outside RESPONSE_METHODS is a hand-crafted request and raises
+    ValueError.
+    """
+    key = (form.get('response_method') or '').strip()
+    if not key:
+        return None
+    if key not in RESPONSE_METHODS:
+        raise ValueError('Please choose a response method from the list.')
+    if key == 'other':
+        detail = (form.get('response_method_other') or '').strip()
+        return f'{_OTHER_PREFIX}{detail}' if detail else 'other'
+    return key
 
 
 def create_case_for_submission(db, submission: Submission, *,
@@ -391,6 +450,7 @@ def build_closure_report_context(db, case: GrievanceCase, *,
         'attachment_types': ATTACHMENT_TYPES,
         'note_types': NOTE_TYPES,
         'closure_report_type': CLOSURE_REPORT_TYPE,
+        'response_method_display': response_method_label(case.response_method),
         'entered_by_label': _entered_by_label(case),
         'complainant_name': (submission.contact_name if submission and submission.contact_name else None) or 'Anonymous',
         'phone': phone,
@@ -1005,6 +1065,7 @@ def detail(case_id: int):
     )
     events = sorted(case.events, key=lambda e: (e.created_at or datetime.min), reverse=True)
     notes = sorted(case.notes, key=lambda n: (n.created_at or datetime.min), reverse=True)
+    method_key, method_other = normalize_response_method(case.response_method)
     return render_template(
         'admin/grievance_detail.html',
         case=case, sub=case.submission, reviewers=reviewers,
@@ -1019,6 +1080,9 @@ def detail(case_id: int):
         can_review=has_permission('grievances.review'),
         can_assign=has_permission('grievances.assign'),
         can_attach=has_permission('grievances.attach'),
+        response_methods=RESPONSE_METHODS,
+        response_method_key=method_key, response_method_other=method_other,
+        response_method_display=response_method_label(case.response_method),
     )
 
 
@@ -1049,6 +1113,10 @@ def update_status(case_id: int):
     validates, generates and attaches the frozen closure report atomically
     (see close_case()); reopening clears closure state while preserving
     prior reports and outcome fields (see _reopen_case()).
+
+    The request may also carry the review textareas (findings, resolution,
+    guest-facing response); any changes there are saved before the status is
+    validated or changed, so closure always operates on the newest text.
     """
     db = _dbs()
     case = _get_case(db, case_id)
@@ -1058,17 +1126,32 @@ def update_status(case_id: int):
         return redirect(url_for('grievances.detail', case_id=case.id))
     actor_label, actor_user_id = _actor()
     old_status = case.status
-    if new_status == old_status:
-        flash('Status unchanged.', 'info')
-        return redirect(url_for('grievances.detail', case_id=case.id))
     # Closing and reopening carry their own permission on top of review
     if (new_status == 'closed' or old_status == 'closed') and not has_permission('grievances.close'):
         return abort(403)
 
+    # The status form carries the current review textareas, so text typed just
+    # before the click can never be lost to autosave timing. Commit any changes
+    # up front: closure validation then sees the newest text, and a rejected
+    # status change still keeps what was typed.
+    if old_status != 'closed':
+        if _apply_review_fields(db, case, request.form, actor_label, actor_user_id):
+            db.commit()
+
+    try:
+        method = parse_response_method(request.form)
+    except ValueError as exc:
+        flash(str(exc), 'danger')
+        return redirect(url_for('grievances.detail', case_id=case.id))
+
+    if new_status == old_status:
+        flash('Status unchanged.', 'info')
+        return redirect(url_for('grievances.detail', case_id=case.id))
+
     if new_status == 'closed':
         try:
             close_case(db, case, actor_label=actor_label, actor_user_id=actor_user_id,
-                      response_method=request.form.get('response_method'))
+                      response_method=method)
         except ClosureValidationError as exc:
             flash('This grievance cannot be closed yet:', 'danger')
             for msg in exc.errors:
@@ -1091,6 +1174,14 @@ def update_status(case_id: int):
         flash(f'Case reopened. Status set to {STATUSES[new_status]}.', 'success')
         return redirect(url_for('grievances.detail', case_id=case.id))
 
+    # Statuses asserting a response happened need the method on record
+    # (closure enforces this itself via CLOSURE_REQUIRED_FIELDS).
+    if (new_status in STATUSES_REQUIRING_RESPONSE_METHOD
+            and not method and not case.response_method):
+        flash('Please record how the response was provided before marking '
+              f'the case {STATUSES[new_status]}.', 'danger')
+        return redirect(url_for('grievances.detail', case_id=case.id))
+
     # Ordinary non-closure transition: later statuses backfill earlier
     # milestone timestamps so a case can skip straight to a later stage.
     now = datetime.utcnow()
@@ -1099,9 +1190,8 @@ def update_status(case_id: int):
         case.acknowledged_at = now
     if new_status in RESPONSE_COMPLETE_STATUSES and not case.response_provided_at:
         case.response_provided_at = now
-    response_method = (request.form.get('response_method') or '').strip()
-    if response_method:
-        case.response_method = response_method
+    if method:
+        case.response_method = method
     if new_status == 'additional_review':
         _stamp_additional_review(case, now)
     log_case_event(db, case, 'status_changed', actor_label=actor_label,
@@ -1173,29 +1263,54 @@ def add_note(case_id: int):
     return redirect(url_for('grievances.detail', case_id=case.id))
 
 
-@bp.route('/<int:case_id>/review', methods=['POST'])
-@permission_required('grievances.review')
-def save_review(case_id: int):
-    """Save findings, resolution, guest-facing response, and closure notes."""
-    db = _dbs()
-    case = _get_case(db, case_id)
-    if not ensure_case_editable(case):
-        return redirect(url_for('grievances.detail', case_id=case.id))
-    actor_label, actor_user_id = _actor()
+def _apply_review_fields(db, case: GrievanceCase, form,
+                         actor_label: str, actor_user_id: int | None) -> list[str]:
+    """Apply submitted review-field changes and log one event (does not commit).
+
+    Only fields present in the form are touched, and the review_updated event
+    is logged only when a stored value actually changes — so autosave traffic
+    never floods the timeline.
+    """
     changed = []
-    for field in ('findings', 'resolution', 'guest_facing_response', 'closure_notes'):
-        if field in request.form:
-            new_val = (request.form.get(field) or '').strip() or None
+    for field in REVIEW_FIELDS:
+        if field in form:
+            new_val = (form.get(field) or '').strip() or None
             if new_val != getattr(case, field):
                 setattr(case, field, new_val)
                 changed.append(field)
-    if not changed:
-        flash('No changes to save.', 'info')
+    if changed:
+        log_case_event(db, case, 'review_updated', actor_label=actor_label,
+                       actor_user_id=actor_user_id, meta={'fields': changed})
+    return changed
+
+
+@bp.route('/<int:case_id>/review', methods=['POST'])
+@permission_required('grievances.review')
+def save_review(case_id: int):
+    """Save findings, resolution, and the guest-facing response.
+
+    Answers with JSON when the client sends Accept: application/json (the
+    autosave path); otherwise behaves as the classic form post.
+    """
+    db = _dbs()
+    case = _get_case(db, case_id)
+    wants_json = 'application/json' in (request.headers.get('Accept') or '')
+    if case.status == 'closed':
+        if wants_json:
+            return {'ok': False,
+                    'error': 'This grievance is closed and read-only.'}, 409
+        ensure_case_editable(case)
         return redirect(url_for('grievances.detail', case_id=case.id))
-    log_case_event(db, case, 'review_updated', actor_label=actor_label,
-                   actor_user_id=actor_user_id, meta={'fields': changed})
-    db.commit()
-    flash('Review details saved.', 'success')
+    actor_label, actor_user_id = _actor()
+    changed = _apply_review_fields(db, case, request.form, actor_label, actor_user_id)
+    if changed:
+        db.commit()
+    if wants_json:
+        return {'ok': True, 'changed': changed}
+    if changed:
+        flash('Review details saved.', 'success')
+    else:
+        flash('No changes to save.', 'info')
     return redirect(url_for('grievances.detail', case_id=case.id))
 
 

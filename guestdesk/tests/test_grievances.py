@@ -181,7 +181,6 @@ def test_status_lifecycle_stamps_timestamps(monkeypatch, tmp_path):
         "findings": "Findings text.",
         "resolution": "Resolution text.",
         "guest_facing_response": "Guest response text.",
-        "closure_notes": "Closure notes text.",
     })
     client.post(f"/admin/grievances/{case_id}/status", data={"status": "closed"})
     with app.app_context():
@@ -631,6 +630,194 @@ def test_pdf_backfill_script_idempotent(monkeypatch, tmp_path):
         assert "Guest Old" in text and "Source: Guest digital form" in text
 
 
+# ---------- Autosave, atomic status saves, response-method dropdown ----------
+
+def _simple_case(app):
+    with app.test_client() as guest:
+        guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
+    with app.app_context():
+        return app.dbs().query(GrievanceCase).one().id
+
+
+def test_review_autosave_returns_json_and_logs_once(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    case_id = _simple_case(app)
+    resp = client.post(
+        f"/admin/grievances/{case_id}/review",
+        data={"findings": "Spoke with staff.", "resolution": "Retraining.",
+              "guest_facing_response": "We addressed your concern."},
+        headers={"Accept": "application/json"},
+    )
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["ok"] is True
+    assert set(body["changed"]) == {"findings", "resolution", "guest_facing_response"}
+    # identical resubmission changes nothing and logs no timeline event
+    resp = client.post(
+        f"/admin/grievances/{case_id}/review",
+        data={"findings": "Spoke with staff.", "resolution": "Retraining.",
+              "guest_facing_response": "We addressed your concern."},
+        headers={"Accept": "application/json"},
+    )
+    assert resp.get_json() == {"ok": True, "changed": []}
+    with app.app_context():
+        db = app.dbs()
+        case = db.get(GrievanceCase, case_id)
+        assert case.findings == "Spoke with staff."
+        events = db.query(GrievanceEvent).filter_by(
+            case_id=case_id, event_type="review_updated").all()
+        assert len(events) == 1
+
+
+def test_review_no_longer_accepts_closure_notes(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    case_id = _simple_case(app)
+    client.post(f"/admin/grievances/{case_id}/review",
+                data={"closure_notes": "Should be ignored."})
+    with app.app_context():
+        assert app.dbs().get(GrievanceCase, case_id).closure_notes is None
+    # the input is gone from the form too
+    assert b'name="closure_notes"' not in client.get(f"/admin/grievances/{case_id}").data
+
+
+def test_legacy_closure_notes_still_displayed(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    case_id = _simple_case(app)
+    with app.app_context():
+        db = app.dbs()
+        db.get(GrievanceCase, case_id).closure_notes = "Old closure note text."
+        db.commit()
+    body = client.get(f"/admin/grievances/{case_id}").data
+    assert b"Legacy closure note" in body
+    assert b"Old closure note text." in body
+
+
+def test_status_change_applies_review_fields_atomically(monkeypatch, tmp_path):
+    # Text riding along with the close request must be applied before closure
+    # validation runs and must appear in the frozen report, so closing right
+    # after typing never loses or ignores the newest text.
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    case_id = _simple_case(app)
+    reviewer_id = _make_reviewer(app, case_id)
+    client.post(f"/admin/grievances/{case_id}/assign",
+               data={"assigned_reviewer_id": str(reviewer_id)})
+    client.post(
+        f"/admin/grievances/{case_id}/status",
+        data={"status": "closed", "response_method": "email",
+              "findings": "Final findings.", "resolution": "Final resolution.",
+              "guest_facing_response": "Final response."},
+    )
+    with app.app_context():
+        db = app.dbs()
+        case = db.get(GrievanceCase, case_id)
+        assert case.status == "closed"
+        assert case.findings == "Final findings."
+        assert case.guest_facing_response == "Final response."
+        att = db.query(GrievanceAttachment).filter_by(
+            case_id=case_id, attachment_type=CLOSURE_REPORT_TYPE).one()
+        report_path = att.storage_path
+        types = [e.event_type for e in db.query(GrievanceEvent).filter_by(case_id=case_id)]
+        assert "review_updated" in types and "status_changed" in types
+    text = _pdf_text(report_path)
+    assert "Final findings." in text and "Final response." in text
+
+
+def test_rejected_status_change_still_saves_review_text(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    case_id = _simple_case(app)
+    # closure blocked (no reviewer/response), but the typed text must survive
+    resp = client.post(
+        f"/admin/grievances/{case_id}/status",
+        data={"status": "closed", "findings": "Typed just before closing."},
+        follow_redirects=True,
+    )
+    assert b"cannot be closed yet" in resp.data
+    with app.app_context():
+        case = app.dbs().get(GrievanceCase, case_id)
+        assert case.status == "received"
+        assert case.findings == "Typed just before closing."
+
+
+def test_response_method_required_for_response_statuses(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    case_id = _simple_case(app)
+    resp = client.post(f"/admin/grievances/{case_id}/status",
+                       data={"status": "response_provided"}, follow_redirects=True)
+    assert b"record how the response was provided" in resp.data
+    with app.app_context():
+        case = app.dbs().get(GrievanceCase, case_id)
+        assert case.status == "received" and case.response_provided_at is None
+    # not required for the early lifecycle statuses
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "acknowledged"})
+    with app.app_context():
+        assert app.dbs().get(GrievanceCase, case_id).status == "acknowledged"
+
+
+def test_response_method_rejects_values_outside_dropdown(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    case_id = _simple_case(app)
+    resp = client.post(
+        f"/admin/grievances/{case_id}/status",
+        data={"status": "response_provided", "response_method": "carrier pigeon"},
+        follow_redirects=True,
+    )
+    assert b"choose a response method" in resp.data
+    with app.app_context():
+        case = app.dbs().get(GrievanceCase, case_id)
+        assert case.status == "received" and case.response_method is None
+
+
+def test_other_response_method_stores_detail(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    case_id = _simple_case(app)
+    client.post(
+        f"/admin/grievances/{case_id}/status",
+        data={"status": "response_provided", "response_method": "other",
+              "response_method_other": "Carrier pigeon"},
+    )
+    with app.app_context():
+        assert app.dbs().get(GrievanceCase, case_id).response_method == "Other: Carrier pigeon"
+    body = client.get(f"/admin/grievances/{case_id}").data
+    assert b"Other: Carrier pigeon" in body
+
+
+def test_normalize_response_method_handles_legacy_values():
+    from guestdesk.grievances import normalize_response_method, response_method_label
+
+    assert normalize_response_method(None) == ("", "")
+    assert normalize_response_method("phone") == ("phone", "")
+    assert normalize_response_method("in person") == ("in_person", "")
+    assert normalize_response_method("Other: Carrier pigeon") == ("other", "Carrier pigeon")
+    assert normalize_response_method("smoke signals") == ("other", "smoke signals")
+    assert response_method_label("in_person") == "In person"
+    assert response_method_label("Other: Carrier pigeon") == "Other: Carrier pigeon"
+
+
+def test_closed_case_review_autosave_gets_conflict(monkeypatch, tmp_path):
+    app = _make_app(monkeypatch, tmp_path)
+    client = _admin_client(app)
+    case_id = _simple_case(app)
+    _prepare_case_for_closure(app, client, case_id)
+    client.post(f"/admin/grievances/{case_id}/status", data={"status": "closed"})
+    resp = client.post(
+        f"/admin/grievances/{case_id}/review",
+        data={"findings": "Sneaky edit after closure."},
+        headers={"Accept": "application/json"},
+    )
+    assert resp.status_code == 409
+    assert resp.get_json()["ok"] is False
+    with app.app_context():
+        assert app.dbs().get(GrievanceCase, case_id).findings != "Sneaky edit after closure."
+
+
 # ---------- Closure workflow ----------
 
 def _make_reviewer(app, suffix):
@@ -654,12 +841,11 @@ def _prepare_case_for_closure(app, client, case_id, **field_overrides):
     client.post(f"/admin/grievances/{case_id}/assign",
                data={"assigned_reviewer_id": str(reviewer_id)})
     client.post(f"/admin/grievances/{case_id}/status",
-               data={"status": "response_provided", "response_method": "in person"})
+               data={"status": "response_provided", "response_method": "in_person"})
     fields = {
         "findings": "Investigated the claim thoroughly.",
         "resolution": "Corrected the underlying issue.",
         "guest_facing_response": "We addressed your concern and apologize for the inconvenience.",
-        "closure_notes": "Closed after supervisor review.",
     }
     fields.update(field_overrides)
     client.post(f"/admin/grievances/{case_id}/review", data=fields)
@@ -674,14 +860,14 @@ def test_response_provided_backfills_acknowledgement(monkeypatch, tmp_path):
     with app.app_context():
         case_id = app.dbs().query(GrievanceCase).one().id
     client.post(f"/admin/grievances/{case_id}/status",
-               data={"status": "response_provided", "response_method": "in person"})
+               data={"status": "response_provided", "response_method": "in_person"})
     with app.app_context():
         case = app.dbs().get(GrievanceCase, case_id)
         assert case.status == "response_provided"
         assert case.acknowledged_at is not None
         assert case.response_provided_at is not None
         assert case.acknowledged_at == case.response_provided_at
-        assert case.response_method == "in person"
+        assert case.response_method == "in_person"
 
 
 def test_additional_review_backfills_earlier_milestones(monkeypatch, tmp_path):
@@ -691,7 +877,8 @@ def test_additional_review_backfills_earlier_milestones(monkeypatch, tmp_path):
         guest.post("/submit/grievance", data={"description": "Complaint.", "name": "G"})
     with app.app_context():
         case_id = app.dbs().query(GrievanceCase).one().id
-    client.post(f"/admin/grievances/{case_id}/status", data={"status": "additional_review"})
+    client.post(f"/admin/grievances/{case_id}/status",
+               data={"status": "additional_review", "response_method": "phone"})
     with app.app_context():
         case = app.dbs().get(GrievanceCase, case_id)
         assert case.status == "additional_review"
@@ -715,7 +902,7 @@ def test_closure_blocked_when_required_fields_missing(monkeypatch, tmp_path):
     assert b"Findings are required" in resp.data
     assert b"Resolution is required" in resp.data
     assert b"Guest-facing response is required" in resp.data
-    assert b"Closure notes are required" in resp.data
+    assert b"Closure notes" not in resp.data
     with app.app_context():
         case = app.dbs().get(GrievanceCase, case_id)
         assert case.status != "closed"
@@ -734,7 +921,6 @@ def test_closure_blocked_missing_single_fields(monkeypatch, tmp_path):
         ("findings", "Findings are required."),
         ("resolution", "Resolution is required."),
         ("guest_facing_response", "Guest-facing response is required."),
-        ("closure_notes", "Closure notes are required."),
     ]
     for missing_field, message in required:
         app = _make_app(monkeypatch, tmp_path / missing_field)
@@ -807,7 +993,7 @@ def test_closure_report_pdf_content(monkeypatch, tmp_path):
     assert "Investigated the claim thoroughly." in text
     assert "Corrected the underlying issue." in text
     assert "We addressed your concern and apologize for the inconvenience." in text
-    assert "Closed after supervisor review." in text
+    assert "Closure notes" not in text
     assert "Final Grievance" in text and "Case Report" in text
     if closer:
         assert closer in text
