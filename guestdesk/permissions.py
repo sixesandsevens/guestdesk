@@ -29,6 +29,10 @@ PERMISSION_GROUPS = [
         ('displays.view', 'View display admin'),
         ('displays.edit', 'Edit displays and slideshows'),
     ]),
+    ('Fun Zone', [
+        ('funzone.view', 'View Fun Zone joke admin'),
+        ('funzone.edit', 'Add, edit, and delete Fun Zone jokes'),
+    ]),
     ('Submissions', [
         ('submissions.view', 'View form submissions'),
         ('submissions.manage', 'Manage form submissions'),
@@ -58,6 +62,7 @@ PRESETS = {
     'Viewer': [],
     'Services Editor': ['services.view', 'services.edit'],
     'Display Editor': ['displays.view', 'displays.edit'],
+    'Fun Zone Editor': ['funzone.view', 'funzone.edit'],
     'Grievance Intake Staff': ['grievances.create'],
     'Grievance Reviewer': ['grievances.view', 'grievances.review',
                            'grievances.attach', 'grievances.close'],

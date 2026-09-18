@@ -175,6 +175,22 @@ class GameScore(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
+class Joke(Base):
+    """A locally curated, admin-reviewed Fun Zone joke.
+
+    Content is never fetched live from an external service; every row here
+    has been reviewed for the guest audience before it can be shown.
+    """
+    __tablename__ = 'jokes'
+    id = Column(Integer, primary_key=True)
+    setup = Column(Text, nullable=False, default='')
+    punchline = Column(Text, nullable=False, default='')
+    enabled = Column(Boolean, nullable=False, default=True, index=True)
+    source = Column(String(120), nullable=True)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class AnalyticsEvent(Base):
     """Stored analytics event emitted by the optional front-end tracker."""
     __tablename__ = "analytics_events"

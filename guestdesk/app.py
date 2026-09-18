@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import csv
 import math
+import random
 from datetime import datetime, timedelta, timezone, time as dtime
 import secrets
 import hashlib
@@ -56,6 +57,7 @@ from .models import (
     Setting,
     FormPDFConfig,
     GameScore,
+    Joke,
     UserContact,
     PasswordResetToken,
     GrievanceCase,
@@ -1315,6 +1317,8 @@ def create_app():
     # (Removed) PDF grievance health endpoint
 
     # ----- Fun zone -----
+    # Safe fallback content used when the local joke table is empty or a
+    # lookup fails, and when live quote/trivia fetches don't pan out.
     OFFLINE_JOKES = [
         "Why did the server go to therapy? Too many unresolved requests.",
         "I told the electrician a joke. He was shocked.",
@@ -1333,46 +1337,146 @@ def create_app():
         ("Which planet is known as the Red Planet?", "Mars"),
     ]
 
-    # Simple in-memory cache for Fun Zone content
+    # Curated starter collection seeded into the `jokes` table on first run
+    # only (see _seed_default_jokes below). Every entry here has been
+    # reviewed for a general-audience, shelter-guest portal.
+    CURATED_JOKES = [
+        ("Why did the server go to therapy?", "Too many unresolved requests."),
+        ("I told the electrician a joke.", "He was shocked."),
+        ("I tried to catch some fog.", "I mist."),
+        ("Parallel lines have so much in common.", "It’s a shame they’ll never meet."),
+        ("Why don't skeletons fight each other?", "They don't have the guts."),
+        ("I used to be a baker.", "But I couldn't make enough dough."),
+        ("Why did the scarecrow win an award?", "He was outstanding in his field."),
+        ("I'm reading a book about anti-gravity.", "It's impossible to put down."),
+        ("Why don't eggs tell jokes?", "They'd crack each other up."),
+        ("What do you call fake spaghetti?", "An impasta."),
+        ("Why did the computer go to the doctor?", "Because it caught a virus."),
+        ("I would tell you a joke about UDP.", "But you might not get it."),
+        ("There are 10 types of people in the world.", "Those who understand binary and those who don't."),
+        ("Why do programmers prefer dark mode?", "Because light attracts bugs."),
+        ("My Wi-Fi went down for five minutes.", "So I had to talk to my family. They seem like nice people."),
+        ("Why was the maintenance tech always calm under pressure?", "Years of practice with the pipes."),
+        ("I fixed the leaky faucet.", "Now it just won't stop dripping compliments."),
+        ("Why did the toolbox look stressed?", "It had a lot of tension, mostly in the wrenches."),
+        ("Why don't ladders ever get invited to parties?", "They're always up to something."),
+        ("What do you call a factory that makes just okay products?", "A satisfactory."),
+        ("Why did the dog sit in the shade?", "He didn't want to turn into a hot dog."),
+        ("What do you call a bear with no teeth?", "A gummy bear."),
+        ("Why do cows wear bells?", "Because their horns don't work."),
+        ("What do you call a sleeping bull?", "A bulldozer."),
+        ("Why did the cat sit on the computer?", "To keep an eye on the mouse."),
+        ("What do you get when you cross a snowman and a vampire?", "Frostbite."),
+        ("Why did the bicycle fall over?", "It was two-tired."),
+        ("What do you call a can opener that doesn't work?", "A can't opener."),
+        ("I only know 25 letters of the alphabet.", "I don't know y."),
+        ("What do you call cheese that isn't yours?", "Nacho cheese."),
+        ("Why couldn't the pony sing a lullaby?", "It was a little hoarse."),
+        ("What did the ocean say to the shore?", "Nothing, it just waved."),
+        ("Why did the golfer bring two pairs of pants?", "In case he got a hole in one."),
+        ("What do you call a fish that wears a bowtie?", "Sofishticated."),
+        ("What's orange and sounds like a parrot?", "A carrot."),
+        ("Why don't scientists trust atoms?", "Because they make up everything."),
+        ("What do you call a belt made of watches?", "A waist of time."),
+        ("Why did the printer and the copier break up?", "It felt like it was being duplicated."),
+        ("What did one wall say to the other wall?", "I'll meet you at the corner."),
+        ("Why did the janitor's broom get a promotion?", "It really swept the competition."),
+    ]
+
+    def _seed_default_jokes() -> None:
+        """Populate the jokes table with the curated starter set, once."""
+        db = dbs()
+        try:
+            if db.query(Joke).count() > 0:
+                return
+            for setup, punchline in CURATED_JOKES:
+                db.add(Joke(setup=setup, punchline=punchline, enabled=True))
+            db.commit()
+        except Exception:
+            db.rollback()
+            app.logger.exception("Fun Zone joke seed failed")
+        finally:
+            db.close()
+
+    try:
+        _seed_default_jokes()
+    except Exception:
+        app.logger.exception("Fun Zone joke seed failed")
+
+    # Short-term, in-memory "last shown" tracker so we don't immediately
+    # repeat a joke when other enabled jokes are available. Intentionally
+    # not persisted; resets on restart.
+    _last_joke_id: dict = {"id": None}
+
+    def _pick_local_joke():
+        """Return (joke_id, display_text) for a random enabled local joke.
+
+        Never contacts an external service. Falls back to the safe offline
+        list when the collection is empty or the database query fails.
+        """
+        try:
+            db = dbs()
+        except Exception:
+            app.logger.exception("Fun Zone joke store unavailable")
+            return None, random.choice(OFFLINE_JOKES)
+        try:
+            rows = db.query(Joke).filter(Joke.enabled.is_(True)).all()
+        except Exception:
+            app.logger.exception("Fun Zone joke query failed")
+            rows = []
+        finally:
+            try:
+                db.close()
+            except Exception:
+                pass
+
+        if not rows:
+            return None, random.choice(OFFLINE_JOKES)
+
+        candidates = [r for r in rows if r.id != _last_joke_id["id"]] or rows
+        choice = random.choice(candidates)
+        _last_joke_id["id"] = choice.id
+        setup = (choice.setup or '').strip()
+        punch = (choice.punchline or '').strip()
+        text = f"{setup} {'— ' if setup and punch else ''}{punch}".strip()
+        return choice.id, (text or random.choice(OFFLINE_JOKES))
+
+    # Exposed for tests: lets the picker be exercised directly, bypassing
+    # the request-level cache below.
+    app._pick_local_joke = _pick_local_joke
+
+    # Simple in-memory cache for Fun Zone content. Each piece tracks its own
+    # freshness independently: the local joke rotates on its own schedule
+    # and can never get stuck waiting on the quote/trivia network fetches.
     FUN_CACHE_TTL = timedelta(minutes=5)
     fun_cache = {
-        "at": None,
-        "live": False,
-        "joke": None, "joke_live": False,
-        "quote": None, "quote_live": False,
-        "trivia_q": None, "trivia_a": None, "trivia_live": False,
+        "joke": None, "joke_at": None,
+        "quote": None, "quote_at": None,
+        "trivia_q": None, "trivia_a": None, "trivia_at": None,
     }
 
     @app.route('/fun')
     def fun():
         """Serve light entertainment (joke, quote, trivia) for the guest portal."""
-        import random
-        # Serve cached live pieces; retry fetching for anything not live or stale
         now = datetime.utcnow()
-        fresh = fun_cache["at"] and (now - fun_cache["at"]) < FUN_CACHE_TTL
-        joke = fun_cache["joke"] if (fresh and fun_cache.get("joke_live")) else None
-        quote = fun_cache["quote"] if (fresh and fun_cache.get("quote_live")) else None
-        trivia_q = fun_cache["trivia_q"] if (fresh and fun_cache.get("trivia_live")) else None
-        trivia_a = fun_cache["trivia_a"] if (fresh and fun_cache.get("trivia_live")) else None
-        # Try live sources first with short timeouts; fall back to offline lists.
-        # Keep track of what we fetch live during this request
-        joke_live = False
-        quote_live = False
-        trivia_live = False
 
-        # Track which items came from live sources
-        # Joke: Official Joke API
+        def _fresh(ts):
+            return bool(ts) and (now - ts) < FUN_CACHE_TTL
+
+        joke = fun_cache["joke"] if _fresh(fun_cache["joke_at"]) else None
+        quote = fun_cache["quote"] if _fresh(fun_cache["quote_at"]) else None
+        trivia_q = fun_cache["trivia_q"] if _fresh(fun_cache["trivia_at"]) else None
+        trivia_a = fun_cache["trivia_a"] if _fresh(fun_cache["trivia_at"]) else None
+
+        # Joke: local curated collection only, never an external service.
         if joke is None:
             try:
-                with urlreq.urlopen('https://official-joke-api.appspot.com/random_joke', timeout=1.5) as resp:
-                    data = json.loads(resp.read().decode('utf-8'))
-                    setup = (data.get('setup') or '').strip()
-                    punch = (data.get('punchline') or '').strip()
-                    if setup or punch:
-                        joke = f"{setup} {'— ' if setup and punch else ''}{punch}".strip()
-                        joke_live = True
+                joke_id, joke = _pick_local_joke()
             except Exception:
-                pass
+                app.logger.exception("Fun Zone joke selection failed")
+                joke_id, joke = None, random.choice(OFFLINE_JOKES)
+            app.logger.info("Fun Zone selected joke_id=%s", joke_id)
+            fun_cache["joke"], fun_cache["joke_at"] = joke, now
 
         # Quote: Quotable API
         if quote is None:
@@ -1385,7 +1489,7 @@ def create_app():
                         quote = f"{content}"
                         if author:
                             quote += f" — {author}"
-                        quote_live = True
+                        fun_cache["quote"], fun_cache["quote_at"] = quote, now
             except Exception:
                 pass
 
@@ -1400,7 +1504,7 @@ def create_app():
                         a = htmlmod.unescape(results[0].get('correct_answer') or '')
                         if q and a:
                             trivia_q, trivia_a = q, a
-                            trivia_live = True
+                            fun_cache["trivia_q"], fun_cache["trivia_a"], fun_cache["trivia_at"] = q, a, now
             except Exception:
                 pass
 
@@ -1411,16 +1515,6 @@ def create_app():
             quote = random.choice(OFFLINE_QUOTES)
         if not (trivia_q and trivia_a):
             trivia_q, trivia_a = random.choice(OFFLINE_TRIVIA)
-
-        # Update cache; only mark fresh if any live content fetched
-        any_live = joke_live or quote_live or trivia_live
-        fun_cache.update({
-            "at": (now if any_live else fun_cache.get("at")),
-            "live": any_live or fun_cache.get("live", False),
-            "joke": joke, "joke_live": joke_live or fun_cache.get("joke_live", False),
-            "quote": quote, "quote_live": quote_live or fun_cache.get("quote_live", False),
-            "trivia_q": trivia_q, "trivia_a": trivia_a, "trivia_live": trivia_live or fun_cache.get("trivia_live", False),
-        })
 
         return render_template('fun.html', joke=joke, quote=quote, trivia_q=trivia_q, trivia_a=trivia_a)
 
@@ -1436,6 +1530,95 @@ def create_app():
         except Exception:
             pass
         return html
+
+    # ----- Fun Zone joke admin -----
+    JOKE_FIELD_MAX = 300
+
+    def _clean_joke_field(value: str | None) -> str:
+        """Trim whitespace and cap length on submitted joke text."""
+        return (value or '').strip()[:JOKE_FIELD_MAX]
+
+    @app.route('/admin/jokes')
+    @permission_required('funzone.view')
+    def admin_jokes():
+        """List curated Fun Zone jokes for admin review."""
+        db = dbs()
+        rows = db.query(Joke).order_by(Joke.id.desc()).all()
+        return render_template('admin/jokes.html', rows=rows)
+
+    @app.route('/admin/jokes/new', methods=['GET', 'POST'])
+    @permission_required('funzone.edit')
+    def admin_jokes_new():
+        """Create a new curated joke from the admin form."""
+        if request.method == 'POST':
+            setup = _clean_joke_field(request.form.get('setup'))
+            punchline = _clean_joke_field(request.form.get('punchline'))
+            source = _clean_joke_field(request.form.get('source')) or None
+            enabled = bool(request.form.get('enabled'))
+            if not setup and not punchline:
+                flash(_('Enter a setup, a punchline, or both.'), 'danger')
+                return render_template(
+                    'admin/joke_new.html',
+                    setup=setup, punchline=punchline, source=source or '', enabled=enabled,
+                )
+            db = dbs()
+            j = Joke(setup=setup, punchline=punchline, source=source, enabled=enabled)
+            db.add(j)
+            db.commit()
+            audit_log(
+                "joke.create",
+                actor=audit_actor(),
+                obj=j.id,
+                after={"setup": j.setup, "punchline": j.punchline, "enabled": j.enabled},
+            )
+            flash(_('Joke created.'), 'success')
+            return redirect(url_for('admin_jokes'))
+        return render_template('admin/joke_new.html', setup='', punchline='', source='', enabled=True)
+
+    @app.route('/admin/jokes/<int:jid>/edit', methods=['GET', 'POST'])
+    @permission_required('funzone.edit')
+    def admin_jokes_edit(jid: int):
+        """Edit an existing curated joke's text, source, and enabled status."""
+        db = dbs()
+        j = db.get(Joke, jid)
+        if not j:
+            abort(404)
+        if request.method == 'POST':
+            setup = _clean_joke_field(request.form.get('setup'))
+            punchline = _clean_joke_field(request.form.get('punchline'))
+            if not setup and not punchline:
+                flash(_('Enter a setup, a punchline, or both.'), 'danger')
+                return render_template('admin/joke_edit.html', joke=j)
+            before = {"setup": j.setup, "punchline": j.punchline, "enabled": j.enabled}
+            j.setup = setup
+            j.punchline = punchline
+            j.source = _clean_joke_field(request.form.get('source')) or None
+            j.enabled = bool(request.form.get('enabled'))
+            db.commit()
+            audit_log(
+                "joke.update",
+                actor=audit_actor(),
+                obj=j.id,
+                before=before,
+                after={"setup": j.setup, "punchline": j.punchline, "enabled": j.enabled},
+            )
+            flash(_('Joke updated.'), 'success')
+            return redirect(url_for('admin_jokes'))
+        return render_template('admin/joke_edit.html', joke=j)
+
+    @app.route('/admin/jokes/<int:jid>/delete', methods=['POST'])
+    @permission_required('funzone.edit')
+    def admin_jokes_delete(jid: int):
+        """Delete a curated joke and emit an audit log entry."""
+        db = dbs()
+        j = db.get(Joke, jid)
+        if j:
+            before = {"setup": j.setup, "punchline": j.punchline}
+            db.delete(j)
+            db.commit()
+            audit_log("joke.delete", actor=audit_actor(), obj=jid, before=before)
+            flash(_('Joke deleted.'), 'success')
+        return redirect(url_for('admin_jokes'))
 
     # ----- Arcade leaderboards (Snake/Tetris) -----
     @app.route('/arcade/scores/<game>', methods=['GET'])
@@ -1772,14 +1955,18 @@ def create_app():
         # Admin/editor dashboard
         svc_count = 0
         ann_count = 0
+        joke_count = 0
         try:
             db = dbs()
             svc_count = db.query(Service).count()
             ann_count = db.query(Announcement).count()
+            joke_count = db.query(Joke).count()
         except Exception as e:
             # Log and continue with defaults
             app.logger.exception("Admin dashboard load failed: %s", e)
-        return render_template('admin/index.html', svc_count=svc_count, ann_count=ann_count)
+        return render_template(
+            'admin/index.html', svc_count=svc_count, ann_count=ann_count, joke_count=joke_count,
+        )
 
     # --- manage services ---
     @app.route('/admin/analytics')

@@ -13,6 +13,9 @@
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('display.admin_displays') }}">Displays</a></div>
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('display.admin_slideshows') }}">Slideshows</a></div>
   {% endif %}
+  {% if has_permission('funzone.view') %}
+  <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_jokes') }}">Fun Zone Jokes ({{ joke_count }})</a></div>
+  {% endif %}
   {% if has_permission('submissions.view') %}
   <div class="col-md-3"><a class="btn btn-outline-primary w-100" href="{{ url_for('admin_submissions') }}">Submissions</a></div>
   {% endif %}
