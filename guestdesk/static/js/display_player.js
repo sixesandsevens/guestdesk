@@ -9,6 +9,7 @@
   const CACHE_MAX_AGE = 15 * 60 * 1000;
   let lastMidnightRetry = 0;
   let sequence = 0;
+  let suspended = false;
 
   const keyOf = s => s.key || `slide:${s.id}`;
   const now = () => new Date(serverEpoch + performance.now() - anchor);
@@ -203,6 +204,8 @@
 
   function planNext() {
     if (rotationTimer !== null) clearTimeout(rotationTimer);
+    rotationTimer = null;
+    if (suspended) return;
     if (!slides.length) { message(emptyMessage()); return; }
     let index = slides.findIndex(s => keyOf(s) === current);
     if (index < 0) index = Math.min(currentIndex, slides.length - 1);
@@ -246,7 +249,7 @@
       }
       slides = incoming;
       showRefreshNotice(data.schedule_state === 'unavailable');
-      if (rotationTimer === null) planNext();
+      if (rotationTimer === null && !suspended) planNext();
     } catch (error) {
       // Keep existing clock and manual slides. Never carry schedule into a new day.
       if (cachedSchedule && metadata.local_date &&
@@ -256,9 +259,23 @@
         metadata.schedule_state = 'unavailable';
       } else slides = slides.map(s => s.type === 'schedule' ? {...s, stale: true} : s);
       showRefreshNotice(true);
-      if (rotationTimer === null) planNext();
+      if (rotationTimer === null && !suspended) planNext();
     } finally { fetching = false; }
   }
+
+  window.GuestDeskSlideshow = {
+    suspend() {
+      suspended = true;
+      if (rotationTimer !== null) clearTimeout(rotationTimer);
+      rotationTimer = null;
+      root.querySelectorAll('video').forEach(video => video.pause());
+    },
+    resume() {
+      if (!suspended) return;
+      suspended = false;
+      planNext();
+    }
+  };
 
   refresh();
   setInterval(refresh, 60000);

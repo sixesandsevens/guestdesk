@@ -6,6 +6,7 @@ from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
 from functools import wraps
+from urllib.parse import urlparse, parse_qs
 
 from flask import (
     Blueprint, render_template, jsonify,
@@ -33,6 +34,40 @@ IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4"}
 ALLOWED_TRANSITIONS = {"fade"}
 SCHEDULE_PAGE_UNITS = 6
+YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+
+
+def youtube_video_id(raw: str) -> str:
+    """Accept an individual YouTube URL, never arbitrary iframe HTML or hosts."""
+    value = (raw or "").strip()
+    try:
+        parsed = urlparse(value)
+        host = (parsed.hostname or "").lower()
+        invalid_authority = bool(parsed.username or parsed.password or parsed.port)
+    except ValueError:
+        raise ValueError("Enter a valid individual YouTube video URL.") from None
+    if parsed.scheme not in {"http", "https"} or invalid_authority:
+        raise ValueError("Enter a YouTube watch, short, or embed URL.")
+    if host in {"youtube.com", "www.youtube.com", "m.youtube.com",
+                "www.youtube-nocookie.com"}:
+        parts = parsed.path.strip("/").split("/")
+        if parsed.path == "/watch" and host != "www.youtube-nocookie.com":
+            values = parse_qs(parsed.query).get("v", [])
+            candidate = values[0] if len(values) == 1 else ""
+        elif len(parts) == 2 and parts[0] in (
+            {"embed"} if host == "www.youtube-nocookie.com" else {"embed", "shorts"}
+        ):
+            candidate = parts[1]
+        else:
+            candidate = ""
+    elif host == "youtu.be":
+        parts = parsed.path.strip("/").split("/")
+        candidate = parts[0] if len(parts) == 1 else ""
+    else:
+        candidate = ""
+    if not YOUTUBE_ID.fullmatch(candidate):
+        raise ValueError("Enter a valid individual YouTube video URL.")
+    return candidate
 
 
 def ensure_slide_storage():
@@ -403,6 +438,35 @@ def slideshow_preview(ss_slug):
 
 
 # ---------- Admin: Displays ----------
+
+@bp.route("/admin/displays/youtube-test", methods=["GET", "POST"])
+@permission_required_rw('displays.view', 'displays.edit')
+def youtube_playback_test():
+    """Staff-only device test. It does not alter display configuration."""
+    cfg = load_config()
+    displays = {slug: item for slug, item in cfg["displays"].items()
+                if item.get("active", True)}
+    if request.method == "POST":
+        display_slug = request.form.get("display_slug", "")
+        if display_slug not in displays:
+            flash("Select an active display for the fallback slideshow.", "danger")
+            return redirect(url_for("display.youtube_playback_test"))
+        try:
+            video_id = youtube_video_id(request.form.get("video_url", ""))
+        except ValueError as exc:
+            flash(str(exc), "danger")
+            return redirect(url_for("display.youtube_playback_test"))
+        return redirect(url_for("display.youtube_playback_test",
+                                video_id=video_id, display_slug=display_slug))
+
+    video_id = request.args.get("video_id", "")
+    display_slug = request.args.get("display_slug", "")
+    if video_id and not YOUTUBE_ID.fullmatch(video_id):
+        abort(400)
+    if video_id and display_slug not in displays:
+        abort(400)
+    return render_template("admin/youtube_playback_test.html", displays=displays,
+                           video_id=video_id, display_slug=display_slug)
 
 @bp.route("/admin/displays", methods=["GET", "POST"])
 @permission_required_rw('displays.view', 'displays.edit')
