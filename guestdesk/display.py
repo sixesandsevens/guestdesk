@@ -277,6 +277,23 @@ def _duration(value, label):
     return int(value)
 
 
+def video_volume(value):
+    """Validate the requested YouTube volume before saving it."""
+    if not re.fullmatch(r"[0-9]{1,3}", str(value or "")) or not 1 <= int(value) <= 100:
+        raise ValueError("Video volume must be a whole number from 1 to 100.")
+    return int(value)
+
+
+def display_video_audio(display):
+    """Return safe defaults for displays created before audio settings existed."""
+    try:
+        volume = video_volume(display.get("video_volume", 50))
+    except ValueError:
+        volume = 50
+    return {"video_audio_enabled": display.get("video_audio_enabled") is True,
+            "video_volume": volume}
+
+
 def _local_now():
     tzname = current_app.config.get("BABEL_DEFAULT_TIMEZONE", "America/New_York")
     try:
@@ -399,7 +416,9 @@ def display_slides_api(display_slug):
 
     ss_slug = display.get("assigned_slideshow")
     slideshow = get_slideshow(cfg, ss_slug) if ss_slug else None
-    public_display_data = {k: v for k, v in display.items() if k != "video_windows"}
+    public_display_data = {k: v for k, v in display.items()
+                           if k not in {"video_windows", "video_audio_enabled", "video_volume"}}
+    public_display_data.update(display_video_audio(display))
     video_windows = playback_windows(display, cfg)
     if not slideshow:
         now, tzname, _ = _local_now()
@@ -527,11 +546,14 @@ def youtube_playback_test():
             return redirect(url_for("display.youtube_playback_test"))
         try:
             video_id = youtube_video_id(request.form.get("video_url", ""))
+            volume = video_volume(request.form.get("video_volume", "50"))
         except ValueError as exc:
             flash(str(exc), "danger")
             return redirect(url_for("display.youtube_playback_test"))
         return redirect(url_for("display.youtube_playback_test",
-                                video_id=video_id, display_slug=display_slug))
+                                video_id=video_id, display_slug=display_slug,
+                                audio="1" if "video_audio_enabled" in request.form else "0",
+                                volume=volume))
 
     video_id = request.args.get("video_id", "")
     display_slug = request.args.get("display_slug", "")
@@ -539,8 +561,14 @@ def youtube_playback_test():
         abort(400)
     if video_id and display_slug not in displays:
         abort(400)
+    audio_enabled = request.args.get("audio") == "1"
+    try:
+        volume = video_volume(request.args.get("volume", "50"))
+    except ValueError:
+        abort(400)
     return render_template("admin/youtube_playback_test.html", displays=displays,
-                           video_id=video_id, display_slug=display_slug)
+                           video_id=video_id, display_slug=display_slug,
+                           audio_enabled=audio_enabled, volume=volume)
 
 
 @bp.route("/admin/video-lists", methods=["GET", "POST"])
@@ -657,7 +685,17 @@ def admin_display_programming(display_slug):
     windows = display.setdefault("video_windows", [])
     if request.method == "POST":
         action = request.form.get("action")
-        if action in {"add_window", "edit_window"}:
+        if action == "audio_settings":
+            try:
+                volume = video_volume(request.form.get("video_volume"))
+            except ValueError as exc:
+                flash(str(exc), "danger")
+            else:
+                display["video_audio_enabled"] = "video_audio_enabled" in request.form
+                display["video_volume"] = volume
+                save_config(cfg)
+                flash("Scheduled video sound settings saved.", "success")
+        elif action in {"add_window", "edit_window"}:
             window_id = request.form.get("window_id", "") if action == "edit_window" else None
             index = next((i for i, item in enumerate(windows)
                           if item.get("id") == window_id), None) if window_id else None
@@ -712,6 +750,8 @@ def admin_displays():
                     "active": True,
                     "assigned_slideshow": request.form.get("assigned_slideshow") or None,
                     "video_windows": [],
+                    "video_audio_enabled": False,
+                    "video_volume": 50,
                 }
                 save_config(cfg)
                 flash("Display added.", "success")

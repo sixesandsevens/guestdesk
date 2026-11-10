@@ -72,6 +72,8 @@ class VideoProgrammingTests(unittest.TestCase):
         self.assertNotIn('video_windows', cfg['displays']['lobby'])
         api = self.client.get('/api/display-slides/lobby').get_json()
         self.assertEqual(api['video_windows'], [])
+        self.assertEqual(api['display']['video_audio_enabled'], False)
+        self.assertEqual(api['display']['video_volume'], 50)
         self.assertEqual([s['headline'] for s in api['slides']], ['Welcome'])
         preview = self.client.get('/slideshows/main/preview')
         self.assertNotIn(b'display_youtube.js', preview.data)
@@ -139,6 +141,36 @@ class VideoProgrammingTests(unittest.TestCase):
                 self.client.post(route, data=self.window_form(**changes))
                 self.assertEqual(display.load_config()['displays']['lobby'].get('video_windows', []), [])
 
+    def test_display_sound_settings_are_independent_and_validated(self):
+        self.admin()
+        cfg = display.load_config()
+        cfg['displays']['hall'] = {'name': 'Hall', 'active': True,
+                                   'assigned_slideshow': 'main'}
+        display.save_config(cfg)
+        route = '/admin/displays/lobby/programming'
+        self.client.post(route, data={'action': 'audio_settings',
+                                      'video_audio_enabled': 'on', 'video_volume': '35'})
+        saved = display.load_config()['displays']['lobby']
+        self.assertTrue(saved['video_audio_enabled'])
+        self.assertEqual(saved['video_volume'], 35)
+        api = self.client.get('/api/display-slides/lobby').get_json()
+        self.assertEqual((api['display']['video_audio_enabled'], api['display']['video_volume']),
+                         (True, 35))
+        hall = self.client.get('/api/display-slides/hall').get_json()['display']
+        self.assertEqual((hall['video_audio_enabled'], hall['video_volume']), (False, 50))
+        self.assertIn(b'Play scheduled videos with sound', self.client.get(route).data)
+        for invalid in ('0', '101', '1.5', 'loud'):
+            with self.subTest(invalid=invalid):
+                self.client.post(route, data={'action': 'audio_settings',
+                                              'video_volume': invalid})
+                current = display.load_config()['displays']['lobby']
+                self.assertEqual((current['video_audio_enabled'], current['video_volume']),
+                                 (True, 35))
+        self.client.post(route, data={'action': 'audio_settings', 'video_volume': '35'})
+        self.assertFalse(display.load_config()['displays']['lobby']['video_audio_enabled'])
+        self.assertEqual(self.client.get('/api/slideshow-slides/main').get_json()['slides'],
+                         api['slides'])
+
     def test_boundaries_weekdays_and_dst(self):
         ny = ZoneInfo('America/New_York')
         windows = [{'id': 'a', 'enabled': True, 'days': [6],
@@ -161,8 +193,14 @@ class VideoProgrammingTests(unittest.TestCase):
     def test_missing_list_empty_fallback_permissions_and_csrf(self):
         self.assertEqual(self.client.get('/admin/video-lists').status_code, 403)
         self.assertEqual(self.client.post('/admin/displays/lobby/programming').status_code, 403)
+        self.assertEqual(self.client.post('/admin/displays/lobby/programming', data={
+            'action': 'audio_settings', 'video_audio_enabled': 'on', 'video_volume': '35'
+        }).status_code, 403)
         self.admin()
         self.app.config['WTF_CSRF_ENABLED'] = True
+        self.assertEqual(self.client.post('/admin/displays/lobby/programming', data={
+            'action': 'audio_settings', 'video_audio_enabled': 'on', 'video_volume': '35'
+        }).status_code, 400)
         self.assertEqual(self.client.post('/admin/video-lists', data={
             'action': 'add_list', 'name': 'Videos'}).status_code, 400)
         self.app.config['WTF_CSRF_ENABLED'] = False

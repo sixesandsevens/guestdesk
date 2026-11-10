@@ -16,6 +16,7 @@
   let windowSignature = null, windowToken = 0, videoIndex = 0;
   let failedVideos = new Set(), retryAt = 0;
   let lastVideoError = '';
+  let videoAudioEnabled = false, videoVolume = 50;
   const VIDEO_RETRY_MS = 5 * 60 * 1000;
 
   const keyOf = s => s.key || `slide:${s.id}`;
@@ -147,7 +148,7 @@
           if (!selectedVideoWindow()) { evaluateProgramming(); return; }
           nextVideo(videoIndex);
         }
-      });
+      }, {audioEnabled: videoAudioEnabled, volume: videoVolume});
     }
     videoPlayer.start(program.videos[index].video_id);
   }
@@ -156,7 +157,7 @@
     if (!youtubeHost) return;
     const active = selectedVideoWindow();
     const signature = active?.videos?.length
-      ? `${active.id}:${active.videos.map(item => item.video_id).join(',')}` : null;
+      ? `${active.id}:${active.videos.map(item => item.video_id).join(',')}:${videoAudioEnabled ? videoVolume : 0}` : null;
     if (!signature) {
       if (videoMode === 'youtube') leaveVideo();
       windowSignature = null;
@@ -357,7 +358,12 @@
       serverEpoch = Date.parse(data.server_time || new Date().toISOString());
       anchor = performance.now();
       metadata = data;
-      if (youtubeHost) videoWindows = data.video_windows || [];
+      if (youtubeHost) {
+        videoWindows = data.video_windows || [];
+        videoAudioEnabled = data.display?.video_audio_enabled === true;
+        const volume = data.display?.video_volume;
+        videoVolume = Number.isInteger(volume) && volume >= 1 && volume <= 100 ? volume : 50;
+      }
       let incoming = data.slides || [];
       if (data.schedule_state === 'ok') {
         cachedSchedule = {date: data.local_date, at: performance.now(),

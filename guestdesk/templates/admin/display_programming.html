@@ -6,6 +6,16 @@
 <h4>Scheduled video playback · {{ display.name }}</h4>
 <p class="text-muted">Timezone: <strong>{{ timezone_name }}</strong>. Start is inclusive; end is exclusive. Windows must end the same day. For overnight playback, create separate windows. Adjacent windows switch directly. Outside windows, this display runs its assigned slideshow.</p>
 <p><a href="{{ url_for('display.admin_video_lists') }}">Manage video lists</a> · <a href="{{ url_for('display.youtube_playback_test') }}">Test playback on a Pi</a></p>
+<div class="card mb-4"><div class="card-body">
+  <h5 class="card-title">Scheduled video sound</h5>
+  <p class="text-muted small">This setting belongs to {{ display.name }}. Videos stay muted unless sound is enabled here. The TV's own volume also applies. Test audible autoplay on each device before enabling it; some browsers block it and GuestDesk will return to the slideshow.</p>
+  <form method="post" class="row g-3 align-items-end">
+    {{ csrf() }}<input type="hidden" name="action" value="audio_settings">
+    <div class="col-md-4"><label class="form-check-label"><input type="checkbox" class="form-check-input" name="video_audio_enabled" {% if display.video_audio_enabled|default(false) %}checked{% endif %}> Play scheduled videos with sound</label></div>
+    <div class="col-md-3"><label class="form-label" for="video-volume">Video volume (1–100)</label><input id="video-volume" class="form-control" type="number" name="video_volume" min="1" max="100" step="1" value="{{ display.video_volume|default(50) }}" required></div>
+    <div class="col-md-auto"><button class="btn btn-primary">Save sound settings</button></div>
+  </form>
+</div></div>
 {% macro window_form(window, action) %}
 <form method="post" class="row g-2 align-items-end">
   {{ csrf() }}<input type="hidden" name="action" value="{{ action }}">

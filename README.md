@@ -236,8 +236,9 @@ YouTube playback test (first milestone)
 Enter one individual YouTube video URL and select the display whose ordinary
 slideshow should appear if playback fails or ends. This test does not save a
 video list, schedule a window, or change the display's assigned slideshow.
-The player requests English captions, mutes through the official player API
-before requesting playback, and starts at the beginning. Readiness, playback
+The player requests English captions, starts muted by default, and starts at
+the beginning. The optional **Try playback with sound** checkbox and volume
+field exercise the same player path used by sound-enabled displays. Readiness, playback
 state, mute state, and errors appear in a diagnostic strip below the video.
 The video returns to the selected display's slideshow after an error, blocked
 autoplay, a startup timeout, a buffering stall, or normal completion.
@@ -289,8 +290,8 @@ allowed; overlapping enabled windows on the same weekday are rejected.
 Windows must end on the same day; split overnight playback into two windows.
 New and existing displays have no enabled windows by default.
 
-During a window, the display starts the first eligible video, plays silently
-with English captions requested and YouTube playback controls hidden, advances
+During a window, the display starts the first eligible video, plays muted by
+default with English captions requested and YouTube playback controls hidden, advances
 at completion, and loops the list. The separate staff test keeps controls
 visible for troubleshooting.
 The normal slideshow is suspended. At the known window end, video playback
@@ -303,6 +304,25 @@ after five minutes while the window remains active. An empty or missing list
 also leaves signage visible. With no assigned slideshow, the display shows a
 neutral unavailable message. The YouTube API is loaded only when a scheduled
 video actually starts.
+
+Sound is configured separately for each display under **Scheduled video
+playback → Scheduled video sound**. New and existing displays default to sound
+off and a stored volume of 50 (valid range 1–100). Enabling sound on one TV
+does not change another TV or its fallback slideshow. GuestDesk applies the
+volume and unmutes through the YouTube IFrame API before requesting playback,
+then checks the player's mute state when it starts. The TV's own speaker volume
+still matters. A browser can block unattended autoplay with sound; GuestDesk
+reports that failure, returns to signage, and retries after the normal cooldown.
+The API's unmuted status cannot prove that speakers are audible.
+
+Test sound on each intended device with the staff **Test YouTube playback**
+page before enabling it on a schedule. Verify a fresh browser launch, actual
+speaker output, captions, the next video, and return to signage. Chromium
+may require a kiosk autoplay policy for sound; its
+[documented `--autoplay-policy=no-user-gesture-required` switch](https://developer.chrome.com/blog/autoplay)
+is a device-side test
+option. Use it only on a dedicated TV where unattended sound is intended,
+then test again after a fresh launch. Keep quiet displays on the muted default.
 
 After deploying schedule support, use a short test window on the lobby Pi to
 confirm: fresh-browser autoplay without a click, silence, visible readable
