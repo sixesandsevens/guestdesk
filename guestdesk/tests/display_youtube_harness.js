@@ -19,13 +19,16 @@ async function runYouTubeHarness(source) {
     setVolume(value) { this.volume = value; this.calls.push(['volume', value]); }
     mute() { this.calls.push(['mute']); this.muted = true; }
     unMute() { this.calls.push(['unmute']); this.muted = false; }
-    isMuted() { return this.muted; }
+    isMuted() { return this.delayedMuteReport ? false : this.muted; }
     loadVideoById(value) { this.calls.push(['load', value]); }
     playVideo() { this.calls.push(['play']); }
     stopVideo() { this.calls.push(['stop']); }
     destroy() { this.destroyed = true; this.calls.push(['destroy']); }
     ready() { this.options.events.onReady({target: this}); }
-    state(state) { this.options.events.onStateChange({target: this, data: state}); }
+    state(state) {
+      this.delayedMuteReport = false;
+      this.options.events.onStateChange({target: this, data: state});
+    }
     error(code) { this.options.events.onError({target: this, data: code}); }
     blocked() { this.options.events.onAutoplayBlocked(); }
   }
@@ -48,7 +51,11 @@ async function runYouTubeHarness(source) {
     first.options.playerVars.controls === 0 &&
     first.options.playerVars.origin === 'https://guestdesk.info',
     'scheduled player must request captions, hide controls, and set origin');
+  first.delayedMuteReport = true;
   first.ready();
+  check(failures.length === 0, 'delayed mute report must not fail before playback begins');
+  check(statuses.at(-1).muted === 'checking',
+    'mute status must stay unconfirmed until playback begins');
   check(first.calls[0][0] === 'volume' && first.calls[1][0] === 'mute' &&
     first.calls[2][0] === 'load' && first.calls[2][1].startSeconds === 0,
     'volume zero and mute must precede loading from the beginning');
