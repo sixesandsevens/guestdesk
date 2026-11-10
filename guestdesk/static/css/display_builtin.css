@@ -1,0 +1,200 @@
+/* Built-in slides use the supplied GRACE background and guide palette. */
+@font-face {
+  font-family: "GRACE Oswald";
+  src: url("../fonts/grace-oswald-regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "GRACE Oswald";
+  src: url("../fonts/grace-oswald-bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "GRACE Montserrat";
+  src: url("../fonts/grace-montserrat-regular.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: "GRACE Montserrat";
+  src: url("../fonts/grace-montserrat-bold.woff2") format("woff2");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
+.display-empty {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 4vw 28vw 20vh 6vw;
+  background: #f5f8e7 url("../img/grace-display-background.png") center / cover no-repeat;
+  color: #2d013d;
+  font-family: "GRACE Oswald", Oswald, "Nimbus Sans Narrow", sans-serif;
+  font-size: clamp(2.5rem, 4vw, 5rem);
+  font-weight: 700;
+  text-align: left;
+}
+.builtin-clock, .builtin-schedule {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  color: #2d013d;
+  font-family: "GRACE Montserrat", Montserrat, "DejaVu Sans", sans-serif;
+  background: #f5f8e7 url("../img/grace-display-background.png") center / cover no-repeat;
+}
+.builtin-clock {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 1vh;
+  padding: 3vh 6vw 21vh;
+  isolation: isolate;
+}
+.builtin-clock::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: 12%;
+  bottom: 22%;
+  left: 4%;
+  right: 25%;
+  border-left: .6vw solid #087e77;
+  background: rgba(255, 255, 255, .76);
+}
+.clock-day, .clock-time {
+  font-family: "GRACE Oswald", Oswald, "Nimbus Sans Narrow", "Arial Narrow", sans-serif;
+}
+.clock-day {
+  color: #087e77;
+  font-size: clamp(2.8rem, 4.7vw, 6rem);
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+.clock-time {
+  font-size: clamp(7rem, 13vw, 17rem);
+  line-height: 1.02;
+  font-weight: 700;
+  white-space: nowrap;
+  letter-spacing: -.025em;
+}
+.clock-date {
+  font-size: clamp(2rem, 3vw, 4rem);
+  line-height: 1.15;
+  font-weight: 700;
+}
+.builtin-schedule {
+  display: flex;
+  flex-direction: column;
+  padding: 3vh 4vw 20vh;
+}
+.schedule-header {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 2vw;
+  border-bottom: .35vw solid #087e77;
+  margin-bottom: 1vh;
+  padding: 0 1vw .6vh;
+  background: rgba(255, 255, 255, .67);
+}
+.schedule-header h1 {
+  font-family: "GRACE Oswald", Oswald, "Nimbus Sans Narrow", "Arial Narrow", sans-serif;
+  color: #2d013d;
+  font-size: clamp(2.8rem, 3.6vw, 5.2rem);
+  font-weight: 700;
+  line-height: 1.08;
+  margin: 0;
+}
+.schedule-date {
+  color: #087e77;
+  font-size: clamp(1.3rem, 1.9vw, 2.4rem);
+  font-weight: 700;
+  text-align: right;
+  white-space: nowrap;
+}
+.schedule-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: .65vh;
+}
+.schedule-card {
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 23%) minmax(0, 1fr) minmax(0, 16%);
+  align-items: center;
+  gap: 1.4vw;
+  border-left: .38vw solid #087e77;
+  padding: .4vh 1vw;
+  background: rgba(255, 255, 255, .86);
+  overflow-wrap: anywhere;
+}
+.schedule-card.completed {
+  border-color: #737371;
+  background: rgba(255, 255, 255, .72);
+  color: #595957;
+}
+.schedule-card.happening {
+  border-color: #b5d434;
+  background: rgba(235, 243, 201, .94);
+}
+.service-time {
+  font-size: clamp(1.25rem, 1.75vw, 2.3rem);
+  font-weight: 700;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.service-details { min-width: 0; }
+.service-name {
+  font-size: clamp(1.5rem, 2.3vw, 3rem);
+  font-weight: 700;
+  line-height: 1.08;
+  margin: 0;
+}
+.service-location {
+  color: #087e77;
+  font-size: clamp(1.2rem, 1.7vw, 2.3rem);
+  line-height: 1.1;
+  margin: .2vh 0 0;
+}
+.schedule-card.completed .service-location { color: #595957; }
+.service-status {
+  color: #087e77;
+  font-size: clamp(1.15rem, 1.45vw, 2rem);
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: right;
+}
+.schedule-page, .schedule-stale {
+  flex: none;
+  align-self: flex-end;
+  color: #2d013d;
+  background: rgba(255, 255, 255, .88);
+  font-size: clamp(1rem, 1.3vw, 1.7rem);
+  font-weight: 700;
+  padding: .2vh .6vw;
+}
+.schedule-stale { color: #737371; }
+@media (max-width: 900px) and (orientation: portrait) {
+  .clock-time { font-size: 16vw; }
+  .schedule-header { display: block; }
+  .schedule-date { text-align: left; }
+  .schedule-card { grid-template-columns: minmax(0, 1fr); gap: .2vh; }
+  .service-status { text-align: left; }
+}
