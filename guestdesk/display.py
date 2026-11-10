@@ -1,13 +1,15 @@
 import json
 import os
 import re
+from datetime import datetime, time, timedelta, timezone
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from functools import wraps
 
 from flask import (
     Blueprint, render_template, jsonify,
     request, redirect, url_for, flash, abort,
-    session, g, send_from_directory
+    session, g, send_from_directory, current_app
 )
 from werkzeug.utils import secure_filename
 
@@ -29,6 +31,7 @@ LEGACY_SLIDES_DIR = BASE_DIR / "static" / "display_slides"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4"}
 ALLOWED_TRANSITIONS = {"fade"}
+SCHEDULE_PAGE_SIZE = 2
 
 
 def ensure_slide_storage():
@@ -166,6 +169,107 @@ def active_slides(slideshow: dict) -> list[dict]:
     return slides
 
 
+def _duration(value, label):
+    """Validate a built-in duration without silently changing bad input."""
+    if not re.fullmatch(r"[0-9]+", str(value or "")) or not 1 <= int(value) <= 300:
+        raise ValueError(f"{label} must be a whole number from 1 to 300 seconds.")
+    return int(value)
+
+
+def _local_now():
+    tzname = current_app.config.get("BABEL_DEFAULT_TIMEZONE", "America/New_York")
+    try:
+        tz = ZoneInfo(tzname)
+    except (KeyError, ValueError):
+        tzname, tz = "UTC", timezone.utc
+    return datetime.now(tz), tzname, tz
+
+
+def today_services(now, tz):
+    """Public occurrence projection for the local day, including overnight events."""
+    from .models import ServiceSeries, ServiceOverride
+    from .services_calendar import merged_occurrences
+
+    day_start = datetime.combine(now.date(), time.min, tzinfo=tz)
+    day_end = datetime.combine(now.date() + timedelta(days=1), time.min, tzinfo=tz)
+    db = current_app.dbs()
+    # Recurrence expansion selects starts, so include earlier starts that may
+    # still overlap today. Also include originals moved into today by override.
+    series = db.query(ServiceSeries).filter(ServiceSeries.is_active.is_(True)).all()
+    spans = {s.id: s.dtend - s.dtstart for s in series}
+    max_span = max(spans.values(), default=timedelta(0))
+    window_start = day_start - max_span - timedelta(days=1)
+    window_end = day_end
+    for ov in db.query(ServiceOverride).filter(ServiceOverride.cancelled.is_(False)).all():
+        if ov.series_id not in spans:
+            continue
+        moved_start = ov.new_dtstart or ov.instance_start
+        moved_end = ov.new_dtend or moved_start + spans[ov.series_id]
+        if moved_start < day_end.replace(tzinfo=None) and moved_end > day_start.replace(tzinfo=None):
+            window_start = min(window_start, ov.instance_start.replace(tzinfo=tz))
+            window_end = max(window_end, ov.instance_start.replace(tzinfo=tz) + timedelta(seconds=1))
+    events = merged_occurrences(db, window_start, window_end, tzname=getattr(tz, "key", "UTC"))
+    result = []
+    for ev in events:
+        try:
+            start = datetime.fromisoformat(ev["start"])
+            end = datetime.fromisoformat(ev["end"])
+            if start.tzinfo is None:
+                start = start.replace(tzinfo=tz)
+            if end.tzinfo is None:
+                end = end.replace(tzinfo=tz)
+            start, end = start.astimezone(tz), end.astimezone(tz)
+        except (KeyError, TypeError, ValueError):
+            continue
+        if start < day_end and end > day_start:
+            result.append({
+                "title": ev.get("title") or "Service",
+                "location": ev.get("location") or "",
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            })
+    result.sort(key=lambda ev: (datetime.fromisoformat(ev["start"]).timestamp(), ev["title"]))
+    return result
+
+
+def build_playlist(slideshow):
+    """Build generated and manual entries for either playback endpoint."""
+    now, tzname, tz = _local_now()
+    slides = []
+    schedule_state = "disabled"
+    if slideshow.get("clock_enabled", False):
+        slides.append({"type": "clock", "key": "builtin:clock",
+                       "duration": slideshow.get("clock_duration", 15), "transition": "fade"})
+    if slideshow.get("schedule_enabled", False):
+        try:
+            events = today_services(now, tz)
+            schedule_state = "empty" if not events else "ok"
+            pages = []
+            for event in events:
+                long_text = len(event["title"]) > 90 or len(event["location"]) > 80
+                if not pages or len(pages[-1]) >= SCHEDULE_PAGE_SIZE or long_text or any(
+                    len(item["title"]) > 90 or len(item["location"]) > 80 for item in pages[-1]
+                ):
+                    pages.append([])
+                pages[-1].append(event)
+            for page, page_events in enumerate(pages, start=1):
+                slides.append({"type": "schedule", "key": f"builtin:schedule:{page}",
+                               "duration": slideshow.get("schedule_duration", 15),
+                               "transition": "fade", "events": page_events,
+                               "page": page, "pages": len(pages)})
+        except Exception:
+            current_app.logger.exception("Unable to refresh display services")
+            schedule_state = "unavailable"
+    for slide in active_slides(slideshow):
+        payload = dict(slide)
+        payload["transition"] = slide.get("transition") or "fade"
+        if slide.get("file") and slide.get("type") in ("image", "video"):
+            payload["file_url"] = url_for("display.display_media", filename=slide["file"])
+        slides.append(payload)
+    return slides, {"timezone": tzname, "server_time": now.isoformat(),
+                    "local_date": now.date().isoformat(), "schedule_state": schedule_state}
+
+
 def normalize_orders(slides: list[dict]):
     for idx, slide in enumerate(slides, start=1):
         slide["order"] = idx
@@ -186,19 +290,13 @@ def display_slides_api(display_slug):
     if not slideshow:
         return jsonify({"display": display, "slideshow": None, "slides": []})
 
-    slides = active_slides(slideshow)
-    enriched = []
-    for slide in slides:
-        payload = dict(slide)
-        payload["transition"] = slide.get("transition") or "fade"
-        if slide.get("file") and slide.get("type") in ("image", "video"):
-            payload["file_url"] = url_for("display.display_media", filename=slide["file"])
-        enriched.append(payload)
+    slides, metadata = build_playlist(slideshow)
 
     return jsonify({
         "display": display,
         "slideshow": {k: v for k, v in slideshow.items() if k != "slides"},
-        "slides": enriched,
+        "slides": slides,
+        **metadata,
     })
 
 
@@ -239,18 +337,12 @@ def slideshow_slides_api(ss_slug):
     slideshow = get_slideshow(cfg, ss_slug)
     if not slideshow:
         abort(404)
-    slides = active_slides(slideshow)
-    enriched = []
-    for slide in slides:
-        payload = dict(slide)
-        payload["transition"] = slide.get("transition") or "fade"
-        if slide.get("file") and slide.get("type") in ("image", "video"):
-            payload["file_url"] = url_for("display.display_media", filename=slide["file"])
-        enriched.append(payload)
+    slides, metadata = build_playlist(slideshow)
     return jsonify({
         "display": {"name": slideshow["name"], "active": True},
         "slideshow": {k: v for k, v in slideshow.items() if k != "slides"},
-        "slides": enriched,
+        "slides": slides,
+        **metadata,
     })
 
 
@@ -412,6 +504,10 @@ def admin_slideshows():
                     "name": name,
                     "description": request.form.get("description", "").strip(),
                     "fade_duration": max(0.1, fade),
+                    "clock_enabled": False,
+                    "clock_duration": 15,
+                    "schedule_enabled": False,
+                    "schedule_duration": 15,
                     "slides": [],
                 }
                 save_config(cfg)
@@ -485,6 +581,21 @@ def admin_slideshow_edit(ss_slug):
             slideshow["fade_duration"] = max(0.1, fade)
             save_config(cfg)
             flash("Slideshow updated.", "success")
+            return redirect(url_for("display.admin_slideshow_edit", ss_slug=ss_slug))
+
+        if action == "edit_builtins":
+            try:
+                clock_duration = _duration(request.form.get("clock_duration"), "Date & time duration")
+                schedule_duration = _duration(request.form.get("schedule_duration"), "Services page duration")
+            except ValueError as exc:
+                flash(str(exc), "danger")
+                return redirect(url_for("display.admin_slideshow_edit", ss_slug=ss_slug))
+            slideshow.update(clock_enabled="clock_enabled" in request.form,
+                             clock_duration=clock_duration,
+                             schedule_enabled="schedule_enabled" in request.form,
+                             schedule_duration=schedule_duration)
+            save_config(cfg)
+            flash("Built-in slide settings updated.", "success")
             return redirect(url_for("display.admin_slideshow_edit", ss_slug=ss_slug))
 
         if action == "add_text":

@@ -67,6 +67,27 @@
     .display-slide-text h1 { font-size: 5vw; margin-bottom: 1rem; }
     .display-slide-text h2 { font-size: 3.5vw; margin-bottom: 1rem; }
     .display-slide-text p  { font-size: 2.5vw; white-space: pre-line; }
+    .display-empty { font-size: clamp(1.8rem, 3vw, 3rem); text-align: center; padding: 2rem; }
+    .builtin-clock, .builtin-schedule { box-sizing: border-box; width: 100%; height: 100%; background: #102339; color: #fff; }
+    .builtin-clock { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.3vh; padding: 5vh 5vw; text-align: center; }
+    .clock-day { color: #c6e5f6; font-size: clamp(2rem, 5vw, 5rem); font-weight: 600; }
+    .clock-time { font-size: clamp(5rem, 15vw, 16rem); line-height: 1.05; font-weight: 700; letter-spacing: -.06em; white-space: nowrap; }
+    .clock-date { font-size: clamp(2rem, 4vw, 4rem); }
+    .builtin-schedule { display: flex; flex-direction: column; padding: clamp(2rem, 4vh, 4rem) clamp(2rem, 5vw, 7rem); overflow: hidden; }
+    .schedule-header { flex: none; margin-bottom: clamp(1rem, 3vh, 2rem); }
+    .schedule-header h1 { font-size: clamp(2.5rem, 5vw, 5rem); line-height: 1.1; margin: 0; }
+    .schedule-date { color: #c6e5f6; font-size: clamp(1.5rem, 2.5vw, 2.5rem); margin-top: .4rem; }
+    .schedule-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: clamp(1rem, 2vh, 1.5rem); justify-content: center; }
+    .schedule-card { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(10rem, 25%) minmax(0, 1fr); align-content: center; column-gap: 3vw; padding: clamp(1rem, 2vh, 2rem) clamp(1rem, 2vw, 2rem); border-radius: 1rem; border: 2px solid #7196ad; background: #1c3953; overflow-wrap: anywhere; }
+    .schedule-card.completed { opacity: .62; }
+    .schedule-card.happening { border-color: #f9d67b; background: #285072; }
+    .service-time { font-size: clamp(1.5rem, 2.7vw, 2.7rem); font-weight: 650; align-self: center; }
+    .service-details { min-width: 0; align-self: center; }
+    .service-name { font-size: clamp(1.8rem, 3.2vw, 3.4rem); line-height: 1.1; margin: 0; }
+    .service-location { font-size: clamp(1.4rem, 2.3vw, 2.4rem); line-height: 1.2; color: #d9e9f3; margin: .4rem 0 0; }
+    .service-status { grid-column: 2; color: #ffdf89; font-size: clamp(1.2rem, 2vw, 2rem); font-weight: 700; }
+    .schedule-page, .schedule-stale { flex: none; font-size: clamp(1rem, 1.5vw, 1.5rem); text-align: right; padding-top: .5rem; color: #c6e5f6; }
+    @media (max-width: 800px) { .schedule-card { grid-template-columns: 1fr; } .service-time { align-self: auto; margin-bottom: .3rem; } .service-status { grid-column: 1; } }
     .fade-frame-enter {
       opacity: 0;
       animation: fadeIn ease forwards;
@@ -96,160 +117,11 @@
   </div>
 
   <script>
-  const DISPLAY_SLUG = {{ display_slug | tojson }};
-  const SLIDESHOW_SLUG = {{ slideshow_slug | tojson }};
-  const PREVIEW_DURATION = {{ preview_duration if preview_duration is not none else 'null' }};
-
-  async function fetchSlides() {
-    const url = SLIDESHOW_SLUG
-      ? `/api/slideshow-slides/${SLIDESHOW_SLUG}`
-      : `/api/display-slides/${DISPLAY_SLUG}`;
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const data = await res.json();
-    return data.slides || [];
-  }
-
-  let currentFrame = null;
-  let renderSequence = 0;
-
-  function buildFrame(slide) {
-    const frame = document.createElement("div");
-    frame.className = "slide-frame";
-
-    if (slide.type === "image" && slide.file_url) {
-      const img = document.createElement("img");
-      img.src = slide.file_url;
-      img.className = "display-slide-image";
-      frame.appendChild(img);
-      return frame;
-    }
-
-    if (slide.type === "video" && slide.file_url) {
-      const video = document.createElement("video");
-      video.src = slide.file_url;
-      video.className = "display-slide-video";
-      video.autoplay = true;
-      video.loop = true;
-      video.muted = true;
-      video.playsInline = true;
-      video.controls = false;
-      video.addEventListener("loadeddata", () => {
-        video.currentTime = 0;
-        video.play().catch(() => {});
-      });
-      frame.appendChild(video);
-      return frame;
-    }
-
-    if (slide.type === "text") {
-      const wrapper = document.createElement("div");
-      wrapper.className = "display-slide-text";
-      if (slide.headline) {
-        const h1 = document.createElement("h1");
-        h1.textContent = slide.headline;
-        wrapper.appendChild(h1);
-      }
-      if (slide.subheadline) {
-        const h2 = document.createElement("h2");
-        h2.textContent = slide.subheadline;
-        wrapper.appendChild(h2);
-      }
-      if (slide.body) {
-        const p = document.createElement("p");
-        p.textContent = slide.body;
-        wrapper.appendChild(p);
-      }
-      frame.appendChild(wrapper);
-      return frame;
-    }
-
-    const fallback = document.createElement("p");
-    fallback.style.cssText = "color:white;font-size:3vw;text-align:center;";
-    fallback.textContent = "No supported slide content.";
-    frame.appendChild(fallback);
-    return frame;
-  }
-
-  function waitForFrameMedia(frame) {
-    const image = frame.querySelector("img");
-    if (image) {
-      if (image.complete && image.naturalWidth > 0) return Promise.resolve();
-      return new Promise((resolve) => {
-        image.addEventListener("load", resolve, { once: true });
-        image.addEventListener("error", resolve, { once: true });
-      });
-    }
-    const video = frame.querySelector("video");
-    if (video) {
-      if (video.readyState >= 2) return Promise.resolve();
-      return new Promise((resolve) => {
-        const done = () => resolve();
-        video.addEventListener("loadeddata", done, { once: true });
-        video.addEventListener("error", done, { once: true });
-        setTimeout(done, 3000);
-      });
-    }
-    return Promise.resolve();
-  }
-
-  async function renderSlide(slide) {
-    const container = document.getElementById("slide-container");
-    const transition = (slide.transition || "fade").toLowerCase();
-    const frame = buildFrame(slide);
-    const sequence = ++renderSequence;
-
-    await waitForFrameMedia(frame);
-    if (sequence !== renderSequence) return;
-
-    if (transition === "fade" && currentFrame) {
-      const outgoing = currentFrame;
-      frame.classList.add("fade-frame-enter");
-      outgoing.classList.add("fade-frame-exit");
-      container.appendChild(frame);
-      frame.addEventListener("animationend", () => {
-        if (outgoing.parentNode === container) container.removeChild(outgoing);
-        frame.classList.remove("fade-frame-enter");
-        outgoing.classList.remove("fade-frame-exit");
-        currentFrame = frame;
-      }, { once: true });
-    } else {
-      if (currentFrame && currentFrame.parentNode === container) {
-        container.removeChild(currentFrame);
-      }
-      container.innerHTML = "";
-      container.appendChild(frame);
-      currentFrame = frame;
-    }
-  }
-
-  async function startSlideshow() {
-    let slides = await fetchSlides();
-    if (!slides.length) {
-      document.getElementById("slide-container").innerHTML =
-        "<p style='color:white;font-size:3vw;text-align:center;'>No slides configured for this display.</p>";
-      setTimeout(startSlideshow, 15000);
-      return;
-    }
-
-    let idx = 0;
-
-    async function showNext() {
-      if (idx === 0) {
-        slides = await fetchSlides();
-        if (!slides.length) { setTimeout(showNext, 15000); return; }
-      }
-      const slide = slides[idx];
-      renderSlide(slide);
-      const duration = (PREVIEW_DURATION || slide.duration || 10) * 1000;
-      idx = (idx + 1) % slides.length;
-      setTimeout(showNext, duration);
-    }
-
-    showNext();
-  }
-
-  document.addEventListener("DOMContentLoaded", startSlideshow);
+    window.GUESTDESK_PLAYER = {
+      url: {{ (url_for('display.slideshow_slides_api', ss_slug=slideshow_slug) if slideshow_slug else url_for('display.display_slides_api', display_slug=display_slug)) | tojson }},
+      previewDuration: {{ preview_duration if preview_duration is not none else 'null' }}
+    };
   </script>
+  <script src="{{ url_for('static', filename='js/display_player.js') }}"></script>
 </body>
 </html>

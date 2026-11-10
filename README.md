@@ -224,8 +224,39 @@ source .venv/bin/activate
 python -m pytest
 ```
 
-Only a smoke test is currently included (`tests/test_smoke.py`), so consider
-adding behavioural tests around new features or refactors.
+The suite includes display regression tests with temporary configuration and
+database fixtures.
+
+Display built-in slides
+-----------------------
+In **Admin → Slideshows → Edit → Built-in slides**, enable the date & time slide,
+today's services slide, or both. Existing and newly created slideshows start
+with both off. Each built-in duration defaults to 15 seconds and accepts a
+whole number from 1 to 300 seconds. Services duration applies to each page.
+The separate **Set all manual slide durations** control changes only uploaded
+and text slides.
+
+Playback begins with the live date/time slide, then today's service pages,
+then active manual slides in their configured order. The clock uses the
+server-configured `BABEL_DEFAULT_TIMEZONE` (default `America/New_York`), not
+the display device's timezone. Service data comes from GuestDesk's existing
+calendar, including recurrence cancellations and rescheduling. Completed
+services remain visible but subdued; current services show **Happening now**.
+Pages contain at most two services, with long names or locations given their
+own page. A page indicator appears when there is more than one page.
+
+On an empty day, service pages are skipped when other slides can play. A
+schedule-only slideshow instead shows **No services scheduled today** and
+checks again about once a minute. If the calendar temporarily fails, the
+player keeps same-day service pages for up to 15 minutes with a refresh
+notice, or continues with the clock and manual slides. It never carries
+yesterday's services into a
+new day. A schedule-only display with no usable data shows a neutral
+unavailable message until the next successful refresh.
+
+After deploying code, restart the GuestDesk service and reload each already
+open Pi display page once to load the new player JavaScript. Existing display
+URLs and assignments remain valid; no database migration is needed.
 
 Troubleshooting
 ---------------
