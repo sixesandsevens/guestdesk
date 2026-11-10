@@ -290,7 +290,9 @@ Windows must end on the same day; split overnight playback into two windows.
 New and existing displays have no enabled windows by default.
 
 During a window, the display starts the first eligible video, plays silently
-with English captions requested, advances at completion, and loops the list.
+with English captions requested and YouTube playback controls hidden, advances
+at completion, and loops the list. The separate staff test keeps controls
+visible for troubleshooting.
 The normal slideshow is suspended. At the known window end, video playback
 stops and signage resumes, or an adjacent window begins. Slideshow previews
 continue to show only slideshow content. Configuration refreshes occur about

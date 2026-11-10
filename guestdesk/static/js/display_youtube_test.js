@@ -37,7 +37,7 @@
         stage.classList.remove('video-starting', 'video-playing');
         slideshow('resume');
       }
-    }
+    }, {controls: 1}
   );
   player.start(window.GUESTDESK_YOUTUBE_TEST.videoId);
   window.addEventListener('pagehide', () => player.stop(), {once: true});

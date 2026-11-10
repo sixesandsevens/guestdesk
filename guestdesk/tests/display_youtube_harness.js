@@ -44,8 +44,9 @@ async function runYouTubeHarness(source) {
   const first = instances[0];
   check(first.options.playerVars.cc_load_policy === 1 &&
     first.options.playerVars.cc_lang_pref === 'en' &&
+    first.options.playerVars.controls === 0 &&
     first.options.playerVars.origin === 'https://guestdesk.info',
-    'caption and origin parameters must be set');
+    'scheduled player must request captions, hide controls, and set origin');
   first.ready();
   check(first.calls[0][0] === 'volume' && first.calls[1][0] === 'mute' &&
     first.calls[2][0] === 'load' && first.calls[2][1].startSeconds === 0,

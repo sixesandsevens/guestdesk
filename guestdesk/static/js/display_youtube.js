@@ -36,9 +36,10 @@
   }
 
   class GuestDeskYouTubePlayer {
-    constructor(host, callbacks = {}) {
+    constructor(host, callbacks = {}, options = {}) {
       this.host = host;
       this.callbacks = callbacks;
+      this.controls = options.controls === 1 ? 1 : 0;
       this.player = null;
       this.timer = null;
       this.generation = 0;
@@ -101,7 +102,7 @@
           playerVars: {
             origin: window.location.origin,
             cc_load_policy: 1, cc_lang_pref: 'en', playsinline: 1,
-            controls: 1
+            controls: this.controls
           },
           events: {
             onReady: event => {
