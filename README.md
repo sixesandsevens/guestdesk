@@ -320,9 +320,13 @@ page before enabling it on a schedule. Verify a fresh browser launch, actual
 speaker output, captions, the next video, and return to signage. Chromium
 may require a kiosk autoplay policy for sound; its
 [documented `--autoplay-policy=no-user-gesture-required` switch](https://developer.chrome.com/blog/autoplay)
-is a device-side test
-option. Use it only on a dedicated TV where unattended sound is intended,
+is a device-side test option. Use it only on a dedicated TV where unattended sound is intended,
 then test again after a fresh launch. Keep quiet displays on the muted default.
+For kiosk browsers that cannot navigate to the staff test page, make a short
+temporary window on the target display and observe the permanent display URL
+through a full video and window end. Remove or disable that test window after
+the check. Changing sound settings during an active window restarts its video
+when the display next refreshes configuration.
 
 After deploying schedule support, use a short test window on the lobby Pi to
 confirm: fresh-browser autoplay without a click, silence, visible readable
