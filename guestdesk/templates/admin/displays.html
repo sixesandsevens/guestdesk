@@ -6,10 +6,11 @@
   <h4 class="mb-0">Displays</h4>
   <div class="d-flex gap-2">
     <a class="btn btn-outline-primary" href="{{ url_for('display.youtube_playback_test') }}">Test YouTube playback</a>
+    <a class="btn btn-outline-primary" href="{{ url_for('display.admin_video_lists') }}">Video lists</a>
     <a class="btn btn-outline-secondary" href="{{ url_for('display.admin_slideshows') }}">Manage Slideshows</a>
   </div>
 </div>
-<p class="text-muted small">Each display is a physical screen. The Pi opens its permanent URL and never needs to be reconfigured — just reassign the slideshow here.</p>
+<p class="text-muted small">Each display is a physical screen. Its permanent Pi URL stays the same when you change the slideshow or scheduled video windows.</p>
 
 {% if displays %}
 <div class="table-responsive">
@@ -59,6 +60,8 @@
           <a href="{{ url_for('display.public_display', display_slug=slug, preview=1, duration=2.5) }}"
              class="btn btn-sm btn-outline-primary" target="_blank" rel="noopener">Preview</a>
           {% endif %}
+          <a href="{{ url_for('display.admin_display_programming', display_slug=slug) }}"
+             class="btn btn-sm btn-outline-primary">Scheduled video playback</a>
 
           <button class="btn btn-sm btn-outline-secondary" type="button"
                   data-bs-toggle="collapse" data-bs-target="#edit-display-{{ loop.index }}">

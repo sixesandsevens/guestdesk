@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4 class="mb-0">Curated YouTube video lists</h4>
+  <a href="{{ url_for('display.admin_displays') }}" class="btn btn-outline-secondary">Displays</a>
+</div>
+<p class="text-muted">Only enabled videos marked “Content and English captions checked” can play in a scheduled window. This mark records a staff review; it does not guarantee captions will appear on every device. Test each video on the Pi.</p>
+<div class="list-group mb-4">
+{% for slug, item in video_lists.items() %}
+  <div class="list-group-item d-flex justify-content-between align-items-center gap-2">
+    <a href="{{ url_for('display.admin_video_list_edit', list_slug=slug) }}">{{ item.name }}</a>
+    <div class="d-flex align-items-center gap-2">
+      <span class="text-muted small">{{ item.entries|default([])|length }} videos</span>
+      <form method="post" onsubmit="return confirm('Delete this list?');">
+        {{ csrf() }}<input type="hidden" name="action" value="delete_list">
+        <input type="hidden" name="slug" value="{{ slug }}">
+        <button class="btn btn-sm btn-outline-danger">Delete</button>
+      </form>
+    </div>
+  </div>
+{% else %}
+  <p class="text-muted">No video lists yet.</p>
+{% endfor %}
+</div>
+<h5>Add video list</h5>
+<form method="post" class="d-flex gap-2">
+  {{ csrf() }}<input type="hidden" name="action" value="add_list">
+  <input class="form-control" name="name" placeholder="List name" required maxlength="120">
+  <button class="btn btn-primary">Add</button>
+</form>
+{% endblock %}

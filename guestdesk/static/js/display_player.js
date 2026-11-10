@@ -10,6 +10,13 @@
   let lastMidnightRetry = 0;
   let sequence = 0;
   let suspended = false;
+  const youtubeHost = api.videoEnabled ? document.getElementById('youtube-container') : null;
+  const fallbackNotice = api.videoEnabled ? document.getElementById('video-fallback-notice') : null;
+  let videoWindows = [], videoPlayer = null, videoMode = 'slides';
+  let windowSignature = null, windowToken = 0, videoIndex = 0;
+  let failedVideos = new Set(), retryAt = 0;
+  let lastVideoError = '';
+  const VIDEO_RETRY_MS = 5 * 60 * 1000;
 
   const keyOf = s => s.key || `slide:${s.id}`;
   const now = () => new Date(serverEpoch + performance.now() - anchor);
@@ -52,10 +59,123 @@
   }
 
   function emptyMessage() {
+    if (!Object.keys(metadata).length) return 'Display temporarily unavailable.';
+    if (metadata.slideshow === null) return 'Display temporarily unavailable.';
     if (metadata.schedule_state === 'empty') return 'No services scheduled today';
-    if (metadata.schedule_state === 'unavailable' || !Object.keys(metadata).length)
+    if (metadata.schedule_state === 'unavailable')
       return 'Services temporarily unavailable';
     return 'No slides configured for this display.';
+  }
+
+  function localWeekdayAndMinute() {
+    const parts = fmt({weekday: 'short', hour: '2-digit', minute: '2-digit',
+      hourCycle: 'h23'}).formatToParts(now());
+    const part = type => parts.find(item => item.type === type)?.value;
+    const weekdays = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return {weekday: weekdays.indexOf(part('weekday')),
+      minute: Number(part('hour')) * 60 + Number(part('minute'))};
+  }
+
+  function selectedVideoWindow() {
+    const local = localWeekdayAndMinute();
+    return videoWindows.find(window => {
+      if (!Array.isArray(window.days) || !/^\d\d:\d\d$/.test(window.start || '') ||
+          !/^\d\d:\d\d$/.test(window.end || '')) return false;
+      const start = Number(window.start.slice(0, 2)) * 60 + Number(window.start.slice(3));
+      const end = Number(window.end.slice(0, 2)) * 60 + Number(window.end.slice(3));
+      return window.days.includes(local.weekday) && start <= local.minute && local.minute < end;
+    }) || null;
+  }
+
+  function setVideoNotice(text) {
+    if (!fallbackNotice) return;
+    fallbackNotice.textContent = text || '';
+    fallbackNotice.style.display = text ? 'block' : 'none';
+  }
+
+  function leaveVideo(resumeSlides = true) {
+    windowToken++;
+    if (videoPlayer) videoPlayer.stop();
+    videoPlayer = null;
+    videoMode = 'slides';
+    youtubeHost.style.display = 'none';
+    if (resumeSlides) window.GuestDeskSlideshow.resume();
+  }
+
+  function nextVideo(afterIndex) {
+    const window = selectedVideoWindow();
+    if (!window || !window.videos?.length) { evaluateProgramming(); return; }
+    for (let offset = 1; offset <= window.videos.length; offset++) {
+      const candidate = (afterIndex + offset) % window.videos.length;
+      if (!failedVideos.has(candidate)) { startVideo(window, candidate); return; }
+    }
+    retryAt = now().getTime() + VIDEO_RETRY_MS;
+    leaveVideo();
+    setVideoNotice(`Scheduled video unavailable: ${lastVideoError || 'all videos failed'}. Showing the slideshow; retrying soon.`);
+  }
+
+  function startVideo(program, index) {
+    if (!window.GuestDeskYouTubePlayer) {
+      retryAt = now().getTime() + VIDEO_RETRY_MS;
+      setVideoNotice('Video player unavailable. Showing the slideshow; retrying soon.');
+      return;
+    }
+    videoIndex = index;
+    videoMode = 'youtube';
+    youtubeHost.style.display = 'block';
+    setVideoNotice('');
+    window.GuestDeskSlideshow.suspend();
+    if (!videoPlayer) {
+      const token = ++windowToken;
+      videoPlayer = new window.GuestDeskYouTubePlayer(youtubeHost, {
+        onStatus(status) {
+          if (token !== windowToken) return;
+          if (status.error && status.error !== 'none') console.warn('GuestDesk YouTube:', status.error);
+        },
+        onFailure(reason) {
+          if (token !== windowToken) return;
+          lastVideoError = reason;
+          if (!selectedVideoWindow()) { evaluateProgramming(); return; }
+          failedVideos.add(videoIndex);
+          if (reason.includes('Autoplay blocked')) {
+            failedVideos = new Set(program.videos.map((_, i) => i));
+          }
+          nextVideo(videoIndex);
+        },
+        onEnded() {
+          if (token !== windowToken) return;
+          if (!selectedVideoWindow()) { evaluateProgramming(); return; }
+          nextVideo(videoIndex);
+        }
+      });
+    }
+    videoPlayer.start(program.videos[index].video_id);
+  }
+
+  function evaluateProgramming() {
+    if (!youtubeHost) return;
+    const active = selectedVideoWindow();
+    const signature = active?.videos?.length
+      ? `${active.id}:${active.videos.map(item => item.video_id).join(',')}` : null;
+    if (!signature) {
+      if (videoMode === 'youtube') leaveVideo();
+      windowSignature = null;
+      retryAt = 0;
+      failedVideos.clear();
+      setVideoNotice(active ? 'No reviewed videos are available for this window.' : '');
+      return;
+    }
+    if (signature !== windowSignature) {
+      if (videoMode === 'youtube') leaveVideo(false);
+      windowSignature = signature;
+      failedVideos = new Set();
+      lastVideoError = '';
+      retryAt = 0;
+      startVideo(active, 0);
+    } else if (videoMode === 'slides' && now().getTime() >= retryAt) {
+      failedVideos.clear();
+      startVideo(active, 0);
+    }
   }
 
   function showRefreshNotice(stale) {
@@ -222,6 +342,8 @@
     try {
       const response = await fetch(api.url, {cache: 'no-store'});
       if (response.status === 404) {
+        if (youtubeHost && videoMode === 'youtube') leaveVideo();
+        videoWindows = [];
         slides = [];
         cachedSchedule = null;
         metadata = {schedule_state: 'disabled'};
@@ -235,6 +357,7 @@
       serverEpoch = Date.parse(data.server_time || new Date().toISOString());
       anchor = performance.now();
       metadata = data;
+      if (youtubeHost) videoWindows = data.video_windows || [];
       let incoming = data.slides || [];
       if (data.schedule_state === 'ok') {
         cachedSchedule = {date: data.local_date, at: performance.now(),
@@ -249,6 +372,7 @@
       }
       slides = incoming;
       showRefreshNotice(data.schedule_state === 'unavailable');
+      evaluateProgramming();
       if (rotationTimer === null && !suspended) planNext();
     } catch (error) {
       // Keep existing clock and manual slides. Never carry schedule into a new day.
@@ -278,5 +402,13 @@
   };
 
   refresh();
-  setInterval(refresh, 60000);
+  const pollTimer = setInterval(refresh, 60000);
+  const modeTimer = youtubeHost ? setInterval(evaluateProgramming, 1000) : null;
+  window.addEventListener('pagehide', () => {
+    clearInterval(pollTimer);
+    if (modeTimer !== null) clearInterval(modeTimer);
+    if (rotationTimer !== null) clearTimeout(rotationTimer);
+    stopFrameTimer();
+    if (videoPlayer) videoPlayer.stop();
+  }, {once: true});
 })();

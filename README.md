@@ -226,6 +226,9 @@ python -m pytest
 
 The suite includes display regression tests with temporary configuration and
 database fixtures.
+The scheduled player also has mocked JavaScript event tests. On a machine with
+Node.js, run `node guestdesk/tests/run_display_js_tests.js`. These mocks check
+controller logic; they do not establish Raspberry Pi browser compatibility.
 
 YouTube playback test (first milestone)
 --------------------------------------
@@ -259,12 +262,53 @@ After deploying the test milestone, validate it **on the lobby Pi**:
    and any diagnostic error. Caption availability and legibility require
    this manual observation.
 
-Scheduled programming stays disabled until this Pi result is reviewed. Video
-list transitions, window boundaries, and unattended recovery across windows
-belong to the subsequent scheduling milestone. YouTube may lack a caption
+Scheduled programming starts with no enabled windows on new and existing
+displays. YouTube may lack a caption
 track, block embedding, show ads, or apply autoplay restrictions; the test
 does not bypass those conditions. See the [official player API](https://developers.google.com/youtube/iframe_api_reference)
 and [caption parameters](https://developers.google.com/youtube/player_parameters).
+
+Scheduled YouTube playback
+--------------------------
+In **Admin → Displays → Video lists**, create an ordered list of individual
+YouTube videos. Enter a staff title and a watch, short, Shorts, or embed URL.
+GuestDesk stores only the validated video ID. Use the up/down controls to
+reorder entries. Only entries that are both **Enabled** and **Content and
+English captions checked** can play. The checkbox records a human review;
+changing the video URL clears it. Confirm the captions on the actual TV using
+the playback test. A list used by any display window must be unassigned before
+it can be deleted.
+
+On each display's **Scheduled video playback** page, choose a list and add
+windows with a name, weekdays, start/end times, and an Enabled checkbox.
+Windows belong to that display, independently of its assigned slideshow.
+The page shows the configured GuestDesk timezone (default
+`America/New_York`). Times use that timezone, including daylight saving
+changes. Start is inclusive and end is exclusive. Adjacent windows are
+allowed; overlapping enabled windows on the same weekday are rejected.
+Windows must end on the same day; split overnight playback into two windows.
+New and existing displays have no enabled windows by default.
+
+During a window, the display starts the first eligible video, plays silently
+with English captions requested, advances at completion, and loops the list.
+The normal slideshow is suspended. At the known window end, video playback
+stops and signage resumes, or an adjacent window begins. Slideshow previews
+continue to show only slideshow content. Configuration refreshes occur about
+once a minute and do not restart unchanged videos; known ends are checked
+locally each second. If a video fails, the next eligible entry is tried. If
+all fail or autoplay is blocked, the display returns to signage and retries
+after five minutes while the window remains active. An empty or missing list
+also leaves signage visible. With no assigned slideshow, the display shows a
+neutral unavailable message. The YouTube API is loaded only when a scheduled
+video actually starts.
+
+After deploying schedule support, use a short test window on the lobby Pi to
+confirm: fresh-browser autoplay without a click, silence, visible readable
+English captions, transition between two reviewed videos, immediate switch at
+window end, return to the slideshow, and recovery after a brief network
+interruption. Caption visibility remains a visual staff check. YouTube may
+show ads or refuse particular videos; GuestDesk does not alter or conceal
+those player elements.
 
 Display built-in slides
 -----------------------

@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+{% block content %}
+<p><a href="{{ url_for('display.admin_video_lists') }}">← Video lists</a></p>
+<h4>{{ video_list.name }}</h4>
+<p class="text-muted">The checked box records a manual review of the content and English captions. Changing a video URL clears its review mark. Only enabled, checked entries play in scheduled windows.</p>
+<form method="post" class="d-flex gap-2 mb-4">
+  {{ csrf() }}<input type="hidden" name="action" value="rename_list">
+  <input class="form-control" name="name" value="{{ video_list.name }}" required maxlength="120" aria-label="List name">
+  <button class="btn btn-outline-primary">Rename</button>
+</form>
+{% for entry in entries %}
+<div class="card mb-3"><div class="card-body">
+  <div class="d-flex justify-content-between"><strong>{{ loop.index }}. {{ entry.title }}</strong>
+    <div class="d-flex gap-1">
+      {% for direction, label in [('move_up', '↑'), ('move_down', '↓'), ('delete_entry', 'Delete')] %}
+      <form method="post" {% if direction == 'delete_entry' %}onsubmit="return confirm('Remove this video?');"{% endif %}>
+        {{ csrf() }}<input type="hidden" name="action" value="{{ direction }}">
+        <input type="hidden" name="entry_id" value="{{ entry.id }}">
+        <button class="btn btn-sm btn-outline-secondary" aria-label="{{ label }} {{ entry.title }}">{{ label }}</button>
+      </form>
+      {% endfor %}
+    </div>
+  </div>
+  <form method="post" class="row g-2 mt-1 align-items-end">
+    {{ csrf() }}<input type="hidden" name="action" value="edit_entry">
+    <input type="hidden" name="entry_id" value="{{ entry.id }}">
+    <div class="col-lg-4"><label class="form-label">Staff title</label>
+      <input class="form-control" name="title" value="{{ entry.title }}" required maxlength="200"></div>
+    <div class="col-lg-4"><label class="form-label">YouTube video URL</label>
+      <input class="form-control" name="video_url" type="url" value="https://www.youtube.com/watch?v={{ entry.video_id }}" required></div>
+    <div class="col-lg-2"><label class="form-check-label d-block"><input type="checkbox" name="enabled" class="form-check-input" {% if entry.enabled %}checked{% endif %}> Enabled</label>
+      <label class="form-check-label"><input type="checkbox" name="reviewed" class="form-check-input" {% if entry.reviewed %}checked{% endif %}> Content and English captions checked</label></div>
+    <div class="col-lg-2"><button class="btn btn-primary">Save video</button></div>
+  </form>
+</div></div>
+{% else %}<p class="text-muted">No videos in this list.</p>{% endfor %}
+<h5>Add video</h5>
+<form method="post" class="row g-2 align-items-end">
+  {{ csrf() }}<input type="hidden" name="action" value="add_entry">
+  <div class="col-lg-4"><label class="form-label">Staff title</label><input class="form-control" name="title" required maxlength="200"></div>
+  <div class="col-lg-4"><label class="form-label">YouTube video URL</label><input class="form-control" name="video_url" type="url" required placeholder="https://youtu.be/…"></div>
+  <div class="col-lg-2"><label class="form-check-label d-block"><input type="checkbox" name="enabled" class="form-check-input" checked> Enabled</label>
+    <label class="form-check-label"><input type="checkbox" name="reviewed" class="form-check-input"> Content and English captions checked</label></div>
+  <div class="col-lg-2"><button class="btn btn-primary">Add video</button></div>
+</form>
+{% endblock %}
