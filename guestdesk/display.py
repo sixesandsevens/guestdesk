@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from math import ceil
 from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 from pathlib import Path
@@ -31,7 +32,7 @@ LEGACY_SLIDES_DIR = BASE_DIR / "static" / "display_slides"
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp"}
 VIDEO_EXTENSIONS = {".mp4"}
 ALLOWED_TRANSITIONS = {"fade"}
-SCHEDULE_PAGE_SIZE = 2
+SCHEDULE_PAGE_UNITS = 6
 
 
 def ensure_slide_storage():
@@ -232,6 +233,24 @@ def today_services(now, tz):
     return result
 
 
+def paginate_services(events):
+    """Keep typical days together while reserving room for wrapped text."""
+    pages = []
+    used = 0
+    for event in events:
+        title_lines = max(1, ceil(len(event["title"]) / 34))
+        location_lines = ceil(len(event["location"]) / 45) if event["location"] else 0
+        units = min(SCHEDULE_PAGE_UNITS, ceil(
+            1 + .6 * (title_lines - 1) + .45 * max(0, location_lines - 1)
+        ))
+        if not pages or used + units > SCHEDULE_PAGE_UNITS:
+            pages.append([])
+            used = 0
+        pages[-1].append(event)
+        used += units
+    return pages
+
+
 def build_playlist(slideshow):
     """Build generated and manual entries for either playback endpoint."""
     now, tzname, tz = _local_now()
@@ -244,14 +263,7 @@ def build_playlist(slideshow):
         try:
             events = today_services(now, tz)
             schedule_state = "empty" if not events else "ok"
-            pages = []
-            for event in events:
-                long_text = len(event["title"]) > 90 or len(event["location"]) > 80
-                if not pages or len(pages[-1]) >= SCHEDULE_PAGE_SIZE or long_text or any(
-                    len(item["title"]) > 90 or len(item["location"]) > 80 for item in pages[-1]
-                ):
-                    pages.append([])
-                pages[-1].append(event)
+            pages = paginate_services(events)
             for page, page_events in enumerate(pages, start=1):
                 slides.append({"type": "schedule", "key": f"builtin:schedule:{page}",
                                "duration": slideshow.get("schedule_duration", 15),

@@ -4,6 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ display.name }} Display</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/display_builtin.css') }}">
   <style>
     html, body {
       margin: 0;
@@ -67,27 +68,6 @@
     .display-slide-text h1 { font-size: 5vw; margin-bottom: 1rem; }
     .display-slide-text h2 { font-size: 3.5vw; margin-bottom: 1rem; }
     .display-slide-text p  { font-size: 2.5vw; white-space: pre-line; }
-    .display-empty { font-size: clamp(1.8rem, 3vw, 3rem); text-align: center; padding: 2rem; }
-    .builtin-clock, .builtin-schedule { box-sizing: border-box; width: 100%; height: 100%; background: #102339; color: #fff; }
-    .builtin-clock { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.3vh; padding: 5vh 5vw; text-align: center; }
-    .clock-day { color: #c6e5f6; font-size: clamp(2rem, 5vw, 5rem); font-weight: 600; }
-    .clock-time { font-size: clamp(5rem, 15vw, 16rem); line-height: 1.05; font-weight: 700; letter-spacing: -.06em; white-space: nowrap; }
-    .clock-date { font-size: clamp(2rem, 4vw, 4rem); }
-    .builtin-schedule { display: flex; flex-direction: column; padding: clamp(2rem, 4vh, 4rem) clamp(2rem, 5vw, 7rem); overflow: hidden; }
-    .schedule-header { flex: none; margin-bottom: clamp(1rem, 3vh, 2rem); }
-    .schedule-header h1 { font-size: clamp(2.5rem, 5vw, 5rem); line-height: 1.1; margin: 0; }
-    .schedule-date { color: #c6e5f6; font-size: clamp(1.5rem, 2.5vw, 2.5rem); margin-top: .4rem; }
-    .schedule-list { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: clamp(1rem, 2vh, 1.5rem); justify-content: center; }
-    .schedule-card { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(10rem, 25%) minmax(0, 1fr); align-content: center; column-gap: 3vw; padding: clamp(1rem, 2vh, 2rem) clamp(1rem, 2vw, 2rem); border-radius: 1rem; border: 2px solid #7196ad; background: #1c3953; overflow-wrap: anywhere; }
-    .schedule-card.completed { opacity: .62; }
-    .schedule-card.happening { border-color: #f9d67b; background: #285072; }
-    .service-time { font-size: clamp(1.5rem, 2.7vw, 2.7rem); font-weight: 650; align-self: center; }
-    .service-details { min-width: 0; align-self: center; }
-    .service-name { font-size: clamp(1.8rem, 3.2vw, 3.4rem); line-height: 1.1; margin: 0; }
-    .service-location { font-size: clamp(1.4rem, 2.3vw, 2.4rem); line-height: 1.2; color: #d9e9f3; margin: .4rem 0 0; }
-    .service-status { grid-column: 2; color: #ffdf89; font-size: clamp(1.2rem, 2vw, 2rem); font-weight: 700; }
-    .schedule-page, .schedule-stale { flex: none; font-size: clamp(1rem, 1.5vw, 1.5rem); text-align: right; padding-top: .5rem; color: #c6e5f6; }
-    @media (max-width: 800px) { .schedule-card { grid-template-columns: 1fr; } .service-time { align-self: auto; margin-bottom: .3rem; } .service-status { grid-column: 1; } }
     .fade-frame-enter {
       opacity: 0;
       animation: fadeIn ease forwards;

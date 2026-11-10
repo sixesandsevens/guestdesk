@@ -122,6 +122,9 @@ class BuiltinDisplayTests(unittest.TestCase):
         self.assertIn(b'previewDuration: 1.5', preview.data)
         self.assertIn(b'/static/js/display_player.js', preview.data)
         self.assertIn(b'/static/js/display_player.js', display_page.data)
+        self.assertIn(b'/static/css/display_builtin.css', preview.data)
+        self.assertEqual(self.client.get('/static/img/grace-display-background.png').status_code, 200)
+        self.assertEqual(self.client.get('/static/fonts/grace-oswald-bold.woff2').status_code, 200)
 
     def test_schedule_only_empty_and_failure_are_distinct(self):
         self.config['slideshows']['main']['schedule_enabled'] = True
@@ -177,7 +180,7 @@ class BuiltinDisplayTests(unittest.TestCase):
             {'id': 9, 'type': 'text', 'headline': 'Hidden', 'order': 3, 'duration': 9, 'active': False},
         ])
         self.save()
-        for hour in (8, 10, 12):
+        for hour in range(8, 16):
             self.add_series('X' * 100 if hour == 10 else f'Service {hour}',
                             datetime(2026, 6, 3, hour), datetime(2026, 6, 3, hour + 1))
         with self.fixed_now():
@@ -185,11 +188,18 @@ class BuiltinDisplayTests(unittest.TestCase):
             preview = self.client.get('/api/slideshow-slides/main').get_json()
         self.assertEqual(real['slides'], preview['slides'])
         self.assertEqual([s['type'] for s in real['slides']],
-                         ['clock', 'schedule', 'schedule', 'schedule', 'text', 'text'])
+                         ['clock', 'schedule', 'schedule', 'text', 'text'])
         self.assertEqual([s['id'] for s in real['slides'] if s['type'] == 'text'], [8, 7])
         self.assertTrue(all(s['duration'] == 21 for s in real['slides'] if s['type'] == 'schedule'))
         event = real['slides'][1]['events'][0]
         self.assertEqual(set(event), {'title', 'location', 'start', 'end'})
+
+    def test_six_short_services_share_one_page(self):
+        event = {'title': 'Laundry', 'location': 'Main campus'}
+        self.assertEqual(len(display.paginate_services([event] * 6)), 1)
+        self.assertEqual(len(display.paginate_services([event] * 7)), 2)
+        long_event = {'title': 'A' * 200, 'location': 'B' * 200}
+        self.assertEqual(len(display.paginate_services([event, long_event, event])), 3)
 
     def test_recurring_cancellation_and_rescheduling(self):
         series_id = self.add_series('Recurring', datetime(2026, 6, 1, 9),

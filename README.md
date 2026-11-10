@@ -242,8 +242,11 @@ server-configured `BABEL_DEFAULT_TIMEZONE` (default `America/New_York`), not
 the display device's timezone. Service data comes from GuestDesk's existing
 calendar, including recurrence cancellations and rescheduling. Completed
 services remain visible but subdued; current services show **Happening now**.
-Pages contain at most two services, with long names or locations given their
-own page. A page indicator appears when there is more than one page.
+Short entries fit up to six per page. Long names and locations consume more
+space, so an unusually full day may still use additional pages rather than
+shrink the text until it becomes hard to read. A page indicator appears when
+there is more than one page. The built-in slides use the supplied GRACE
+background, palette, and locally bundled font subsets from the brand guide.
 
 On an empty day, service pages are skipped when other slides can play. A
 schedule-only slideshow instead shows **No services scheduled today** and

@@ -14,6 +14,17 @@
   const now = () => new Date(serverEpoch + performance.now() - anchor);
   const timezone = () => metadata.timezone || 'America/New_York';
   const fmt = options => new Intl.DateTimeFormat('en-US', {timeZone: timezone(), ...options});
+  const timeRange = (start, end) => {
+    const formatter = fmt({hour: 'numeric', minute: '2-digit', hour12: true});
+    const first = formatter.format(start), last = formatter.format(end);
+    const period = date => {
+      const part = formatter.formatToParts(date).find(item => item.type === 'dayPeriod');
+      return part ? part.value : '';
+    };
+    return period(start) === period(end)
+      ? `${first.replace(/\s(?:AM|PM)$/, '')}–${last}`
+      : `${first}–${last}`;
+  };
   const dayKey = () => {
     const parts = fmt({year: 'numeric', month: '2-digit', day: '2-digit'}).formatToParts(now());
     const value = type => parts.find(part => part.type === type).value;
@@ -101,7 +112,7 @@
       const card = el('article', 'schedule-card');
       const timing = el('div', 'service-time');
       const start = new Date(event.start), end = new Date(event.end);
-      timing.textContent = `${fmt({hour: 'numeric', minute: '2-digit', hour12: true}).format(start)} – ${fmt({hour: 'numeric', minute: '2-digit', hour12: true}).format(end)}`;
+      timing.textContent = timeRange(start, end);
       const details = el('div', 'service-details');
       details.appendChild(el('h2', 'service-name', event.title));
       if (event.location) details.appendChild(el('p', 'service-location', event.location));
