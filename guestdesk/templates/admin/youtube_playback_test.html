@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>YouTube playback test · GuestDesk</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #10151b; color: #fff; font: 16px system-ui, sans-serif; }
+    .test-header { padding: .75rem 1rem; background: #1e2a35; }
+    .test-header a { color: #bde6e2; }
+    .test-form { display: flex; gap: .6rem; align-items: end; flex-wrap: wrap; }
+    .test-form label { display: grid; gap: .2rem; min-width: 12rem; flex: 1; }
+    .test-form input, .test-form select, .test-form button { font: inherit; padding: .5rem; }
+    .test-form button { background: #087e77; color: #fff; border: 0; cursor: pointer; }
+    .test-note { margin: .5rem 0 0; font-size: .9rem; color: #d6e3e2; }
+    .test-flash { margin: .5rem 0; color: #ffe09e; }
+    .test-stage { position: relative; height: calc(100dvh - 12rem); min-height: 280px; background: #000; }
+    .test-stage iframe, .test-stage #youtube-player { width: 100%; height: 100%; border: 0; }
+    .test-stage #youtube-player { position: absolute; inset: 0; }
+    .test-stage iframe { position: absolute; inset: 0; }
+    .test-stage:not(.video-starting):not(.video-playing) #youtube-player { visibility: hidden; pointer-events: none; }
+    .test-stage.video-starting iframe, .test-stage.video-playing iframe { visibility: hidden; }
+    .test-diagnostics { padding: .6rem 1rem; background: #1e2a35; display: flex; gap: 1.5rem; flex-wrap: wrap; }
+    .test-diagnostics strong { color: #b5d434; }
+    .test-diagnostics .error { color: #ffe09e; }
+  </style>
+</head>
+<body>
+  <header class="test-header">
+    <a href="{{ url_for('display.admin_displays') }}">← Displays</a>
+    <h1 style="margin:.25rem 0;font-size:1.3rem">YouTube playback test</h1>
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% for category, message in messages %}<p class="test-flash">{{ message }}</p>{% endfor %}
+    {% endwith %}
+    <form class="test-form" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label>Individual YouTube video URL
+        <input name="video_url" type="url" placeholder="https://www.youtube.com/watch?v=…" required>
+      </label>
+      <label>Display for fallback slideshow
+        <select name="display_slug" required>
+          {% for slug, d in displays.items() %}
+          <option value="{{ slug }}" {% if slug == display_slug %}selected{% endif %}>{{ d.name }} ({{ slug }})</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Start test</button>
+    </form>
+    <p class="test-note">Requests English captions and starts muted. Check caption visibility and size on the actual TV; the API cannot verify that captions are visible. Scheduling remains off.</p>
+  </header>
+  <main id="test-stage" class="test-stage">
+    {% if video_id %}
+      <iframe title="Fallback slideshow" src="{{ url_for('display.public_display', display_slug=display_slug) }}"></iframe>
+      <div id="youtube-player"></div>
+    {% else %}
+      <p style="position:absolute;inset:40% 1rem;text-align:center">Choose a video and display above.</p>
+    {% endif %}
+  </main>
+  <section class="test-diagnostics" aria-live="polite" aria-label="Playback diagnostics">
+    <span>Player: <strong id="diag-ready">{{ 'loading' if video_id else 'idle' }}</strong></span>
+    <span>Playback: <strong id="diag-state">{{ 'starting' if video_id else 'idle' }}</strong></span>
+    <span>Muted: <strong id="diag-muted">unknown</strong></span>
+    <span>Error: <strong id="diag-error" class="error">none</strong></span>
+  </section>
+  {% if video_id %}
+  <script>window.GUESTDESK_YOUTUBE_TEST = {{ {'videoId': video_id}|tojson }};</script>
+  <script src="{{ url_for('static', filename='js/display_youtube.js') }}"></script>
+  <script src="{{ url_for('static', filename='js/display_youtube_test.js') }}"></script>
+  {% endif %}
+</body>
+</html>

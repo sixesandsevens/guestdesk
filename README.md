@@ -227,6 +227,45 @@ python -m pytest
 The suite includes display regression tests with temporary configuration and
 database fixtures.
 
+YouTube playback test (first milestone)
+--------------------------------------
+**Admin → Displays → Test YouTube playback** opens a staff-only device test.
+Enter one individual YouTube video URL and select the display whose ordinary
+slideshow should appear if playback fails or ends. This test does not save a
+video list, schedule a window, or change the display's assigned slideshow.
+The player requests English captions, mutes through the official player API
+before requesting playback, and starts at the beginning. Readiness, playback
+state, mute state, and errors appear in a diagnostic strip below the video.
+The video returns to the selected display's slideshow after an error, blocked
+autoplay, a startup timeout, a buffering stall, or normal completion.
+
+After deploying the test milestone, validate it **on the lobby Pi**:
+
+1. Sign in with a staff account that can edit displays, then open
+   `/admin/displays/youtube-test` in the Pi browser. Choose Lobby and a video
+   staff already know has English captions and permits embedding.
+2. Start the test without clicking inside the player. Confirm it starts from
+   the beginning, remains silent, and the diagnostic strip reports `ready`,
+   `playing`, and `Muted: yes`.
+3. Watch the actual TV from normal viewing distance. Confirm English captions
+   **appear visibly and are readable**. The API status cannot prove this.
+4. Close and relaunch the Pi browser with its normal profile, then run the
+   test again. Check autoplay, silence, captions, and diagnostic status.
+5. Interrupt the network briefly or try a known unavailable video. Confirm
+   the test returns to the ordinary slideshow or neutral signage within the
+   documented timeouts (API 12 seconds, readiness/startup 15 seconds each,
+   buffering 20 seconds). Reconnect and rerun the test.
+6. Report the Pi browser version, tested video URL, visible-caption result,
+   and any diagnostic error. Caption availability and legibility require
+   this manual observation.
+
+Scheduled programming stays disabled until this Pi result is reviewed. Video
+list transitions, window boundaries, and unattended recovery across windows
+belong to the subsequent scheduling milestone. YouTube may lack a caption
+track, block embedding, show ads, or apply autoplay restrictions; the test
+does not bypass those conditions. See the [official player API](https://developers.google.com/youtube/iframe_api_reference)
+and [caption parameters](https://developers.google.com/youtube/player_parameters).
+
 Display built-in slides
 -----------------------
 In **Admin → Slideshows → Edit → Built-in slides**, enable the date & time slide,
