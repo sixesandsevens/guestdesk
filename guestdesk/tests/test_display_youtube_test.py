@@ -84,12 +84,32 @@ class YouTubeTestPageTests(unittest.TestCase):
         self.assertEqual(player.status_code, 200)
         self.assertIn(b'display_youtube.js', player.data)
         self.assertIn(b'/displays/lobby', player.data)
+        self.assertIn(b'/displays/lobby?preview=1', player.data)
         self.assertIsNone(player.headers.get('Content-Security-Policy'))
         self.assertEqual(player.headers.get('Referrer-Policy'),
                          'strict-origin-when-cross-origin')
         self.assertEqual(display.DATA_PATH.read_bytes(), before)
         self.assertEqual(self.client.get('/api/display-slides/lobby').status_code, 200)
         self.assertNotIn(b'www.youtube.com/iframe_api', self.client.get('/displays/lobby').data)
+
+    def test_explicit_sound_test_does_not_save_display_settings(self):
+        self.admin()
+        before = display.DATA_PATH.read_bytes()
+        response = self.client.post('/admin/displays/youtube-test', data={
+            'video_url': 'https://youtu.be/M7lc1UVf-VE', 'display_slug': 'lobby',
+            'video_audio_enabled': 'on', 'video_volume': '40'})
+        self.assertEqual(response.status_code, 302)
+        player = self.client.get(response.headers['Location'])
+        self.assertIn(b'"audioEnabled": true', player.data)
+        self.assertIn(b'"volume": 40', player.data)
+        self.assertEqual(display.DATA_PATH.read_bytes(), before)
+        response = self.client.post('/admin/displays/youtube-test', data={
+            'video_url': 'https://youtu.be/M7lc1UVf-VE', 'display_slug': 'lobby',
+            'video_volume': '101'})
+        self.assertEqual(response.headers['Location'], '/admin/displays/youtube-test')
+        self.assertEqual(self.client.get(
+            '/admin/displays/youtube-test?video_id=M7lc1UVf-VE&display_slug=lobby&volume=0'
+        ).status_code, 400)
 
     def test_invalid_video_and_disabled_display(self):
         self.admin()

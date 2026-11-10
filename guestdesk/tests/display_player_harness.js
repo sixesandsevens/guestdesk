@@ -43,8 +43,9 @@ async function runDisplayPlayerHarness(source) {
       GUESTDESK_PLAYER: {url: '/api/display-slides/lobby', previewDuration: preview ? 2.5 : null,
         videoEnabled: !preview},
       GuestDeskYouTubePlayer: class {
-        constructor(_host, callbacks) {
-          this.callbacks = callbacks; this.starts = []; this.stops = 0; players.push(this);
+        constructor(_host, callbacks, options) {
+          this.callbacks = callbacks; this.options = options;
+          this.starts = []; this.stops = 0; players.push(this);
         }
         start(id) { this.starts.push(id); }
         stop() { this.stops++; }
@@ -57,6 +58,10 @@ async function runDisplayPlayerHarness(source) {
       players, host, notice, root, intervals, timeouts, settle,
       pagehide() { pagehide(); },
       setPayload(value) { payload = value; },
+      setAudio(enabled, volume) {
+        payload = {...payload, display: {...payload.display,
+          video_audio_enabled: enabled, video_volume: volume}};
+      },
       async poll() {
         [...intervals.values()].find(timer => timer.ms === 60000).callback();
         await settle();
@@ -76,6 +81,8 @@ async function runDisplayPlayerHarness(source) {
     'starting inside a window must start its first video');
   await a.poll();
   check(a.players[0].starts.length === 1, 'unchanged polling must not restart video');
+  check(a.players[0].options.audioEnabled === false && a.players[0].options.volume === 50,
+    'old display configuration must default to muted playback');
   a.players[0].callbacks.onEnded();
   check(a.players[0].starts[1] === 'dQw4w9WgXcQ', 'completion must advance');
   a.tick(15 * 60 * 1000);
@@ -96,6 +103,18 @@ async function runDisplayPlayerHarness(source) {
   check(b.players.length === 1, 'cooldown must prevent rapid retries');
   b.tick(6 * 60 * 1000);
   check(b.players.length === 2, 'cooldown must retry automatically');
+
+  const sound = await scenario([first]);
+  sound.setAudio(true, 35);
+  await sound.poll();
+  check(sound.players.length === 2 && sound.players[0].stops === 1 &&
+    sound.players[1].options.audioEnabled === true && sound.players[1].options.volume === 35,
+    'changing sound settings must replace the active player');
+  await sound.poll();
+  check(sound.players.length === 2, 'unchanged sound settings must not restart playback');
+  sound.players[1].callbacks.onFailure('Autoplay blocked by browser with sound enabled');
+  check(sound.host.style.display === 'none' && sound.notice.style.display === 'block',
+    'blocked sound autoplay must return to signage with a diagnostic');
 
   const c = await scenario([first]);
   c.players[0].callbacks.onFailure('Autoplay blocked by browser');

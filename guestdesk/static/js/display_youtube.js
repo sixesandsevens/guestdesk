@@ -40,6 +40,9 @@
       this.host = host;
       this.callbacks = callbacks;
       this.controls = options.controls === 1 ? 1 : 0;
+      this.audioEnabled = options.audioEnabled === true;
+      this.volume = Number.isInteger(options.volume) && options.volume >= 1 &&
+        options.volume <= 100 ? options.volume : 50;
       this.player = null;
       this.timer = null;
       this.generation = 0;
@@ -112,9 +115,15 @@
               const iframe = event.target.getIframe();
               iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture');
               try {
-                event.target.setVolume(0);
-                event.target.mute();
-                this.emit({muted: event.target.isMuted() ? 'yes' : 'no'});
+                event.target.setVolume(this.audioEnabled ? this.volume : 0);
+                if (this.audioEnabled) event.target.unMute();
+                else event.target.mute();
+                if (event.target.isMuted() === this.audioEnabled) {
+                  this.fail(this.audioEnabled ? 'Could not enable video sound' :
+                    'Could not confirm that YouTube playback is muted');
+                  return;
+                }
+                this.emit({muted: this.audioEnabled ? 'no' : 'yes'});
                 event.target.loadVideoById({videoId, startSeconds: 0});
                 event.target.playVideo();
                 this.armTimeout(START_TIMEOUT_MS, 'Playback did not start (autoplay may be blocked)', generation);
@@ -127,12 +136,20 @@
                 this.playing = true;
                 this.clearTimer();
                 try {
-                  if (!event.target.isMuted()) event.target.mute();
-                  if (!event.target.isMuted()) {
-                    this.fail('Could not confirm that YouTube playback is muted');
-                    return;
+                  if (this.audioEnabled) {
+                    if (event.target.isMuted()) {
+                      this.fail('YouTube playback started muted despite sound being enabled');
+                      return;
+                    }
+                    event.target.setVolume(this.volume);
+                  } else {
+                    if (!event.target.isMuted()) event.target.mute();
+                    if (!event.target.isMuted()) {
+                      this.fail('Could not confirm that YouTube playback is muted');
+                      return;
+                    }
                   }
-                  this.emit({state: 'playing', muted: 'yes'});
+                  this.emit({state: 'playing', muted: this.audioEnabled ? 'no' : 'yes'});
                 } catch (error) { this.fail(`Mute check failed: ${error.message}`); }
               } else if (event.data === states.BUFFERING) {
                 this.emit({state: 'buffering'});
@@ -159,7 +176,9 @@
               this.fail(`${reasons[event.data] || 'YouTube player error'} (${event.data})`);
             },
             onAutoplayBlocked: () => {
-              if (generation === this.generation) this.fail('Autoplay blocked by browser');
+              if (generation === this.generation)
+                this.fail(this.audioEnabled ? 'Autoplay blocked by browser with sound enabled' :
+                  'Autoplay blocked by browser');
             }
           }
         });

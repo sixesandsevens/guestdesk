@@ -16,8 +16,9 @@ async function runYouTubeHarness(source) {
       this.destroyed = false; instances.push(this);
     }
     getIframe() { return {setAttribute() {}}; }
-    setVolume(value) { this.calls.push(['volume', value]); }
+    setVolume(value) { this.volume = value; this.calls.push(['volume', value]); }
     mute() { this.calls.push(['mute']); this.muted = true; }
+    unMute() { this.calls.push(['unmute']); this.muted = false; }
     isMuted() { return this.muted; }
     loadVideoById(value) { this.calls.push(['load', value]); }
     playVideo() { this.calls.push(['play']); }
@@ -53,18 +54,40 @@ async function runYouTubeHarness(source) {
     'volume zero and mute must precede loading from the beginning');
   first.state(states.PLAYING);
   check(statuses.at(-1).muted === 'yes', 'playing must report mute');
+  const soundStatuses = [], soundFailures = [];
+  const soundPlayer = new window.GuestDeskYouTubePlayer(host, {
+    onStatus(value) { soundStatuses.push(value); },
+    onFailure(value) { soundFailures.push(value); }
+  }, {audioEnabled: true, volume: 35});
+  await soundPlayer.start('M7lc1UVf-VE');
+  const audible = instances.at(-1);
+  audible.ready();
+  check(audible.calls[0][0] === 'volume' && audible.calls[0][1] === 35 &&
+    audible.calls[1][0] === 'unmute' && audible.calls[2][0] === 'load',
+    'sound-enabled player must set volume and unmute before playback');
+  audible.state(states.PLAYING);
+  check(soundStatuses.at(-1).muted === 'no' && audible.volume === 35,
+    'sound-enabled playback must report unmuted and retain configured volume');
+  soundPlayer.stop();
+  await soundPlayer.start('M7lc1UVf-VE');
+  instances.at(-1).ready(); instances.at(-1).blocked();
+  check(soundFailures.at(-1).includes('Autoplay blocked') &&
+    soundFailures.at(-1).includes('sound enabled'),
+    'blocked audible autoplay must produce a useful diagnostic and stop');
   await player.start('dQw4w9WgXcQ');
-  check(first.destroyed && instances.length === 2, 'loading another video must destroy old player');
-  instances[1].ready();
-  check(instances[1].calls[1][0] === 'mute', 'each video must be muted again');
-  instances[1].error(150);
+  check(first.destroyed && instances.at(-1) !== first,
+    'loading another video must destroy old player');
+  const nextMuted = instances.at(-1);
+  nextMuted.ready();
+  check(nextMuted.calls[1][0] === 'mute', 'each video must be muted again');
+  nextMuted.error(150);
   check(failures.length === 1 && failures[0].includes('does not allow embedding') &&
-    instances[1].destroyed && host.children.length === 0,
+    nextMuted.destroyed && host.children.length === 0,
     'player error must fall back and clean up');
 
   await player.start('M7lc1UVf-VE');
-  instances[2].ready();
-  instances[2].blocked();
+  instances.at(-1).ready();
+  instances.at(-1).blocked();
   check(failures.at(-1).includes('Autoplay blocked'), 'blocked autoplay must fail');
   await player.start('M7lc1UVf-VE');
   const timeout = [...timers.values()].find(timer => timer.ms === 15000);

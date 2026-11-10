@@ -45,13 +45,17 @@
           {% endfor %}
         </select>
       </label>
+      <label style="flex:0 1 10rem">Video volume (1–100)
+        <input name="video_volume" type="number" min="1" max="100" step="1" value="{{ volume }}" required>
+      </label>
+      <label style="flex:0 1 12rem"><span>Sound test</span><span><input name="video_audio_enabled" type="checkbox" {% if audio_enabled %}checked{% endif %}> Try playback with sound</span></label>
       <button type="submit">Start test</button>
     </form>
-    <p class="test-note">Requests English captions and starts muted. Check caption visibility and size on the actual TV; the API cannot verify that captions are visible. This test does not change scheduling.</p>
+    <p class="test-note">Requests English captions. Muted is the default; sound is an explicit test. Confirm audible output and caption readability on the actual TV. Browsers may block unattended playback with sound, in which case the test returns to the slideshow. This test does not change scheduling.</p>
   </header>
   <main id="test-stage" class="test-stage">
     {% if video_id %}
-      <iframe title="Fallback slideshow" src="{{ url_for('display.public_display', display_slug=display_slug) }}"></iframe>
+      <iframe title="Fallback slideshow" src="{{ url_for('display.public_display', display_slug=display_slug, preview=1) }}"></iframe>
       <div id="youtube-player"></div>
     {% else %}
       <p style="position:absolute;inset:40% 1rem;text-align:center">Choose a video and display above.</p>
@@ -64,7 +68,7 @@
     <span>Error: <strong id="diag-error" class="error">none</strong></span>
   </section>
   {% if video_id %}
-  <script>window.GUESTDESK_YOUTUBE_TEST = {{ {'videoId': video_id}|tojson }};</script>
+  <script>window.GUESTDESK_YOUTUBE_TEST = {{ {'videoId': video_id, 'audioEnabled': audio_enabled, 'volume': volume}|tojson }};</script>
   <script src="{{ url_for('static', filename='js/display_youtube.js') }}"></script>
   <script src="{{ url_for('static', filename='js/display_youtube_test.js') }}"></script>
   {% endif %}
