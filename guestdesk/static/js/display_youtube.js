@@ -118,12 +118,8 @@
                 event.target.setVolume(this.audioEnabled ? this.volume : 0);
                 if (this.audioEnabled) event.target.unMute();
                 else event.target.mute();
-                if (event.target.isMuted() === this.audioEnabled) {
-                  this.fail(this.audioEnabled ? 'Could not enable video sound' :
-                    'Could not confirm that YouTube playback is muted');
-                  return;
-                }
-                this.emit({muted: this.audioEnabled ? 'no' : 'yes'});
+                // The iframe reports mute state asynchronously; verify after PLAYING.
+                this.emit({muted: 'checking'});
                 event.target.loadVideoById({videoId, startSeconds: 0});
                 event.target.playVideo();
                 this.armTimeout(START_TIMEOUT_MS, 'Playback did not start (autoplay may be blocked)', generation);
