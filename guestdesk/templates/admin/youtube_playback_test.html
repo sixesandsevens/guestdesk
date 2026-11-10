@@ -20,7 +20,7 @@
     .test-stage #youtube-player { position: absolute; inset: 0; }
     .test-stage iframe { position: absolute; inset: 0; }
     .test-stage:not(.video-starting):not(.video-playing) #youtube-player { visibility: hidden; pointer-events: none; }
-    .test-stage.video-starting iframe, .test-stage.video-playing iframe { visibility: hidden; }
+    .test-stage.video-starting > iframe, .test-stage.video-playing > iframe { visibility: hidden; }
     .test-diagnostics { padding: .6rem 1rem; background: #1e2a35; display: flex; gap: 1.5rem; flex-wrap: wrap; }
     .test-diagnostics strong { color: #b5d434; }
     .test-diagnostics .error { color: #ffe09e; }
