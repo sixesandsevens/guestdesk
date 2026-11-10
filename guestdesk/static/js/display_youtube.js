@@ -17,13 +17,16 @@
         if (settled) return;
         settled = true;
         clearTimeout(timer);
-        if (error) { apiPromise = null; reject(error); }
+        if (window.onYouTubeIframeAPIReady === callback)
+          window.onYouTubeIframeAPIReady = previous;
+        if (error) { script.remove?.(); apiPromise = null; reject(error); }
         else resolve(window.YT);
       };
-      window.onYouTubeIframeAPIReady = () => {
+      const callback = () => {
         if (typeof previous === 'function') previous();
         finish(null);
       };
+      window.onYouTubeIframeAPIReady = callback;
       script.src = 'https://www.youtube.com/iframe_api';
       script.onerror = () => finish(new Error('YouTube API could not load'));
       const timer = setTimeout(() => finish(new Error('YouTube API load timed out')), API_TIMEOUT_MS);
@@ -143,7 +146,16 @@
               } else if (event.data === states.CUED) this.emit({state: 'cued'});
             },
             onError: event => {
-              if (generation === this.generation) this.fail(`YouTube player error ${event.data}`);
+              if (generation !== this.generation) return;
+              const reasons = {
+                2: 'Invalid YouTube video ID',
+                5: 'YouTube HTML5 playback failed',
+                100: 'YouTube video is private or unavailable',
+                101: 'Video owner does not allow embedding',
+                150: 'Video owner does not allow embedding',
+                153: 'YouTube did not receive the required referrer'
+              };
+              this.fail(`${reasons[event.data] || 'YouTube player error'} (${event.data})`);
             },
             onAutoplayBlocked: () => {
               if (generation === this.generation) this.fail('Autoplay blocked by browser');

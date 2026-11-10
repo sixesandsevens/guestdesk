@@ -7,6 +7,7 @@ from zoneinfo import ZoneInfo
 from pathlib import Path
 from functools import wraps
 from urllib.parse import urlparse, parse_qs
+from uuid import uuid4
 
 from flask import (
     Blueprint, render_template, jsonify,
@@ -35,6 +36,7 @@ VIDEO_EXTENSIONS = {".mp4"}
 ALLOWED_TRANSITIONS = {"fade"}
 SCHEDULE_PAGE_UNITS = 6
 YOUTUBE_ID = re.compile(r"^[A-Za-z0-9_-]{11}$")
+VIDEO_TIME = re.compile(r"^(?:[01][0-9]|2[0-3]):[0-5][0-9]$")
 
 
 def youtube_video_id(raw: str) -> str:
@@ -68,6 +70,68 @@ def youtube_video_id(raw: str) -> str:
     if not YOUTUBE_ID.fullmatch(candidate):
         raise ValueError("Enter a valid individual YouTube video URL.")
     return candidate
+
+
+def eligible_videos(video_list: dict | None) -> list[dict]:
+    """Expose only entries approved for unattended playback."""
+    result = []
+    for entry in (video_list or {}).get("entries", []):
+        video_id = entry.get("video_id")
+        if (entry.get("enabled", True) and entry.get("reviewed", False)
+                and isinstance(video_id, str) and YOUTUBE_ID.fullmatch(video_id)):
+            result.append({"title": entry.get("title", ""), "video_id": video_id})
+    return result
+
+
+def validate_video_window(form, cfg: dict, other_windows: list[dict],
+                          window_id: str | None = None) -> dict:
+    name = (form.get("name") or "").strip()
+    list_slug = form.get("video_list") or ""
+    start = form.get("start") or ""
+    end = form.get("end") or ""
+    raw_days = form.getlist("days")
+    if not name:
+        raise ValueError("Window name is required.")
+    if list_slug not in cfg["video_lists"]:
+        raise ValueError("Choose an existing video list.")
+    if not VIDEO_TIME.fullmatch(start) or not VIDEO_TIME.fullmatch(end) or end <= start:
+        raise ValueError("Enter same-day times with the end after the start. Split overnight programming into two windows.")
+    if not raw_days or any(day not in {str(i) for i in range(7)} for day in raw_days):
+        raise ValueError("Choose at least one valid weekday.")
+    days = sorted({int(day) for day in raw_days})
+    enabled = "enabled" in form
+    if enabled:
+        for other in other_windows:
+            if other.get("id") == window_id or not other.get("enabled", False):
+                continue
+            if set(days).intersection(other.get("days", [])) and start < other.get("end", "") and other.get("start", "") < end:
+                raise ValueError(f"This window overlaps enabled window “{other.get('name', 'another window')}” on a selected weekday.")
+    return {"id": window_id or uuid4().hex, "name": name, "enabled": enabled,
+            "days": days, "start": start, "end": end, "video_list": list_slug}
+
+
+def active_video_window(windows: list[dict], at: datetime) -> dict | None:
+    """Local civil time; start inclusive, end exclusive, including DST repeats."""
+    clock = at.strftime("%H:%M")
+    for window in windows:
+        if (window.get("enabled", False) and at.weekday() in window.get("days", [])
+                and window.get("start", "") <= clock < window.get("end", "")):
+            return window
+    return None
+
+
+def playback_windows(display: dict, cfg: dict) -> list[dict]:
+    result = []
+    for window in display.get("video_windows", []):
+        if (not window.get("enabled", False) or not window.get("id")
+                or not VIDEO_TIME.fullmatch(window.get("start") or "")
+                or not VIDEO_TIME.fullmatch(window.get("end") or "")):
+            continue
+        result.append({"id": window["id"], "name": window.get("name", ""),
+                       "days": window.get("days", []), "start": window.get("start"),
+                       "end": window.get("end"),
+                       "videos": eligible_videos(cfg["video_lists"].get(window.get("video_list")))})
+    return result
 
 
 def ensure_slide_storage():
@@ -160,7 +224,7 @@ def _migrate_legacy(data: dict) -> dict:
             "assigned_slideshow": ss_slug,
         }
 
-    return {"displays": displays, "slideshows": slideshows}
+    return {"displays": displays, "slideshows": slideshows, "video_lists": {}}
 
 
 def load_config() -> dict:
@@ -172,7 +236,7 @@ def load_config() -> dict:
             break
 
     if not raw:
-        return {"displays": {}, "slideshows": {}}
+        return {"displays": {}, "slideshows": {}, "video_lists": {}}
 
     # Migrate old zone-based format
     if "zones" in raw or "slides" in raw:
@@ -182,6 +246,7 @@ def load_config() -> dict:
 
     raw.setdefault("displays", {})
     raw.setdefault("slideshows", {})
+    raw.setdefault("video_lists", {})
     return raw
 
 
@@ -334,15 +399,22 @@ def display_slides_api(display_slug):
 
     ss_slug = display.get("assigned_slideshow")
     slideshow = get_slideshow(cfg, ss_slug) if ss_slug else None
+    public_display_data = {k: v for k, v in display.items() if k != "video_windows"}
+    video_windows = playback_windows(display, cfg)
     if not slideshow:
-        return jsonify({"display": display, "slideshow": None, "slides": []})
+        now, tzname, _ = _local_now()
+        return jsonify({"display": public_display_data, "slideshow": None, "slides": [],
+                        "video_windows": video_windows, "timezone": tzname,
+                        "server_time": now.isoformat(), "local_date": now.date().isoformat(),
+                        "schedule_state": "disabled"})
 
     slides, metadata = build_playlist(slideshow)
 
     return jsonify({
-        "display": display,
+        "display": public_display_data,
         "slideshow": {k: v for k, v in slideshow.items() if k != "slides"},
         "slides": slides,
+        "video_windows": video_windows,
         **metadata,
     })
 
@@ -374,6 +446,7 @@ def _render_display(display_slug: str):
         fade_duration=fade,
         preview=preview,
         preview_duration=preview_duration,
+        video_enabled=not preview,
     )
 
 
@@ -434,6 +507,7 @@ def slideshow_preview(ss_slug):
         fade_duration=slideshow.get("fade_duration", 1.4),
         preview=True,
         preview_duration=preview_duration,
+        video_enabled=False,
     )
 
 
@@ -468,6 +542,152 @@ def youtube_playback_test():
     return render_template("admin/youtube_playback_test.html", displays=displays,
                            video_id=video_id, display_slug=display_slug)
 
+
+@bp.route("/admin/video-lists", methods=["GET", "POST"])
+@permission_required_rw('displays.view', 'displays.edit')
+def admin_video_lists():
+    cfg = load_config()
+    lists = cfg["video_lists"]
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "add_list":
+            name = (request.form.get("name") or "").strip()
+            slug = slugify(name)
+            if not name or not slug:
+                flash("List name is required.", "danger")
+            elif slug in lists:
+                flash("A video list with that name already exists.", "danger")
+            else:
+                lists[slug] = {"name": name, "entries": []}
+                save_config(cfg)
+                return redirect(url_for("display.admin_video_list_edit", list_slug=slug))
+        elif action == "delete_list":
+            slug = request.form.get("slug", "")
+            if slug not in lists:
+                flash("Video list not found.", "danger")
+            else:
+                uses = [f"{d.get('name', display_slug)} — {w.get('name', 'window')}"
+                        for display_slug, d in cfg["displays"].items()
+                        for w in d.get("video_windows", []) if w.get("video_list") == slug]
+                if uses:
+                    flash("Unassign this list before deleting it. Used by: " + ", ".join(uses), "danger")
+                else:
+                    del lists[slug]
+                    save_config(cfg)
+                    flash("Video list deleted.", "success")
+        return redirect(url_for("display.admin_video_lists"))
+    return render_template("admin/video_lists.html", video_lists=lists)
+
+
+@bp.route("/admin/video-lists/<list_slug>", methods=["GET", "POST"])
+@permission_required_rw('displays.view', 'displays.edit')
+def admin_video_list_edit(list_slug):
+    cfg = load_config()
+    video_list = cfg["video_lists"].get(list_slug)
+    if video_list is None:
+        abort(404)
+    entries = video_list.setdefault("entries", [])
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "rename_list":
+            name = (request.form.get("name") or "").strip()
+            if not name:
+                flash("List name is required.", "danger")
+            else:
+                video_list["name"] = name
+                save_config(cfg)
+                flash("List renamed.", "success")
+        elif action == "add_entry":
+            title = (request.form.get("title") or "").strip()
+            try:
+                video_id = youtube_video_id(request.form.get("video_url", ""))
+                if not title:
+                    raise ValueError("A staff-entered video title is required.")
+            except ValueError as exc:
+                flash(str(exc), "danger")
+            else:
+                entries.append({"id": uuid4().hex, "title": title, "video_id": video_id,
+                                "enabled": "enabled" in request.form,
+                                "reviewed": "reviewed" in request.form})
+                save_config(cfg)
+                flash("Video added.", "success")
+        elif action in {"edit_entry", "delete_entry", "move_up", "move_down"}:
+            entry_id = request.form.get("entry_id", "")
+            index = next((i for i, entry in enumerate(entries) if entry.get("id") == entry_id), None)
+            if index is None:
+                flash("Video entry not found.", "danger")
+            elif action == "delete_entry":
+                entries.pop(index)
+                save_config(cfg)
+                flash("Video removed.", "success")
+            elif action in {"move_up", "move_down"}:
+                other = index + (-1 if action == "move_up" else 1)
+                if 0 <= other < len(entries):
+                    entries[index], entries[other] = entries[other], entries[index]
+                    save_config(cfg)
+            else:
+                title = (request.form.get("title") or "").strip()
+                try:
+                    video_id = youtube_video_id(request.form.get("video_url", ""))
+                    if not title:
+                        raise ValueError("A staff-entered video title is required.")
+                except ValueError as exc:
+                    flash(str(exc), "danger")
+                else:
+                    entry = entries[index]
+                    changed = entry.get("video_id") != video_id
+                    entry.update(title=title, video_id=video_id,
+                                 enabled="enabled" in request.form,
+                                 reviewed=("reviewed" in request.form and not changed))
+                    save_config(cfg)
+                    flash("Video updated. Review was cleared because the video changed."
+                          if changed else "Video updated.", "success")
+        return redirect(url_for("display.admin_video_list_edit", list_slug=list_slug))
+    return render_template("admin/video_list_edit.html", list_slug=list_slug,
+                           video_list=video_list, entries=entries)
+
+
+@bp.route("/admin/displays/<display_slug>/programming", methods=["GET", "POST"])
+@permission_required_rw('displays.view', 'displays.edit')
+def admin_display_programming(display_slug):
+    cfg = load_config()
+    display = cfg["displays"].get(display_slug)
+    if display is None:
+        abort(404)
+    windows = display.setdefault("video_windows", [])
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action in {"add_window", "edit_window"}:
+            window_id = request.form.get("window_id", "") if action == "edit_window" else None
+            index = next((i for i, item in enumerate(windows)
+                          if item.get("id") == window_id), None) if window_id else None
+            if action == "edit_window" and index is None:
+                flash("Window not found.", "danger")
+            else:
+                try:
+                    window = validate_video_window(request.form, cfg, windows, window_id)
+                except ValueError as exc:
+                    flash(str(exc), "danger")
+                else:
+                    if index is None:
+                        windows.append(window)
+                    else:
+                        windows[index] = window
+                    save_config(cfg)
+                    flash("Scheduled window saved.", "success")
+        elif action == "delete_window":
+            window_id = request.form.get("window_id", "")
+            old_count = len(windows)
+            windows[:] = [item for item in windows if item.get("id") != window_id]
+            if len(windows) != old_count:
+                save_config(cfg)
+                flash("Scheduled window removed.", "success")
+        return redirect(url_for("display.admin_display_programming", display_slug=display_slug))
+    timezone_name = current_app.config.get("BABEL_DEFAULT_TIMEZONE", "America/New_York")
+    return render_template("admin/display_programming.html", display=display,
+                           display_slug=display_slug, windows=windows,
+                           video_lists=cfg["video_lists"], timezone_name=timezone_name)
+
 @bp.route("/admin/displays", methods=["GET", "POST"])
 @permission_required_rw('displays.view', 'displays.edit')
 def admin_displays():
@@ -491,6 +711,7 @@ def admin_displays():
                     "location": request.form.get("location", "").strip(),
                     "active": True,
                     "assigned_slideshow": request.form.get("assigned_slideshow") or None,
+                    "video_windows": [],
                 }
                 save_config(cfg)
                 flash("Display added.", "success")

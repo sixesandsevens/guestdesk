@@ -89,7 +89,7 @@ class YouTubeTestPageTests(unittest.TestCase):
                          'strict-origin-when-cross-origin')
         self.assertEqual(display.DATA_PATH.read_bytes(), before)
         self.assertEqual(self.client.get('/api/display-slides/lobby').status_code, 200)
-        self.assertNotIn(b'display_youtube.js', self.client.get('/displays/lobby').data)
+        self.assertNotIn(b'www.youtube.com/iframe_api', self.client.get('/displays/lobby').data)
 
     def test_invalid_video_and_disabled_display(self):
         self.admin()

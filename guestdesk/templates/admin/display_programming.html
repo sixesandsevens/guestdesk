@@ -1,0 +1,39 @@
+{% extends 'base.html' %}
+{% from '_csrf.html' import csrf %}
+{% set weekdays = [(0, 'Mon'), (1, 'Tue'), (2, 'Wed'), (3, 'Thu'), (4, 'Fri'), (5, 'Sat'), (6, 'Sun')] %}
+{% block content %}
+<p><a href="{{ url_for('display.admin_displays') }}">← Displays</a></p>
+<h4>Scheduled video playback · {{ display.name }}</h4>
+<p class="text-muted">Timezone: <strong>{{ timezone_name }}</strong>. Start is inclusive; end is exclusive. Windows must end the same day. For overnight playback, create separate windows. Adjacent windows switch directly. Outside windows, this display runs its assigned slideshow.</p>
+<p><a href="{{ url_for('display.admin_video_lists') }}">Manage video lists</a> · <a href="{{ url_for('display.youtube_playback_test') }}">Test playback on a Pi</a></p>
+{% macro window_form(window, action) %}
+<form method="post" class="row g-2 align-items-end">
+  {{ csrf() }}<input type="hidden" name="action" value="{{ action }}">
+  {% if window.id %}<input type="hidden" name="window_id" value="{{ window.id }}">{% endif %}
+  <div class="col-md-3"><label class="form-label">Window name</label><input class="form-control" name="name" value="{{ window.name|default('') }}" required maxlength="120"></div>
+  <div class="col-md-3"><label class="form-label">Video list</label><select class="form-select" name="video_list" required>
+    <option value="">Choose a list</option>{% for slug, item in video_lists.items() %}
+    <option value="{{ slug }}" {% if window.video_list|default('') == slug %}selected{% endif %}>{{ item.name }}</option>{% endfor %}
+  </select></div>
+  <div class="col-md-2"><label class="form-label">Start</label><input class="form-control" name="start" type="time" value="{{ window.start|default('') }}" required></div>
+  <div class="col-md-2"><label class="form-label">End</label><input class="form-control" name="end" type="time" value="{{ window.end|default('') }}" required></div>
+  <div class="col-md-2"><label class="form-check-label"><input type="checkbox" class="form-check-input" name="enabled" {% if window.enabled|default(false) %}checked{% endif %}> Enabled</label></div>
+  <div class="col-12">Days:
+    {% for number, label in weekdays %}<label class="form-check-label me-3"><input class="form-check-input" type="checkbox" name="days" value="{{ number }}" {% if number in window.days|default([]) %}checked{% endif %}> {{ label }}</label>{% endfor %}
+  </div>
+  <div class="col-12"><button class="btn btn-primary">Save window</button></div>
+</form>
+{% endmacro %}
+{% for window in windows %}
+<div class="card mb-3"><div class="card-body">
+  <div class="d-flex justify-content-between mb-2"><strong>{{ window.name }}</strong>
+    <form method="post" onsubmit="return confirm('Delete this window?');">
+      {{ csrf() }}<input type="hidden" name="action" value="delete_window"><input type="hidden" name="window_id" value="{{ window.id }}">
+      <button class="btn btn-sm btn-outline-danger">Delete</button>
+    </form></div>
+  {{ window_form(window, 'edit_window') }}
+</div></div>
+{% else %}<p class="text-muted">No scheduled windows. The assigned slideshow plays normally.</p>{% endfor %}
+<h5>Add window</h5>
+{{ window_form({}, 'add_window') }}
+{% endblock %}

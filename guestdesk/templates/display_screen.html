@@ -32,6 +32,27 @@
       position: relative;
       overflow: hidden;
     }
+    #youtube-container {
+      display: none;
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      z-index: 5;
+    }
+    #youtube-container iframe { width: 100%; height: 100%; border: 0; }
+    #video-fallback-notice {
+      display: none;
+      position: absolute;
+      left: 1rem;
+      bottom: 1rem;
+      z-index: 6;
+      padding: .4rem .65rem;
+      color: #fff;
+      background: rgba(45, 1, 61, .9);
+      font-size: .9rem;
+    }
     .slide-frame {
       position: absolute;
       top: 0;
@@ -94,14 +115,20 @@
     <div class="preview-badge">Preview · {{ '%.1f'|format(preview_duration or 2.5) }}s per slide</div>
     {% endif %}
     <div id="slide-container" style="--fade-duration: {{ fade_duration or 1.4 }}s;"></div>
+    {% if video_enabled %}
+    <div id="youtube-container"></div>
+    <div id="video-fallback-notice" role="status"></div>
+    {% endif %}
   </div>
 
   <script>
     window.GUESTDESK_PLAYER = {
       url: {{ (url_for('display.slideshow_slides_api', ss_slug=slideshow_slug) if slideshow_slug else url_for('display.display_slides_api', display_slug=display_slug)) | tojson }},
-      previewDuration: {{ preview_duration if preview_duration is not none else 'null' }}
+      previewDuration: {{ preview_duration if preview_duration is not none else 'null' }},
+      videoEnabled: {{ video_enabled|tojson }}
     };
   </script>
+  {% if video_enabled %}<script src="{{ url_for('static', filename='js/display_youtube.js') }}"></script>{% endif %}
   <script src="{{ url_for('static', filename='js/display_player.js') }}"></script>
 </body>
 </html>
